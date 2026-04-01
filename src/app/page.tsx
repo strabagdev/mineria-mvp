@@ -91,6 +91,8 @@ type EditingPlanningItem = {
   id: number;
 };
 
+type ViewingPlanningItem = PlanningItem | null;
+
 type GanttScale = {
   startMinutes: number;
   endMinutes: number;
@@ -163,9 +165,11 @@ function formatDuration(start: string, end: string) {
 function buildGanttScale(start: string, end: string, wrapsMidnight: boolean): GanttScale {
   const startMinutes = toMinutes(start);
   const rawEndMinutes = toMinutes(end);
-  const endMinutes = wrapsMidnight ? rawEndMinutes + 24 * 60 : rawEndMinutes;
   const slotMinutes = 30;
-  const slotCount = Math.ceil((endMinutes - startMinutes) / slotMinutes);
+  const baseEndMinutes = wrapsMidnight ? rawEndMinutes + 24 * 60 : rawEndMinutes;
+  const baseSlotCount = Math.ceil((baseEndMinutes - startMinutes) / slotMinutes);
+  const slotCount = baseSlotCount % 2 === 0 ? baseSlotCount : baseSlotCount + 1;
+  const endMinutes = startMinutes + slotCount * slotMinutes;
   const hourMarks = Array.from({ length: slotCount }, (_, index) => {
     const minutes = startMinutes + index * slotMinutes;
     return {
@@ -303,6 +307,7 @@ export default function Home() {
   const [catalogError, setCatalogError] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isCatalogModalOpen, setIsCatalogModalOpen] = useState(false);
+  const [viewingPlanningItem, setViewingPlanningItem] = useState<ViewingPlanningItem>(null);
   const [formBusy, setFormBusy] = useState(false);
   const [formError, setFormError] = useState("");
   const [editingPlanningItem, setEditingPlanningItem] = useState<EditingPlanningItem | null>(null);
@@ -371,6 +376,10 @@ export default function Home() {
     setFormState(syncPlanningForm(toInitialPlanningForm(catalog), catalog));
     setFormError("");
     setEditingPlanningItem(null);
+  }
+
+  function openPlanningDetail(item: PlanningItem) {
+    setViewingPlanningItem(item);
   }
 
   async function refreshPlanningItems() {
@@ -468,6 +477,7 @@ export default function Home() {
     });
     setEditingPlanningItem({ id: item.id });
     setFormError("");
+    setViewingPlanningItem(null);
     setIsModalOpen(true);
   }
 
@@ -800,7 +810,15 @@ export default function Home() {
                           <div
                             className={`gantt-bar ${item.category === "interferencia" ? "warning" : "success"} ${isCompactBar ? "compact" : ""} ${isMicroBar ? "micro" : ""}`}
                             aria-label={ariaLabel}
+                            role="button"
                             tabIndex={0}
+                            onClick={() => openPlanningDetail(item)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                openPlanningDetail(item);
+                              }
+                            }}
                             style={{ left: `${startOffset}%`, width: `${width}%` }}
                           >
                             {!isMicroBar ? (
@@ -810,21 +828,6 @@ export default function Home() {
                             ) : null}
                             {!isCompactBar && !isMicroBar ? <span className="gantt-bar-separator">•</span> : null}
                             {!isCompactBar && !isMicroBar ? <span className="gantt-bar-duration">{duration}</span> : null}
-                            <span className="gantt-tooltip" role="tooltip">
-                              <span className="gantt-tooltip-title">{item.description}</span>
-                              <span className="gantt-tooltip-line">
-                                {item.start} - {item.end} <strong>{duration}</strong>
-                              </span>
-                              <span className="gantt-tooltip-line">
-                                {toDisplayCategory(item.category)} · {item.item_type}
-                              </span>
-                              <span className="gantt-tooltip-line">
-                                {item.front} · {item.level}
-                              </span>
-                              <span className="gantt-tooltip-line">
-                                {item.shift} · {formatDateLabel(item.item_date)}
-                              </span>
-                            </span>
                           </div>
                         </div>
                       </article>
@@ -1038,6 +1041,87 @@ export default function Home() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      ) : null}
+
+      {viewingPlanningItem ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setViewingPlanningItem(null)}>
+          <div
+            className="modal-card detail-modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="planning-detail-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div>
+                <p className="eyebrow">Detalle</p>
+                <h2 id="planning-detail-title" className="card-title" style={{ marginTop: 12 }}>
+                  {viewingPlanningItem.description}
+                </h2>
+              </div>
+              <button type="button" className="button" onClick={() => setViewingPlanningItem(null)}>
+                Cerrar
+              </button>
+            </div>
+
+            <div className="detail-modal-grid">
+              <article className="detail-card">
+                <p className="detail-label">Categoria</p>
+                <p className="detail-value">{toDisplayCategory(viewingPlanningItem.category)}</p>
+              </article>
+              <article className="detail-card">
+                <p className="detail-label">Tipo</p>
+                <p className="detail-value">{viewingPlanningItem.item_type}</p>
+              </article>
+              <article className="detail-card">
+                <p className="detail-label">Fecha</p>
+                <p className="detail-value">{formatDateLabel(viewingPlanningItem.item_date)}</p>
+              </article>
+              <article className="detail-card">
+                <p className="detail-label">Turno</p>
+                <p className="detail-value">{viewingPlanningItem.shift}</p>
+              </article>
+              <article className="detail-card">
+                <p className="detail-label">Horario</p>
+                <p className="detail-value">
+                  {viewingPlanningItem.start} - {viewingPlanningItem.end}
+                </p>
+              </article>
+              <article className="detail-card">
+                <p className="detail-label">Duracion</p>
+                <p className="detail-value">{formatDuration(viewingPlanningItem.start, viewingPlanningItem.end)}</p>
+              </article>
+              <article className="detail-card">
+                <p className="detail-label">Nivel</p>
+                <p className="detail-value">{viewingPlanningItem.level}</p>
+              </article>
+              <article className="detail-card">
+                <p className="detail-label">Frente</p>
+                <p className="detail-value">{viewingPlanningItem.front}</p>
+              </article>
+            </div>
+
+            {viewingPlanningItem.notes ? (
+              <article className="detail-notes-card">
+                <p className="detail-label">Notas</p>
+                <p className="detail-notes-copy">{viewingPlanningItem.notes}</p>
+              </article>
+            ) : null}
+
+            <div className="modal-actions">
+              <button type="button" className="button" onClick={() => setViewingPlanningItem(null)}>
+                Cerrar
+              </button>
+              <button
+                type="button"
+                className="button primary"
+                onClick={() => openEditPlanningItem(viewingPlanningItem)}
+              >
+                Editar registro
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
