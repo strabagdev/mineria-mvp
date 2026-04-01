@@ -22,39 +22,43 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="app-background">
-      <div className="app-frame">
-        <header className="app-header">
-          <div className="header-stack">
-            <div className="header-row">
-              <div>
-                <p className="eyebrow">Mineria MVP</p>
-                <h1 className="header-title">Control Gantt Operacional</h1>
-                <p className="header-copy">
-                  Seguimiento visual de actividades e interferencias por fecha, turno, nivel y frente para apoyar la coordinacion diaria de la operacion minera.
-                </p>
-              </div>
+      <header className="app-header-shell">
+        <div className="app-header-inner">
+          <div className="app-header">
+            <div className="header-stack">
+              <div className="header-row">
+                <div>
+                  <p className="eyebrow">Mineria MVP</p>
+                  <h1 className="header-title">Control Gantt Operacional</h1>
+                  <p className="header-copy">
+                    Seguimiento visual de actividades e interferencias por fecha, turno, nivel y frente para apoyar la coordinacion diaria de la operacion minera.
+                  </p>
+                </div>
 
-              <div className="header-actions">
-                <Link href="/" className="button">
-                  Inicio
-                </Link>
-                {!loading && session ? (
-                  <>
-                    <span className="muted-inline">{user?.email ?? "Sesion activa"}</span>
-                    <button type="button" onClick={() => void signOut()} className="button">
-                      Cerrar sesión
-                    </button>
-                  </>
-                ) : (
-                  <Link href="/login" className="button primary">
-                    Login
+                <div className="header-actions">
+                  <Link href="/" className="button">
+                    Inicio
                   </Link>
-                )}
+                  {!loading && session ? (
+                    <>
+                      <span className="muted-inline">{user?.email ?? "Sesion activa"}</span>
+                      <button type="button" onClick={() => void signOut()} className="button">
+                        Cerrar sesión
+                      </button>
+                    </>
+                  ) : (
+                    <Link href="/login" className="button primary">
+                      Login
+                    </Link>
+                  )}
+                </div>
               </div>
             </div>
           </div>
-        </header>
+        </div>
+      </header>
 
+      <div className="app-frame">
         <main>{children}</main>
       </div>
     </div>

@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
+import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
-import { SectionCard } from "@/components/section-card";
 import { useAuth } from "@/providers/auth-provider";
 
 type PlanningItem = {
@@ -92,13 +91,9 @@ type EditingPlanningItem = {
   id: number;
 };
 
-type ShiftScale = {
-  shift: string;
-  label: string;
-  description: string;
+type GanttScale = {
   startMinutes: number;
   endMinutes: number;
-  wrapsMidnight: boolean;
   slotMinutes: number;
   slotCount: number;
   hourMarks: Array<{
@@ -132,6 +127,16 @@ function toDisplayCategory(category: PlanningItem["category"]) {
   return category === "interferencia" ? "Interferencia" : "Actividad";
 }
 
+function buildPlanningItemAriaLabel(item: PlanningItem, duration: string) {
+  return [
+    item.description,
+    `${toDisplayCategory(item.category)}, ${item.item_type}`,
+    `Frente ${item.front}, nivel ${item.level}`,
+    `Turno ${item.shift}, ${formatDateLabel(item.item_date)}`,
+    `Horario ${item.start} a ${item.end}, duracion ${duration}`,
+  ].join(". ");
+}
+
 function formatDuration(start: string, end: string) {
   const startMinutes = toMinutes(start);
   let endMinutes = toMinutes(end);
@@ -155,7 +160,7 @@ function formatDuration(start: string, end: string) {
   return `${hours}h ${minutes}m`;
 }
 
-function buildShiftScale(shift: string, label: string, description: string, start: string, end: string, wrapsMidnight: boolean): ShiftScale {
+function buildGanttScale(start: string, end: string, wrapsMidnight: boolean): GanttScale {
   const startMinutes = toMinutes(start);
   const rawEndMinutes = toMinutes(end);
   const endMinutes = wrapsMidnight ? rawEndMinutes + 24 * 60 : rawEndMinutes;
@@ -164,81 +169,24 @@ function buildShiftScale(shift: string, label: string, description: string, star
   const hourMarks = Array.from({ length: slotCount }, (_, index) => {
     const minutes = startMinutes + index * slotMinutes;
     return {
-      key: `${shift}-${minutes}`,
+      key: `gantt-${minutes}`,
       label: toTimeLabel(minutes),
       major: minutes % 60 === 0,
     };
   });
 
   return {
-    shift,
-    label,
-    description,
     startMinutes,
     endMinutes,
-    wrapsMidnight,
     slotMinutes,
     slotCount,
     hourMarks,
   };
 }
-
-function buildDynamicShiftScale(shift: string, items: PlanningItem[]): ShiftScale {
-  const slotMinutes = 30;
-  const positioned = items.map((item) => {
-    const start = toMinutes(item.start);
-    let end = toMinutes(item.end);
-
-    if (end <= start) {
-      end += 24 * 60;
-    }
-
-    return { start, end };
-  });
-
-  const minStart = Math.min(...positioned.map((item) => item.start));
-  const maxEnd = Math.max(...positioned.map((item) => item.end));
-  const roundedStart = Math.floor(minStart / slotMinutes) * slotMinutes;
-  const roundedEnd = Math.ceil(maxEnd / slotMinutes) * slotMinutes;
-  const slotCount = Math.max(1, Math.ceil((roundedEnd - roundedStart) / slotMinutes));
-  const hourMarks = Array.from({ length: slotCount }, (_, index) => {
-    const minutes = roundedStart + index * slotMinutes;
-    return {
-      key: `${shift}-${minutes}`,
-      label: toTimeLabel(minutes),
-      major: minutes % 60 === 0,
-    };
-  });
-
-  return {
-    shift,
-    label: `Turno ${shift}`,
-    description: `Escala operativa ${toTimeLabel(roundedStart)} - ${toTimeLabel(roundedEnd)}`,
-    startMinutes: roundedStart,
-    endMinutes: roundedEnd,
-    wrapsMidnight: roundedEnd > 24 * 60,
-    slotMinutes,
-    slotCount,
-    hourMarks,
-  };
-}
-
-function getShiftScale(shift: string, items: PlanningItem[]) {
-  if (shift === "Dia") {
-    return buildShiftScale("Dia", "Turno Dia", "Escala operativa 08:00 - 19:30", "08:00", "19:30", false);
-  }
-
-  if (shift === "Noche") {
-    return buildShiftScale("Noche", "Turno Noche", "Escala operativa 20:00 - 07:30", "20:00", "07:30", true);
-  }
-
-  return buildDynamicShiftScale(shift, items);
-}
-
-function positionMinutesInScale(time: string, scale: ShiftScale) {
+function positionMinutesInScale(time: string, scale: GanttScale) {
   let minutes = toMinutes(time);
 
-  if (scale.wrapsMidnight && minutes < scale.startMinutes) {
+  if (minutes < scale.startMinutes) {
     minutes += 24 * 60;
   }
 
@@ -346,7 +294,7 @@ async function fetchPlanningCatalog() {
 }
 
 export default function Home() {
-  const { loading, session, user } = useAuth();
+  const { session } = useAuth();
   const [planningItems, setPlanningItems] = useState<PlanningItem[]>([]);
   const [catalog, setCatalog] = useState<CatalogCategory[]>([]);
   const [itemsLoading, setItemsLoading] = useState(true);
@@ -708,45 +656,19 @@ export default function Home() {
   const detailTypesForAdmin =
     catalog.find((category) => category.slug === detailForm.category)?.types ?? [];
   const hasPlanning = planningItems.length > 0;
-  const orderedShifts = ["Dia", "Noche"];
-  const shiftSections = [
-    ...orderedShifts
-      .map((shift) => {
-        const items = planningItems.filter((item) => item.shift === shift);
-        return items.length ? { shift, items, scale: getShiftScale(shift, items) } : null;
-      })
-      .filter((section): section is { shift: string; items: PlanningItem[]; scale: ShiftScale } => Boolean(section)),
-    ...[...new Set(planningItems.map((item) => item.shift))]
-      .filter((shift) => !orderedShifts.includes(shift))
-      .map((shift) => {
-        const items = planningItems.filter((item) => item.shift === shift);
-        return { shift, items, scale: getShiftScale(shift, items) };
-      }),
-  ];
+  const ganttScale = buildGanttScale("08:00", "07:30", true);
 
   return (
     <section className="home-grid">
       <article className="surface-card hero hero-operational">
-        <p className="eyebrow">Operacion</p>
-        <h2 className="hero-title">Carta Gantt operativa</h2>
-        <p className="body-copy">
-          Registro diario de actividades e interferencias por fecha, turno, nivel, frente, tipo y detalle. El foco de esta pantalla es la secuencia operacional.
-        </p>
-
-        {itemsError ? <p className="feedback">{itemsError}</p> : null}
-        {catalogError && catalogError !== itemsError ? <p className="feedback">{catalogError}</p> : null}
-
-        <div className="section-toolbar">
-          {!loading && session ? (
-            <div className="hero-session">
-              <p className="metric-label">Sesion activa</p>
-              <p className="hero-session-value">{user?.email ?? "usuario autenticado"}</p>
-            </div>
-          ) : (
-            <Link href="/login" className="button primary">
-              Ingresar al panel
-            </Link>
-          )}
+        <div className="hero-operational-line">
+          <div className="hero-operational-copy">
+            <p className="eyebrow">Operacion</p>
+            <h2 className="hero-title">Carta Gantt operativa</h2>
+            <p className="body-copy">
+              Registro diario de actividades e interferencias por fecha, turno, nivel, frente, tipo y detalle.
+            </p>
+          </div>
 
           <div className="toolbar-actions">
             <button
@@ -770,9 +692,21 @@ export default function Home() {
             </button>
           </div>
         </div>
+
+        {itemsError ? <p className="feedback">{itemsError}</p> : null}
+        {catalogError && catalogError !== itemsError ? <p className="feedback">{catalogError}</p> : null}
       </article>
 
-      <SectionCard eyebrow="Gantt" title="Programacion del dia">
+      <section className="gantt-stage">
+        <div className="gantt-stage-header">
+          <div>
+            <p className="eyebrow">Gantt</p>
+            <h2 className="card-title" style={{ marginTop: 12 }}>
+              Programacion del dia
+            </h2>
+          </div>
+        </div>
+
         <div className="gantt-shell">
           <div className="gantt-body">
             {itemsLoading ? <p className="body-copy">Cargando planificacion...</p> : null}
@@ -786,106 +720,122 @@ export default function Home() {
               </div>
             ) : null}
 
-            {shiftSections.map((section) => (
-              <section key={section.shift} className="gantt-section">
+            {hasPlanning ? (
+              <section className="gantt-section">
                 <div className="gantt-section-header">
-                  <div>
-                    <p className="eyebrow">Escala por turno</p>
-                    <h3 className="card-title" style={{ marginTop: 10 }}>
-                      {section.scale.label}
-                    </h3>
-                    <p className="body-copy" style={{ marginTop: 8 }}>
-                      {section.scale.description}
-                    </p>
-                  </div>
-                  <span className="catalog-count">{section.items.length} registros</span>
+                  <span className="catalog-count">{planningItems.length} registros</span>
                 </div>
 
                 <div className="gantt-header">
                   <div className="gantt-header-meta">Evento</div>
                   <div
                     className="gantt-header-timeline"
-                    style={{ gridTemplateColumns: `repeat(${section.scale.slotCount}, minmax(0, 1fr))` }}
+                    style={{ gridTemplateColumns: `repeat(${ganttScale.slotCount}, minmax(0, 1fr))` }}
                   >
-                    {section.scale.hourMarks.map((mark) => (
-                      <span key={mark.key} className={mark.major ? "major" : "minor"}>
-                        {mark.major ? mark.label : ""}
+                    {ganttScale.hourMarks.map((mark, index) => (
+                      <span
+                        key={mark.key}
+                        className={[
+                          mark.major ? "major" : "minor",
+                          mark.major && index === 0 ? "first-major" : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
+                      >
+                        {mark.major ? <span className="gantt-hour-label">{mark.label}</span> : null}
                       </span>
                     ))}
                   </div>
                 </div>
 
-                {section.items.map((item) => {
-                  const start = positionMinutesInScale(item.start, section.scale);
-                  let end = positionMinutesInScale(item.end, section.scale);
-
-                  if (end <= start) {
-                    end += 24 * 60;
+                <div
+                  className="gantt-rows"
+                  style={
+                    {
+                      "--gantt-slot-count": String(ganttScale.slotCount),
+                    } as CSSProperties
                   }
+                >
+                  <div className="gantt-rows-timeline-bg" aria-hidden="true" />
 
-                  const scaleSpan = section.scale.endMinutes - section.scale.startMinutes;
-                  const startOffset = ((start - section.scale.startMinutes) / scaleSpan) * 100;
-                  const width = ((end - start) / scaleSpan) * 100;
-                  const duration = formatDuration(item.start, item.end);
-                  const isCompactBar = width < 18;
+                  {planningItems.map((item) => {
+                    const start = positionMinutesInScale(item.start, ganttScale);
+                    let end = positionMinutesInScale(item.end, ganttScale);
 
-                  return (
-                    <article key={item.id} className="gantt-row">
-                      <div className="gantt-meta">
-                        <div className="gantt-title-row">
-                          <h3>{item.description}</h3>
-                          <span className={`category-pill ${item.category === "interferencia" ? "warning" : "success"}`}>
-                            {toDisplayCategory(item.category)}
-                          </span>
-                          <span className="gantt-type-pill">{item.item_type}</span>
+                    if (end <= start) {
+                      end += 24 * 60;
+                    }
+
+                    const scaleSpan = ganttScale.endMinutes - ganttScale.startMinutes;
+                    const startOffset = ((start - ganttScale.startMinutes) / scaleSpan) * 100;
+                    const width = ((end - start) / scaleSpan) * 100;
+                    const duration = formatDuration(item.start, item.end);
+                    const isCompactBar = width < 18;
+                    const isMicroBar = width < 10;
+                    const ariaLabel = buildPlanningItemAriaLabel(item, duration);
+
+                    return (
+                      <article key={item.id} className="gantt-row">
+                        <div className="gantt-meta">
+                          <div className="gantt-meta-line">
+                            <div className="gantt-meta-primary">
+                              <h3 title={item.description}>{item.description}</h3>
+                            </div>
+
+                            <div className="gantt-meta-secondary">
+                              <button
+                                type="button"
+                                className="button icon-button"
+                                onClick={() => openEditPlanningItem(item)}
+                                aria-label={`Editar ${item.description}`}
+                                title="Editar"
+                              >
+                                <span aria-hidden="true">✎</span>
+                              </button>
+                            </div>
+                          </div>
                         </div>
-                        <div className="gantt-meta-chips">
-                          <span className="gantt-info-chip strong">{item.front}</span>
-                          <span className="gantt-info-chip strong">{item.level}</span>
-                          <span className="gantt-info-chip">{item.shift}</span>
-                          <span className="gantt-info-chip">{formatDateLabel(item.item_date)}</span>
-                        </div>
-                        <div className="gantt-row-actions">
-                          <button
-                            type="button"
-                            className="button small"
-                            onClick={() => openEditPlanningItem(item)}
+
+                        <div className="gantt-track">
+                          <div
+                            className={`gantt-bar ${item.category === "interferencia" ? "warning" : "success"} ${isCompactBar ? "compact" : ""} ${isMicroBar ? "micro" : ""}`}
+                            aria-label={ariaLabel}
+                            tabIndex={0}
+                            style={{ left: `${startOffset}%`, width: `${width}%` }}
                           >
-                            Editar
-                          </button>
+                            {!isMicroBar ? (
+                              <span className="gantt-bar-main">
+                                {item.start} - {item.end}
+                              </span>
+                            ) : null}
+                            {!isCompactBar && !isMicroBar ? <span className="gantt-bar-separator">•</span> : null}
+                            {!isCompactBar && !isMicroBar ? <span className="gantt-bar-duration">{duration}</span> : null}
+                            <span className="gantt-tooltip" role="tooltip">
+                              <span className="gantt-tooltip-title">{item.description}</span>
+                              <span className="gantt-tooltip-line">
+                                {item.start} - {item.end} <strong>{duration}</strong>
+                              </span>
+                              <span className="gantt-tooltip-line">
+                                {toDisplayCategory(item.category)} · {item.item_type}
+                              </span>
+                              <span className="gantt-tooltip-line">
+                                {item.front} · {item.level}
+                              </span>
+                              <span className="gantt-tooltip-line">
+                                {item.shift} · {formatDateLabel(item.item_date)}
+                              </span>
+                            </span>
+                          </div>
                         </div>
-                      </div>
-
-                      <div
-                        className="gantt-track"
-                        style={{ gridTemplateColumns: `repeat(${section.scale.slotCount}, minmax(0, 1fr))` }}
-                      >
-                        <div className="gantt-track-frame" />
-                        {section.scale.hourMarks.map((mark) => (
-                          <span
-                            key={`${item.id}-${mark.key}`}
-                            className={`gantt-column ${mark.major ? "major" : "minor"}`}
-                          />
-                        ))}
-                        <div
-                          className={`gantt-bar ${item.category === "interferencia" ? "warning" : "success"} ${isCompactBar ? "compact" : ""}`}
-                          style={{ left: `${startOffset}%`, width: `${width}%` }}
-                        >
-                          <span className="gantt-bar-main">
-                            {item.start} - {item.end}
-                          </span>
-                          {!isCompactBar ? <span className="gantt-bar-separator">•</span> : null}
-                          {!isCompactBar ? <span className="gantt-bar-duration">{duration}</span> : null}
-                        </div>
-                      </div>
-                    </article>
-                  );
-                })}
+                      </article>
+                    );
+                  })}
+                </div>
               </section>
-            ))}
+            ) : null}
           </div>
         </div>
-      </SectionCard>
+      </section>
 
       {isModalOpen ? (
         <div className="modal-backdrop" role="presentation" onClick={() => setIsModalOpen(false)}>
