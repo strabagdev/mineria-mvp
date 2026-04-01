@@ -68,35 +68,11 @@ export default function AuthCallbackPage() {
   }, [router]);
 
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        display: "grid",
-        placeItems: "center",
-        padding: 24,
-        background:
-          "radial-gradient(circle at top, #fff8e8, transparent 35%), linear-gradient(180deg, #fffaf1 0%, #f6efe1 100%)",
-      }}
-    >
-      <section
-        style={{
-          width: "100%",
-          maxWidth: 520,
-          borderRadius: 32,
-          border: "1px solid rgba(214, 211, 209, 0.8)",
-          background: "rgba(255, 255, 255, 0.9)",
-          boxShadow: "0 20px 50px rgba(120, 86, 45, 0.08)",
-          backdropFilter: "blur(14px)",
-          padding: 28,
-        }}
-      >
-        <p style={{ margin: 0, fontSize: 12, fontWeight: 700, letterSpacing: "0.25em", textTransform: "uppercase", color: "#b45309" }}>
-          Autenticacion
-        </p>
-        <h1 style={{ margin: "12px 0 8px", fontSize: 30, lineHeight: 1.1, color: "#1c1917" }}>
-          Terminando acceso
-        </h1>
-        <p style={{ margin: 0, fontSize: 14, lineHeight: 1.6, color: "#57534e" }}>{message}</p>
+    <main className="app-background auth-layout">
+      <section className="auth-card" style={{ maxWidth: 520 }}>
+        <p className="eyebrow">Autenticacion</p>
+        <h1 className="hero-title" style={{ fontSize: "1.875rem" }}>Terminando acceso</h1>
+        <p className="body-copy" style={{ marginTop: 0 }}>{message}</p>
       </section>
     </main>
   );

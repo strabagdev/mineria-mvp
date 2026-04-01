@@ -1,24 +1,17 @@
 import React from "react";
+import "./globals.css";
 import { SiteShell } from "@/components/site-shell";
 import { AuthProvider } from "@/providers/auth-provider";
 
 export const metadata = {
-  title: "Auth Base",
-  description: "Base minima con Supabase Auth"
+  title: "Mineria MVP",
+  description: "Carta gantt operacional para actividades e interferencias mineras",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es">
-      <body
-        style={{
-          margin: 0,
-          minHeight: "100vh",
-          fontFamily: '"Segoe UI", "Helvetica Neue", sans-serif',
-          background: "#fffaf1",
-          color: "#1c1917",
-        }}
-      >
+      <body>
         <AuthProvider>
           <SiteShell>{children}</SiteShell>
         </AuthProvider>

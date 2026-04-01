@@ -26,22 +26,24 @@ function requireEnv(name: string, value: string | undefined) {
 
 export function getServerEnv(): ServerEnv {
   const rawUrl =
+    process.env.SUPABASE_DATA_URL ??
     process.env.NEXT_PUBLIC_SUPABASE_AUTH_URL ??
     process.env.NEXT_PUBLIC_SUPABASE_URL ??
     process.env.SUPABASE_URL;
   const serviceRoleKey =
+    process.env.SUPABASE_DATA_SERVICE_ROLE_KEY ??
     process.env.SUPABASE_AUTH_SERVICE_ROLE_KEY ??
     process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   return {
     supabaseUrl: normalizeSupabaseUrl(
       requireEnv(
-        "NEXT_PUBLIC_SUPABASE_AUTH_URL (or NEXT_PUBLIC_SUPABASE_URL / SUPABASE_URL)",
+        "SUPABASE_DATA_URL (or NEXT_PUBLIC_SUPABASE_AUTH_URL / NEXT_PUBLIC_SUPABASE_URL / SUPABASE_URL)",
         rawUrl
       )
     ),
     supabaseServiceRoleKey: requireEnv(
-      "SUPABASE_AUTH_SERVICE_ROLE_KEY (or SUPABASE_SERVICE_ROLE_KEY)",
+      "SUPABASE_DATA_SERVICE_ROLE_KEY (or SUPABASE_AUTH_SERVICE_ROLE_KEY / SUPABASE_SERVICE_ROLE_KEY)",
       serviceRoleKey
     ),
   };

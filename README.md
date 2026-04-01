@@ -14,9 +14,11 @@ Base minima en Next.js + Supabase Auth para arrancar un producto desde una auten
 Crea `.env.local` en la raiz:
 
 ```env
-NEXT_PUBLIC_SUPABASE_AUTH_URL=https://<project-ref>.supabase.co
-NEXT_PUBLIC_SUPABASE_AUTH_ANON_KEY=your-anon-key
-SUPABASE_AUTH_SERVICE_ROLE_KEY=your-service-role-key
+SUPABASE_DATA_URL=https://<data-project-ref>.supabase.co
+SUPABASE_DATA_SERVICE_ROLE_KEY=your-data-service-role-key
+NEXT_PUBLIC_SUPABASE_AUTH_URL=https://<auth-project-ref>.supabase.co
+NEXT_PUBLIC_SUPABASE_AUTH_ANON_KEY=your-auth-anon-key
+SUPABASE_AUTH_SERVICE_ROLE_KEY=your-auth-service-role-key
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
