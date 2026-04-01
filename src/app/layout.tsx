@@ -10,7 +10,15 @@ export const metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es">
-      <body style={{ fontFamily: "system-ui, sans-serif", margin: 0 }}>
+      <body
+        style={{
+          margin: 0,
+          minHeight: "100vh",
+          fontFamily: '"Segoe UI", "Helvetica Neue", sans-serif',
+          background: "#fffaf1",
+          color: "#1c1917",
+        }}
+      >
         <AuthProvider>
           <SiteShell>{children}</SiteShell>
         </AuthProvider>
