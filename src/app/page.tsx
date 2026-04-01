@@ -1,65 +1,53 @@
-import Image from "next/image";
+"use client";
+
+import Link from "next/link";
+import { useAuth } from "@/providers/auth-provider";
 
 export default function Home() {
+  const { loading, session, user } = useAuth();
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <main
+      style={{
+        minHeight: "calc(100vh - 73px)",
+        display: "grid",
+        placeItems: "center",
+        padding: 24,
+        background: "linear-gradient(180deg, #f7f4ec 0%, #efe9dc 100%)",
+      }}
+    >
+      <section
+        style={{
+          width: "100%",
+          maxWidth: 720,
+          minHeight: 320,
+          borderRadius: 28,
+          border: "1px solid #ded6c6",
+          background: "rgba(255, 253, 247, 0.88)",
+          boxShadow: "0 24px 80px rgba(58, 42, 18, 0.08)",
+          padding: 32,
+          display: "grid",
+          alignContent: "center",
+        }}
+      >
+        <p style={{ margin: 0, fontSize: 12, letterSpacing: "0.18em", textTransform: "uppercase", color: "#8b6f3d" }}>
+          Base Lista
+        </p>
+        <h1 style={{ marginBottom: 10, marginTop: 12 }}>Pagina limpia</h1>
+        <p style={{ marginTop: 0, color: "#5f5a4f", lineHeight: 1.7, maxWidth: 540 }}>
+          Dejamos solamente la autenticacion operativa para construir desde cero sobre una base estable.
+        </p>
+
+        {!loading && session ? (
+          <p style={{ marginBottom: 0, color: "#4b463d" }}>
+            Sesion iniciada con {user?.email ?? "usuario autenticado"}.
           </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+        ) : (
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 8 }}>
+            <Link href="/login">Ir a login</Link>
+          </div>
+        )}
+      </section>
+    </main>
   );
 }
