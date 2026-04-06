@@ -728,15 +728,15 @@ textarea {
 }
 
 .gantt-legend-chip.programado {
-  background: rgba(226, 232, 240, 0.8);
-  color: #334155;
-  border: 1px dashed rgba(100, 116, 139, 0.42);
+  background: #93c5fd;
+  color: #1e3a8a;
+  border: 1px dashed #60a5fa;
 }
 
 .gantt-legend-chip.real {
-  background: rgba(203, 213, 225, 0.82);
-  color: #0f172a;
-  border: 1px solid rgba(100, 116, 139, 0.32);
+  background: #2563eb;
+  color: #eff6ff;
+  border: 1px solid #1d4ed8;
 }
 
 .gantt-rows {
@@ -954,25 +954,28 @@ textarea {
   font-size: 0.72rem;
 }
 
-.gantt-meta-secondary .button.icon-button {
-  min-width: 1.9rem;
-  min-height: 1.9rem;
+.gantt-track-add-real {
+  position: absolute;
+  z-index: 3;
+  top: 75%;
+  min-width: 2rem;
+  min-height: 2rem;
   padding: 0;
   border-radius: 999px;
-  font-size: 0.72rem;
-  font-weight: 800;
+  border: 2px solid #1d4ed8;
+  background: rgba(255, 255, 255, 0.98);
+  color: #1d4ed8;
+  font-size: 0.95rem;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.18);
 }
 
-.gantt-meta-secondary .button.icon-button.programado {
-  background: rgba(226, 232, 240, 0.82);
-  color: #334155;
-  border: 1px dashed rgba(100, 116, 139, 0.42);
-}
-
-.gantt-meta-secondary .button.icon-button.real {
-  background: rgba(203, 213, 225, 0.82);
-  color: #0f172a;
-  border: 1px solid rgba(100, 116, 139, 0.32);
+.gantt-track-add-real:hover {
+  background: #eff6ff;
 }
 
 .empty-state {

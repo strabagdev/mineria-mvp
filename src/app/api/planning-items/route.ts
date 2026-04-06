@@ -363,6 +363,40 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "Debes indicar un id valido." }, { status: 400 });
     }
     const db = getSupabaseServerClient();
+    const { data: currentItem, error: currentItemError } = await db
+      .from("planning_items")
+      .select("id, activity_group_id, tracking_type")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (currentItemError) {
+      throw currentItemError;
+    }
+
+    if (!currentItem) {
+      return NextResponse.json({ error: "No se encontro el registro indicado." }, { status: 404 });
+    }
+
+    if (currentItem.tracking_type === "programado") {
+      const { data: realPair, error: realPairError } = await db
+        .from("planning_items")
+        .select("id")
+        .eq("activity_group_id", currentItem.activity_group_id)
+        .eq("tracking_type", "real")
+        .maybeSingle();
+
+      if (realPairError) {
+        throw realPairError;
+      }
+
+      if (realPair) {
+        return NextResponse.json(
+          { error: "No puedes eliminar la programacion mientras exista un real asociado a esa actividad." },
+          { status: 409 }
+        );
+      }
+    }
+
     const { error } = await db.from("planning_items").delete().eq("id", id);
     if (error) {
       throw error;

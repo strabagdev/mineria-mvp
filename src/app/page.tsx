@@ -904,6 +904,36 @@ export default function Home() {
     );
   }
 
+  function renderCreateRealButton(group: PlanningGroup, scale: GanttScale) {
+    if (isHistoricalView || !group.programado || group.real) {
+      return null;
+    }
+
+    const start = positionMinutesInScale(group.programado.start, scale);
+    let end = positionMinutesInScale(group.programado.end, scale);
+
+    if (end <= start) {
+      end += 24 * 60;
+    }
+
+    const scaleSpan = scale.endMinutes - scale.startMinutes;
+    const midpoint = (start + end) / 2;
+    const offset = ((midpoint - scale.startMinutes) / scaleSpan) * 100;
+
+    return (
+      <button
+        type="button"
+        className="gantt-track-add-real"
+        onClick={() => openCreatePlanningVariant(group, "real")}
+        aria-label={`Agregar real a ${group.description}`}
+        title="Agregar real"
+        style={{ left: `${offset}%` }}
+      >
+        <span aria-hidden="true">+</span>
+      </button>
+    );
+  }
+
   function openCreatePlanningVariant(group: PlanningGroup, trackingType: "programado" | "real") {
     if (isHistoricalView) {
       return;
@@ -999,41 +1029,6 @@ export default function Home() {
                         <span className="field-chip">{group.item_type}</span>
                       </div>
 
-                      <div className="gantt-meta-secondary">
-                        {!isHistoricalView && group.programado ? (
-                          <button
-                            type="button"
-                            className="button icon-button programado"
-                            onClick={() => openEditPlanningItem(group.programado!)}
-                            aria-label={`Editar programacion de ${group.description}`}
-                            title="Editar programacion"
-                          >
-                            <span aria-hidden="true">P</span>
-                          </button>
-                        ) : null}
-                        {!isHistoricalView && group.real ? (
-                          <button
-                            type="button"
-                            className="button icon-button real"
-                            onClick={() => openEditPlanningItem(group.real!)}
-                            aria-label={`Editar real de ${group.description}`}
-                            title="Editar real"
-                          >
-                            <span aria-hidden="true">R</span>
-                          </button>
-                        ) : null}
-                        {!isHistoricalView && group.programado && !group.real ? (
-                          <button
-                            type="button"
-                            className="button icon-button real"
-                            onClick={() => openCreatePlanningVariant(group, "real")}
-                            aria-label={`Agregar real a ${group.description}`}
-                            title="Agregar real"
-                          >
-                            <span aria-hidden="true">+</span>
-                          </button>
-                        ) : null}
-                      </div>
                     </div>
                   </div>
                 </div>
@@ -1041,6 +1036,7 @@ export default function Home() {
                 <div className="gantt-track gantt-track-compare">
                   {renderGanttBar(group.programado, "programado", scale)}
                   {renderGanttBar(group.real, "real", scale)}
+                  {renderCreateRealButton(group, scale)}
                 </div>
               </article>
             ))
@@ -1275,11 +1271,6 @@ export default function Home() {
                       setFormState((current) => ({ ...current, item_date: event.target.value }))
                     }
                   />
-                </label>
-
-                <label className="field">
-                  Turno
-                  <input className="field-input" value={formState.shift} readOnly />
                 </label>
 
                 <label className="field">
