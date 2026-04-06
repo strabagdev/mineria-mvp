@@ -904,30 +904,18 @@ export default function Home() {
     );
   }
 
-  function renderCreateRealButton(group: PlanningGroup, scale: GanttScale) {
+  function renderCreateRealButton(group: PlanningGroup) {
     if (isHistoricalView || !group.programado || group.real) {
       return null;
     }
 
-    const start = positionMinutesInScale(group.programado.start, scale);
-    let end = positionMinutesInScale(group.programado.end, scale);
-
-    if (end <= start) {
-      end += 24 * 60;
-    }
-
-    const scaleSpan = scale.endMinutes - scale.startMinutes;
-    const midpoint = (start + end) / 2;
-    const offset = ((midpoint - scale.startMinutes) / scaleSpan) * 100;
-
     return (
       <button
         type="button"
-        className="gantt-track-add-real"
+        className="button icon-button gantt-meta-add-real"
         onClick={() => openCreatePlanningVariant(group, "real")}
         aria-label={`Agregar real a ${group.description}`}
         title="Agregar real"
-        style={{ left: `${offset}%` }}
       >
         <span aria-hidden="true">+</span>
       </button>
@@ -1028,7 +1016,7 @@ export default function Home() {
                         </span>
                         <span className="field-chip">{group.item_type}</span>
                       </div>
-
+                      <div className="gantt-meta-secondary">{renderCreateRealButton(group)}</div>
                     </div>
                   </div>
                 </div>
@@ -1036,7 +1024,6 @@ export default function Home() {
                 <div className="gantt-track gantt-track-compare">
                   {renderGanttBar(group.programado, "programado", scale)}
                   {renderGanttBar(group.real, "real", scale)}
-                  {renderCreateRealButton(group, scale)}
                 </div>
               </article>
             ))
@@ -1259,18 +1246,6 @@ export default function Home() {
                       </option>
                     ))}
                   </select>
-                </label>
-
-                <label className="field">
-                  Fecha
-                  <input
-                    className="field-input"
-                    type="date"
-                    value={formState.item_date}
-                    onChange={(event) =>
-                      setFormState((current) => ({ ...current, item_date: event.target.value }))
-                    }
-                  />
                 </label>
 
                 <label className="field">
