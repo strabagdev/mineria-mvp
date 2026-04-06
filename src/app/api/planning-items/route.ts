@@ -4,6 +4,7 @@ import { requireAuthUser } from "@/lib/requireAuthUser";
 import { getSupabaseServerClient } from "@/lib/supabaseServer";
 
 type PlanningItemPayload = {
+  activity_group_id: string;
   item_date: string;
   start_time: string;
   end_time: string;
@@ -11,6 +12,7 @@ type PlanningItemPayload = {
   level: string;
   front: string;
   category: string;
+  tracking_type: string;
   item_type: string;
   description: string;
   notes: string | null;
@@ -19,6 +21,7 @@ type PlanningItemPayload = {
 async function validateAndNormalizePlanningItem(
   req: Request,
   body: {
+    activity_group_id?: string;
     item_date?: string;
     start_time?: string;
     end_time?: string;
@@ -26,6 +29,7 @@ async function validateAndNormalizePlanningItem(
     level?: string;
     front?: string;
     category?: string;
+    tracking_type?: string;
     item_type?: string;
     description?: string;
     notes?: string | null;
@@ -33,6 +37,7 @@ async function validateAndNormalizePlanningItem(
 ) {
   const { user } = await requireAuthUser(req);
   const payload: PlanningItemPayload = {
+    activity_group_id: String(body.activity_group_id ?? "").trim() || crypto.randomUUID(),
     item_date: String(body.item_date ?? "").trim(),
     start_time: String(body.start_time ?? "").trim(),
     end_time: String(body.end_time ?? "").trim(),
@@ -40,6 +45,7 @@ async function validateAndNormalizePlanningItem(
     level: String(body.level ?? "").trim(),
     front: String(body.front ?? "").trim(),
     category: String(body.category ?? "").trim().toLowerCase(),
+    tracking_type: String(body.tracking_type ?? "").trim().toLowerCase(),
     item_type: String(body.item_type ?? "").trim().toLowerCase(),
     description: String(body.description ?? "").trim(),
     notes: String(body.notes ?? "").trim() || null,
@@ -53,12 +59,13 @@ async function validateAndNormalizePlanningItem(
     !payload.level ||
     !payload.front ||
     !payload.category ||
+    !payload.tracking_type ||
     !payload.item_type ||
     !payload.description
   ) {
     return {
       errorResponse: NextResponse.json(
-        { error: "Completa fecha, horario, turno, nivel, frente, categoria, tipo y descripcion." },
+        { error: "Completa fecha, horario, turno, nivel, frente, categoria, vista, tipo y descripcion." },
         { status: 400 }
       ),
     };
@@ -73,7 +80,57 @@ async function validateAndNormalizePlanningItem(
     };
   }
 
+  if (!["programado", "real"].includes(payload.tracking_type)) {
+    return {
+      errorResponse: NextResponse.json(
+        { error: "La vista debe ser programado o real." },
+        { status: 400 }
+      ),
+    };
+  }
+
+  if (payload.tracking_type === "programado" && payload.category !== "actividad") {
+    return {
+      errorResponse: NextResponse.json(
+        { error: "La programacion solo permite actividades. Las interferencias se registran en lo real." },
+        { status: 400 }
+      ),
+    };
+  }
+
+  if (!["Dia", "Noche"].includes(payload.shift)) {
+    return {
+      errorResponse: NextResponse.json(
+        { error: "El turno debe ser Dia o Noche." },
+        { status: 400 }
+      ),
+    };
+  }
+
   const db = getSupabaseServerClient();
+
+  if (payload.tracking_type === "real") {
+    const { data: plannedPair, error: plannedPairError } = await db
+      .from("planning_items")
+      .select("id")
+      .eq("activity_group_id", payload.activity_group_id)
+      .eq("tracking_type", "programado")
+      .maybeSingle();
+
+    if (plannedPairError) {
+      throw plannedPairError;
+    }
+
+    if (!plannedPair) {
+      return {
+        errorResponse: NextResponse.json(
+          { error: "Solo puedes registrar lo real cuando la programacion ya existe para esa actividad." },
+          { status: 400 }
+        ),
+      };
+    }
+  }
+
   const email = (user.email ?? "").trim().toLowerCase();
 
   if (email) {
@@ -147,7 +204,7 @@ export async function GET() {
     const { data, error } = await db
       .from("planning_items")
       .select(
-        "id, item_date, start_time, end_time, shift, level, front, category, item_type, description, notes"
+        "id, activity_group_id, item_date, start_time, end_time, shift, level, front, category, tracking_type, item_type, description, notes"
       )
       .order("item_date", { ascending: true })
       .order("start_time", { ascending: true });
@@ -165,6 +222,7 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as {
+      activity_group_id?: string;
       item_date?: string;
       start_time?: string;
       end_time?: string;
@@ -172,6 +230,7 @@ export async function POST(req: Request) {
       level?: string;
       front?: string;
       category?: string;
+      tracking_type?: string;
       item_type?: string;
       description?: string;
       notes?: string | null;
@@ -189,7 +248,7 @@ export async function POST(req: Request) {
         ...payload,
       })
       .select(
-        "id, item_date, start_time, end_time, shift, level, front, category, item_type, description, notes"
+        "id, activity_group_id, item_date, start_time, end_time, shift, level, front, category, tracking_type, item_type, description, notes"
       )
       .single();
 
@@ -207,6 +266,7 @@ export async function PATCH(req: Request) {
   try {
     const body = (await req.json()) as {
       id?: number;
+      activity_group_id?: string;
       item_date?: string;
       start_time?: string;
       end_time?: string;
@@ -214,6 +274,7 @@ export async function PATCH(req: Request) {
       level?: string;
       front?: string;
       category?: string;
+      tracking_type?: string;
       item_type?: string;
       description?: string;
       notes?: string | null;
@@ -233,7 +294,7 @@ export async function PATCH(req: Request) {
       .update(payload)
       .eq("id", id)
       .select(
-        "id, item_date, start_time, end_time, shift, level, front, category, item_type, description, notes"
+        "id, activity_group_id, item_date, start_time, end_time, shift, level, front, category, tracking_type, item_type, description, notes"
       )
       .single();
 

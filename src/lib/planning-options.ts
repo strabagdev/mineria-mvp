@@ -59,5 +59,5 @@ export function getDetailsByCategoryAndType(category: string, type: string) {
 
 export function isValidPlanningSelection(category: string, type: string, description: string) {
   const details = getDetailsByCategoryAndType(category, type);
-  return details.includes(description);
+  return details.some((detail) => detail === description);
 }

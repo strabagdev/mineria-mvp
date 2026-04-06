@@ -346,6 +346,7 @@ textarea {
   display: grid;
   gap: 0.9rem;
   --gantt-meta-width: clamp(180px, 20vw, 240px);
+  --gantt-column-gap: 1rem;
 }
 
 .gantt-stage {
@@ -359,6 +360,32 @@ textarea {
   justify-content: space-between;
   align-items: flex-end;
   gap: 1rem;
+}
+
+.gantt-date-callout {
+  min-width: min(100%, 22rem);
+  padding: 1rem 1.15rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(191, 219, 254, 0.9);
+  background: linear-gradient(135deg, #eff6ff, #dbeafe);
+  box-shadow: 0 12px 28px rgba(37, 99, 235, 0.12);
+}
+
+.gantt-date-label {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #1d4ed8;
+}
+
+.gantt-date-value {
+  margin: 0.45rem 0 0;
+  font-size: clamp(1.2rem, 2.2vw, 1.7rem);
+  line-height: 1.15;
+  font-weight: 800;
+  color: #172554;
 }
 
 .gantt-header,
@@ -438,6 +465,36 @@ textarea {
   padding: 0.1rem 0 0.2rem;
 }
 
+.gantt-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.gantt-legend-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.45rem;
+  padding: 0.14rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.gantt-legend-chip.programado {
+  background: #dbeafe;
+  color: #1e3a8a;
+  border: 1px dashed #93c5fd;
+}
+
+.gantt-legend-chip.real {
+  background: #bfdbfe;
+  color: #1d4ed8;
+  border: 1px solid #93c5fd;
+}
+
 .gantt-rows {
   position: relative;
   display: grid;
@@ -448,7 +505,7 @@ textarea {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: calc(var(--gantt-meta-width) + 1rem);
+  left: calc(var(--gantt-meta-width) + var(--gantt-column-gap));
   right: 0;
   border: 1px solid rgba(214, 211, 209, 0.92);
   border-radius: 0.9rem;
@@ -474,6 +531,10 @@ textarea {
   align-items: center;
 }
 
+.gantt-row-dual {
+  padding: 0.45rem 0;
+}
+
 .gantt-row + .gantt-row {
   border-top: 1px solid rgba(231, 229, 228, 0.72);
 }
@@ -487,10 +548,10 @@ textarea {
 
 .gantt-meta h3 {
   margin: 0;
-  font-size: 0.88rem;
-  line-height: 1.1;
-  color: var(--foreground);
-  flex: 1 1 auto;
+  font-size: 1rem;
+  line-height: 1.2;
+  color: #1c1917;
+  font-weight: 800;
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
@@ -500,8 +561,9 @@ textarea {
 .gantt-meta-line {
   display: flex;
   align-items: center;
-  gap: 0.28rem;
-  flex-wrap: nowrap;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
   min-height: 1.55rem;
   width: 100%;
 }
@@ -517,10 +579,16 @@ textarea {
 .gantt-meta-primary {
   flex: 1 1 auto;
   overflow: hidden;
+  display: grid;
+  gap: 0.5rem;
+  align-content: start;
 }
 
 .gantt-meta-secondary {
   flex: 0 0 auto;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  align-self: center;
 }
 
 .category-pill {
@@ -553,63 +621,49 @@ textarea {
   padding: 0;
 }
 
+.gantt-track-compare {
+  position: relative;
+  min-height: 52px;
+  overflow: visible;
+}
+
 .gantt-bar {
   position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  min-height: 1.95rem;
+  transform: none;
+  height: calc(50% - 0.18rem);
+  min-height: 0;
   border-radius: 0.72rem;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 0.62rem;
-  font-size: 0.72rem;
-  font-weight: 700;
-  white-space: nowrap;
-  box-shadow: 0 10px 18px rgba(28, 25, 23, 0.12);
+  display: block;
+  padding: 0;
+  box-shadow: 0 8px 16px rgba(37, 99, 235, 0.14);
   border-left: 3px solid rgba(255, 255, 255, 0.9);
   outline: none;
   cursor: pointer;
   transition:
     box-shadow 140ms ease,
-    transform 140ms ease,
     filter 140ms ease;
 }
 
-.gantt-bar.compact {
-  padding-right: 0.62rem;
-}
-
-.gantt-bar.micro {
-  min-width: 0;
-  padding: 0;
-}
-
-.gantt-bar-main,
-.gantt-bar-duration {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.gantt-bar.success {
-  background: linear-gradient(135deg, #14532d, #15803d);
-  color: white;
-}
-
-.gantt-bar.warning {
-  background: linear-gradient(135deg, #c2410c, #ea580c);
-  color: white;
-}
-
-.gantt-bar-main,
-.gantt-bar-duration,
-.gantt-bar-separator {
-  position: relative;
+.gantt-bar.programado {
   z-index: 1;
+  top: 0;
+  background: #93c5fd;
+  border-style: dashed;
+  border-width: 1px;
+  border-left-width: 3px;
+  border-color: #60a5fa;
 }
 
-.gantt-bar-duration,
-.gantt-bar-separator {
-  opacity: 0.9;
+.gantt-bar.real {
+  z-index: 2;
+  bottom: 0;
+  background: #2563eb;
+  border-color: #1d4ed8;
+}
+
+.gantt-bar.success,
+.gantt-bar.warning {
+  color: inherit;
 }
 
 .gantt-bar:focus-visible {
@@ -621,13 +675,8 @@ textarea {
 
 .gantt-bar:hover,
 .gantt-bar:focus-visible {
-  transform: translateY(-50%);
   filter: saturate(1.08) brightness(1.04);
-  box-shadow: 0 14px 24px rgba(28, 25, 23, 0.18);
-}
-
-.gantt-bar-separator {
-  margin: 0 0.45rem;
+  box-shadow: 0 10px 20px rgba(37, 99, 235, 0.2);
 }
 
 .field-list {
@@ -647,6 +696,33 @@ textarea {
   color: #92400e;
   font-size: 0.88rem;
   font-weight: 600;
+}
+
+.gantt-meta .field-chip {
+  min-height: 1.55rem;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.72rem;
+}
+
+.gantt-meta-secondary .button.icon-button {
+  min-width: 1.9rem;
+  min-height: 1.9rem;
+  padding: 0;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.gantt-meta-secondary .button.icon-button.programado {
+  background: #dbeafe;
+  color: #1e3a8a;
+  border: 1px dashed #93c5fd;
+}
+
+.gantt-meta-secondary .button.icon-button.real {
+  background: #bfdbfe;
+  color: #1d4ed8;
+  border: 1px solid #93c5fd;
 }
 
 .empty-state {
@@ -1093,6 +1169,7 @@ textarea {
 
   .gantt-shell {
     --gantt-meta-width: clamp(152px, 17vw, 212px);
+    --gantt-column-gap: 0.75rem;
   }
 
   .gantt-header,
@@ -1192,6 +1269,14 @@ textarea {
   .gantt-track {
     min-height: 110px;
     overflow-x: auto;
+  }
+
+  .gantt-shell {
+    --gantt-column-gap: 0;
+  }
+
+  .gantt-rows-timeline-bg {
+    left: 0;
   }
 
   .modal-card {

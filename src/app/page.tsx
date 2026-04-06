@@ -6,6 +6,7 @@ import { useAuth } from "@/providers/auth-provider";
 
 type PlanningItem = {
   id: number;
+  activity_group_id: string;
   description: string;
   item_date: string;
   start: string;
@@ -14,12 +15,14 @@ type PlanningItem = {
   level: string;
   front: string;
   category: "actividad" | "interferencia";
+  tracking_type: "programado" | "real";
   item_type: string;
   notes?: string | null;
 };
 
 type PlanningItemApi = {
   id: number;
+  activity_group_id: string;
   item_date: string;
   start_time: string;
   end_time: string;
@@ -27,6 +30,7 @@ type PlanningItemApi = {
   level: string;
   front: string;
   category: "actividad" | "interferencia";
+  tracking_type: "programado" | "real";
   item_type: string;
   description: string;
   notes?: string | null;
@@ -51,6 +55,7 @@ type CatalogCategory = {
 };
 
 type PlanningItemForm = {
+  activity_group_id: string;
   item_date: string;
   start_time: string;
   end_time: string;
@@ -58,6 +63,7 @@ type PlanningItemForm = {
   level: string;
   front: string;
   category: "actividad" | "interferencia";
+  tracking_type: "programado" | "real";
   item_type: string;
   description: string;
   notes: string;
@@ -93,6 +99,21 @@ type EditingPlanningItem = {
 
 type ViewingPlanningItem = PlanningItem | null;
 
+type PlanningGroup = {
+  key: string;
+  activity_group_id: string;
+  item_date: string;
+  shift: string;
+  level: string;
+  front: string;
+  category: "actividad" | "interferencia";
+  item_type: string;
+  description: string;
+  notes?: string | null;
+  programado: PlanningItem | null;
+  real: PlanningItem | null;
+};
+
 type GanttScale = {
   startMinutes: number;
   endMinutes: number;
@@ -125,14 +146,30 @@ function formatDateLabel(value: string) {
   }).format(new Date(`${value}T00:00:00`));
 }
 
+function formatCurrentDateLabel(value: Date) {
+  const formatted = new Intl.DateTimeFormat("es-CL", {
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  }).format(value);
+
+  return formatted.charAt(0).toUpperCase() + formatted.slice(1);
+}
+
 function toDisplayCategory(category: PlanningItem["category"]) {
   return category === "interferencia" ? "Interferencia" : "Actividad";
+}
+
+function toTrackingTypeLabel(trackingType: PlanningItem["tracking_type"]) {
+  return trackingType === "programado" ? "Programado" : "Real";
 }
 
 function buildPlanningItemAriaLabel(item: PlanningItem, duration: string) {
   return [
     item.description,
     `${toDisplayCategory(item.category)}, ${item.item_type}`,
+    `Vista ${toTrackingTypeLabel(item.tracking_type)}`,
     `Frente ${item.front}, nivel ${item.level}`,
     `Turno ${item.shift}, ${formatDateLabel(item.item_date)}`,
     `Horario ${item.start} a ${item.end}, duracion ${duration}`,
@@ -167,9 +204,9 @@ function buildGanttScale(start: string, end: string, wrapsMidnight: boolean): Ga
   const rawEndMinutes = toMinutes(end);
   const slotMinutes = 30;
   const baseEndMinutes = wrapsMidnight ? rawEndMinutes + 24 * 60 : rawEndMinutes;
-  const baseSlotCount = Math.ceil((baseEndMinutes - startMinutes) / slotMinutes);
-  const slotCount = baseSlotCount % 2 === 0 ? baseSlotCount : baseSlotCount + 1;
-  const endMinutes = startMinutes + slotCount * slotMinutes;
+  const spanMinutes = baseEndMinutes - startMinutes;
+  const slotCount = Math.ceil(spanMinutes / slotMinutes);
+  const endMinutes = baseEndMinutes;
   const hourMarks = Array.from({ length: slotCount }, (_, index) => {
     const minutes = startMinutes + index * slotMinutes;
     return {
@@ -207,6 +244,7 @@ function toInitialPlanningForm(categories: CatalogCategory[]): PlanningItemForm 
   const defaultDetail = defaultType?.details[0];
 
   return {
+    activity_group_id: crypto.randomUUID(),
     item_date: new Date().toISOString().slice(0, 10),
     start_time: "07:00",
     end_time: "08:00",
@@ -214,6 +252,7 @@ function toInitialPlanningForm(categories: CatalogCategory[]): PlanningItemForm 
     level: "",
     front: "",
     category: defaultCategory.slug,
+    tracking_type: "programado",
     item_type: defaultType?.label ?? "",
     description: defaultDetail?.label ?? "",
     notes: "",
@@ -222,8 +261,10 @@ function toInitialPlanningForm(categories: CatalogCategory[]): PlanningItemForm 
 
 function syncPlanningForm(form: PlanningItemForm, categories: CatalogCategory[]) {
   const fallback = toInitialPlanningForm(categories);
+  const normalizedCategory =
+    form.tracking_type === "programado" ? ("actividad" as const) : form.category;
   const selectedCategory =
-    categories.find((category) => category.slug === form.category) ??
+    categories.find((category) => category.slug === normalizedCategory) ??
     categories.find((category) => category.slug === fallback.category);
 
   if (!selectedCategory) {
@@ -241,6 +282,45 @@ function syncPlanningForm(form: PlanningItemForm, categories: CatalogCategory[])
     item_type: selectedType?.label ?? "",
     description: selectedDetail?.label ?? "",
   };
+}
+
+function groupPlanningItems(items: PlanningItem[]) {
+  const groups = new Map<string, PlanningGroup>();
+
+  for (const item of items) {
+    const existingGroup = groups.get(item.activity_group_id);
+
+    if (existingGroup) {
+      existingGroup[item.tracking_type] = item;
+      continue;
+    }
+
+    groups.set(item.activity_group_id, {
+      key: item.activity_group_id,
+      activity_group_id: item.activity_group_id,
+      item_date: item.item_date,
+      shift: item.shift,
+      level: item.level,
+      front: item.front,
+      category: item.category,
+      item_type: item.item_type,
+      description: item.description,
+      notes: item.notes ?? null,
+      programado: item.tracking_type === "programado" ? item : null,
+      real: item.tracking_type === "real" ? item : null,
+    });
+  }
+
+  return Array.from(groups.values()).sort((left, right) => {
+    const leftItem = left.programado ?? left.real;
+    const rightItem = right.programado ?? right.real;
+
+    if (!leftItem || !rightItem) {
+      return 0;
+    }
+
+    return `${leftItem.item_date}-${leftItem.start}`.localeCompare(`${rightItem.item_date}-${rightItem.start}`);
+  });
 }
 
 function syncDetailAdminForm(form: DetailAdminForm, categories: CatalogCategory[]) {
@@ -272,6 +352,7 @@ async function fetchPlanningItems() {
   return Array.isArray(json.items)
     ? json.items.map((item: PlanningItemApi) => ({
         id: item.id,
+        activity_group_id: item.activity_group_id,
         item_date: item.item_date,
         start: item.start_time.slice(0, 5),
         end: item.end_time.slice(0, 5),
@@ -279,6 +360,7 @@ async function fetchPlanningItems() {
         level: item.level,
         front: item.front,
         category: item.category,
+        tracking_type: item.tracking_type,
         item_type: item.item_type,
         description: item.description,
         notes: item.notes ?? null,
@@ -372,6 +454,23 @@ export default function Home() {
     };
   }, []);
 
+  useEffect(() => {
+    if (formState.tracking_type !== "programado" || formState.category === "actividad") {
+      return;
+    }
+
+    const activityCategory = catalog.find((category) => category.slug === "actividad") ?? null;
+    const nextType = activityCategory?.types[0] ?? null;
+    const nextDetail = nextType?.details[0] ?? null;
+
+    setFormState((current) => ({
+      ...current,
+      category: "actividad",
+      item_type: nextType?.label ?? "",
+      description: nextDetail?.label ?? "",
+    }));
+  }, [catalog, formState.category, formState.tracking_type]);
+
   function resetPlanningForm() {
     setFormState(syncPlanningForm(toInitialPlanningForm(catalog), catalog));
     setFormError("");
@@ -393,7 +492,7 @@ export default function Home() {
     setFormState((current) => syncPlanningForm(current, nextCatalog));
     setDetailForm((current) => syncDetailAdminForm(current, nextCatalog));
     setEditingDetail((current) =>
-      current ? syncDetailAdminForm(current, nextCatalog) : null
+      current ? { ...current, ...syncDetailAdminForm(current, nextCatalog) } : null
     );
   }
 
@@ -464,6 +563,7 @@ export default function Home() {
     const nextDetail = nextType?.details.find((detail) => detail.label === item.description) ?? nextType?.details[0] ?? null;
 
     setFormState({
+      activity_group_id: item.activity_group_id,
       item_date: item.item_date,
       start_time: item.start,
       end_time: item.end,
@@ -471,6 +571,7 @@ export default function Home() {
       level: item.level,
       front: item.front,
       category: item.category,
+      tracking_type: item.tracking_type,
       item_type: nextType?.label ?? item.item_type,
       description: nextDetail?.label ?? item.description,
       notes: item.notes ?? "",
@@ -657,8 +758,14 @@ export default function Home() {
     }
   }
 
+  const isRealForm = formState.tracking_type === "real";
+  const availableFormCategories = isRealForm
+    ? catalog
+    : catalog.filter((category) => category.slug === "actividad");
   const selectedCategory =
-    catalog.find((category) => category.slug === formState.category) ?? null;
+    availableFormCategories.find((category) => category.slug === formState.category) ??
+    availableFormCategories[0] ??
+    null;
   const availableTypes = selectedCategory?.types ?? [];
   const selectedType =
     availableTypes.find((type) => type.label === formState.item_type) ?? availableTypes[0] ?? null;
@@ -666,7 +773,80 @@ export default function Home() {
   const detailTypesForAdmin =
     catalog.find((category) => category.slug === detailForm.category)?.types ?? [];
   const hasPlanning = planningItems.length > 0;
+  const groupedPlanningItems = groupPlanningItems(planningItems);
   const ganttScale = buildGanttScale("08:00", "07:30", true);
+  const todayLabel = formatCurrentDateLabel(new Date());
+  const formContextLabel = isRealForm ? "Real" : "Programacion";
+  const planningModalTitle = editingPlanningItem
+    ? `Editar ${isRealForm ? "real" : "programacion"}`
+    : `Crear ${isRealForm ? "real" : "programacion"}`;
+  const planningSubmitLabel = editingPlanningItem
+    ? `Guardar ${isRealForm ? "real" : "programacion"}`
+    : `Guardar ${isRealForm ? "real" : "programacion"}`;
+  const planningDeleteLabel = `Eliminar ${isRealForm ? "real" : "programacion"}`;
+
+  function renderGanttBar(item: PlanningItem | null, layer: "programado" | "real") {
+    if (!item) {
+      return null;
+    }
+
+    const start = positionMinutesInScale(item.start, ganttScale);
+    let end = positionMinutesInScale(item.end, ganttScale);
+
+    if (end <= start) {
+      end += 24 * 60;
+    }
+
+    const scaleSpan = ganttScale.endMinutes - ganttScale.startMinutes;
+    const startOffset = ((start - ganttScale.startMinutes) / scaleSpan) * 100;
+    const width = ((end - start) / scaleSpan) * 100;
+    const duration = formatDuration(item.start, item.end);
+    const ariaLabel = buildPlanningItemAriaLabel(item, duration);
+
+    return (
+      <div
+        className={`gantt-bar ${item.category === "interferencia" ? "warning" : "success"} ${layer}`}
+        aria-label={ariaLabel}
+        role="button"
+        tabIndex={0}
+        onClick={() => openPlanningDetail(item)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            openPlanningDetail(item);
+          }
+        }}
+        style={{ left: `${startOffset}%`, width: `${width}%` }}
+      />
+    );
+  }
+
+  function openCreatePlanningVariant(group: PlanningGroup, trackingType: "programado" | "real") {
+    const sourceItem = group[trackingType] ?? group.programado ?? group.real;
+    const nextCategory = catalog.find((category) => category.slug === group.category) ?? null;
+    const nextType = nextCategory?.types.find((type) => type.label === group.item_type) ?? nextCategory?.types[0] ?? null;
+    const nextDetail =
+      nextType?.details.find((detail) => detail.label === group.description) ?? nextType?.details[0] ?? null;
+
+    setFormState({
+      activity_group_id: group.activity_group_id,
+      item_date: sourceItem?.item_date ?? group.item_date,
+      start_time: sourceItem?.start ?? "07:00",
+      end_time: sourceItem?.end ?? "08:00",
+      shift: sourceItem?.shift ?? group.shift,
+      level: sourceItem?.level ?? group.level,
+      front: sourceItem?.front ?? group.front,
+      category: group.category,
+      tracking_type: trackingType,
+      item_type: nextType?.label ?? group.item_type,
+      description: nextDetail?.label ?? group.description,
+      notes: sourceItem?.notes ?? group.notes ?? "",
+    });
+    setEditingPlanningItem(null);
+    setFormError("");
+    setViewingPlanningItem(null);
+    setIsModalOpen(true);
+  }
 
   return (
     <section className="home-grid">
@@ -676,7 +856,7 @@ export default function Home() {
             <p className="eyebrow">Operacion</p>
             <h2 className="hero-title">Carta Gantt operativa</h2>
             <p className="body-copy">
-              Registro diario de actividades e interferencias por fecha, turno, nivel, frente, tipo y detalle.
+              Registro diario de actividades e interferencias con contraste entre lo programado y lo real.
             </p>
           </div>
 
@@ -694,11 +874,12 @@ export default function Home() {
               className="button primary"
               onClick={() => {
                 resetPlanningForm();
+                setFormState((current) => ({ ...current, tracking_type: "programado" }));
                 setIsModalOpen(true);
               }}
               disabled={!session || catalogLoading || !catalog.length}
             >
-              Nuevo registro
+              Nueva programacion
             </button>
           </div>
         </div>
@@ -714,6 +895,11 @@ export default function Home() {
             <h2 className="card-title" style={{ marginTop: 12 }}>
               Programacion del dia
             </h2>
+          </div>
+
+          <div className="gantt-date-callout" aria-label={`Fecha actual ${todayLabel}`}>
+            <p className="gantt-date-label">Fecha actual</p>
+            <p className="gantt-date-value">{todayLabel}</p>
           </div>
         </div>
 
@@ -733,7 +919,13 @@ export default function Home() {
             {hasPlanning ? (
               <section className="gantt-section">
                 <div className="gantt-section-header">
-                  <span className="catalog-count">{planningItems.length} registros</span>
+                  <span className="catalog-count">
+                    {groupedPlanningItems.length} actividades · {planningItems.length} registros
+                  </span>
+                  <div className="gantt-legend" aria-label="Leyenda de barras">
+                    <span className="gantt-legend-chip programado">Programado</span>
+                    <span className="gantt-legend-chip real">Real</span>
+                  </div>
                 </div>
 
                 <div className="gantt-header">
@@ -768,67 +960,62 @@ export default function Home() {
                 >
                   <div className="gantt-rows-timeline-bg" aria-hidden="true" />
 
-                  {planningItems.map((item) => {
-                    const start = positionMinutesInScale(item.start, ganttScale);
-                    let end = positionMinutesInScale(item.end, ganttScale);
-
-                    if (end <= start) {
-                      end += 24 * 60;
-                    }
-
-                    const scaleSpan = ganttScale.endMinutes - ganttScale.startMinutes;
-                    const startOffset = ((start - ganttScale.startMinutes) / scaleSpan) * 100;
-                    const width = ((end - start) / scaleSpan) * 100;
-                    const duration = formatDuration(item.start, item.end);
-                    const isCompactBar = width < 18;
-                    const isMicroBar = width < 10;
-                    const ariaLabel = buildPlanningItemAriaLabel(item, duration);
-
+                  {groupedPlanningItems.map((group) => {
                     return (
-                      <article key={item.id} className="gantt-row">
+                      <article key={group.key} className="gantt-row gantt-row-dual">
                         <div className="gantt-meta">
-                          <div className="gantt-meta-line">
-                            <div className="gantt-meta-primary">
-                              <h3 title={item.description}>{item.description}</h3>
-                            </div>
+                          <div className="gantt-meta-primary">
+                            <h3 title={group.description}>{group.description}</h3>
+                            <div className="gantt-meta-line">
+                              <div className="field-list">
+                                <span className={`category-pill ${group.category === "interferencia" ? "warning" : "success"}`}>
+                                  {toDisplayCategory(group.category)}
+                                </span>
+                                <span className="field-chip">{group.item_type}</span>
+                              </div>
 
-                            <div className="gantt-meta-secondary">
-                              <button
-                                type="button"
-                                className="button icon-button"
-                                onClick={() => openEditPlanningItem(item)}
-                                aria-label={`Editar ${item.description}`}
-                                title="Editar"
-                              >
-                                <span aria-hidden="true">✎</span>
-                              </button>
+                              <div className="gantt-meta-secondary">
+                                {group.programado ? (
+                                  <button
+                                    type="button"
+                                    className="button icon-button programado"
+                                    onClick={() => openEditPlanningItem(group.programado!)}
+                                    aria-label={`Editar programacion de ${group.description}`}
+                                    title="Editar programacion"
+                                  >
+                                    <span aria-hidden="true">P</span>
+                                  </button>
+                                ) : null}
+                                {group.real ? (
+                                  <button
+                                    type="button"
+                                    className="button icon-button real"
+                                    onClick={() => openEditPlanningItem(group.real!)}
+                                    aria-label={`Editar real de ${group.description}`}
+                                    title="Editar real"
+                                  >
+                                    <span aria-hidden="true">R</span>
+                                  </button>
+                                ) : null}
+                                {group.programado && !group.real ? (
+                                  <button
+                                    type="button"
+                                    className="button icon-button real"
+                                    onClick={() => openCreatePlanningVariant(group, "real")}
+                                    aria-label={`Agregar real a ${group.description}`}
+                                    title="Agregar real"
+                                  >
+                                    <span aria-hidden="true">+</span>
+                                  </button>
+                                ) : null}
+                              </div>
                             </div>
                           </div>
                         </div>
 
-                        <div className="gantt-track">
-                          <div
-                            className={`gantt-bar ${item.category === "interferencia" ? "warning" : "success"} ${isCompactBar ? "compact" : ""} ${isMicroBar ? "micro" : ""}`}
-                            aria-label={ariaLabel}
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => openPlanningDetail(item)}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter" || event.key === " ") {
-                                event.preventDefault();
-                                openPlanningDetail(item);
-                              }
-                            }}
-                            style={{ left: `${startOffset}%`, width: `${width}%` }}
-                          >
-                            {!isMicroBar ? (
-                              <span className="gantt-bar-main">
-                                {item.start} - {item.end}
-                              </span>
-                            ) : null}
-                            {!isCompactBar && !isMicroBar ? <span className="gantt-bar-separator">•</span> : null}
-                            {!isCompactBar && !isMicroBar ? <span className="gantt-bar-duration">{duration}</span> : null}
-                          </div>
+                        <div className="gantt-track gantt-track-compare">
+                          {renderGanttBar(group.programado, "programado")}
+                          {renderGanttBar(group.real, "real")}
                         </div>
                       </article>
                     );
@@ -851,9 +1038,9 @@ export default function Home() {
           >
             <div className="modal-header">
               <div>
-                <p className="eyebrow">Administracion</p>
+                <p className="eyebrow">{formContextLabel}</p>
                 <h2 id="planning-modal-title" className="card-title" style={{ marginTop: 12 }}>
-                  {editingPlanningItem ? "Editar actividad o interferencia" : "Crear actividad o interferencia"}
+                  {planningModalTitle}
                 </h2>
               </div>
                 <button type="button" className="button" onClick={() => setIsModalOpen(false)}>
@@ -862,33 +1049,40 @@ export default function Home() {
             </div>
 
             <form className="modal-form" onSubmit={handleCreateItem}>
-              <label className="field">
-                Categoria
-                <select
-                  className="field-input"
-                  value={formState.category}
-                  onChange={(event) => {
-                    const category = event.target.value as "actividad" | "interferencia";
-                    const nextCategory =
-                      catalog.find((entry) => entry.slug === category) ?? null;
-                    const nextType = nextCategory?.types[0] ?? null;
-                    const nextDetail = nextType?.details[0] ?? null;
+              {isRealForm ? (
+                <label className="field">
+                  Categoria
+                  <select
+                    className="field-input"
+                    value={formState.category}
+                    onChange={(event) => {
+                      const category = event.target.value as "actividad" | "interferencia";
+                      const nextCategory =
+                        catalog.find((entry) => entry.slug === category) ?? null;
+                      const nextType = nextCategory?.types[0] ?? null;
+                      const nextDetail = nextType?.details[0] ?? null;
 
-                    setFormState((current) => ({
-                      ...current,
-                      category,
-                      item_type: nextType?.label ?? "",
-                      description: nextDetail?.label ?? "",
-                    }));
-                  }}
-                >
-                  {catalog.map((category) => (
-                    <option key={category.slug} value={category.slug}>
-                      {category.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                      setFormState((current) => ({
+                        ...current,
+                        category,
+                        item_type: nextType?.label ?? "",
+                        description: nextDetail?.label ?? "",
+                      }));
+                    }}
+                  >
+                    {availableFormCategories.map((category) => (
+                      <option key={category.slug} value={category.slug}>
+                        {category.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : (
+                <label className="field">
+                  Categoria
+                  <input className="field-input" value="Actividad" readOnly />
+                </label>
+              )}
 
               <div className="modal-grid">
                 <label className="field">
@@ -954,7 +1148,6 @@ export default function Home() {
                     }
                   >
                     <option value="Dia">Dia</option>
-                    <option value="Tarde">Tarde</option>
                     <option value="Noche">Noche</option>
                   </select>
                 </label>
@@ -1030,14 +1223,14 @@ export default function Home() {
                     onClick={() => void handleDeletePlanningItem(editingPlanningItem.id)}
                     disabled={formBusy}
                   >
-                    {formBusy ? "Eliminando..." : "Eliminar registro"}
+                    {formBusy ? "Eliminando..." : planningDeleteLabel}
                   </button>
                 ) : null}
                 <button type="button" className="button" onClick={() => setIsModalOpen(false)} disabled={formBusy}>
                   Cancelar
                 </button>
                 <button type="submit" className="button primary" disabled={formBusy || !availableDescriptions.length}>
-                  {formBusy ? "Guardando..." : editingPlanningItem ? "Guardar cambios" : "Guardar registro"}
+                  {formBusy ? "Guardando..." : planningSubmitLabel}
                 </button>
               </div>
             </form>
@@ -1067,6 +1260,10 @@ export default function Home() {
             </div>
 
             <div className="detail-modal-grid">
+              <article className="detail-card">
+                <p className="detail-label">Vista</p>
+                <p className="detail-value">{toTrackingTypeLabel(viewingPlanningItem.tracking_type)}</p>
+              </article>
               <article className="detail-card">
                 <p className="detail-label">Categoria</p>
                 <p className="detail-value">{toDisplayCategory(viewingPlanningItem.category)}</p>
@@ -1375,14 +1572,17 @@ export default function Home() {
                                         onChange={(event) =>
                                           setEditingDetail((current) =>
                                             current
-                                              ? syncDetailAdminForm(
-                                                  {
-                                                    ...current,
-                                                    category: event.target.value as "actividad" | "interferencia",
-                                                    typeId: "",
-                                                  },
-                                                  catalog
-                                                )
+                                              ? {
+                                                  ...current,
+                                                  ...syncDetailAdminForm(
+                                                    {
+                                                      ...current,
+                                                      category: event.target.value as "actividad" | "interferencia",
+                                                      typeId: "",
+                                                    },
+                                                    catalog
+                                                  ),
+                                                }
                                               : current
                                           )
                                         }
