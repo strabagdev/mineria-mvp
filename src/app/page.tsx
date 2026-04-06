@@ -97,6 +97,12 @@ type EditingPlanningItem = {
   id: number;
 };
 
+type DeleteConfirmation = {
+  id: number;
+  label: string;
+  trackingType: "programado" | "real";
+} | null;
+
 type ViewingPlanningItem = PlanningItem | null;
 
 type PlanningGroup = {
@@ -426,6 +432,7 @@ export default function Home() {
   const [formBusy, setFormBusy] = useState(false);
   const [formError, setFormError] = useState("");
   const [editingPlanningItem, setEditingPlanningItem] = useState<EditingPlanningItem | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState<DeleteConfirmation>(null);
   const [catalogBusy, setCatalogBusy] = useState(false);
   const [catalogFormError, setCatalogFormError] = useState("");
   const [formState, setFormState] = useState<PlanningItemForm>(toInitialPlanningForm([]));
@@ -676,6 +683,7 @@ export default function Home() {
       }
 
       await refreshPlanningItems();
+      setDeleteConfirmation(null);
       if (editingPlanningItem?.id === id) {
         resetPlanningForm();
         setIsModalOpen(false);
@@ -685,6 +693,18 @@ export default function Home() {
     } finally {
       setFormBusy(false);
     }
+  }
+
+  function requestDeletePlanningItem() {
+    if (!editingPlanningItem) {
+      return;
+    }
+
+    setDeleteConfirmation({
+      id: editingPlanningItem.id,
+      label: formState.description,
+      trackingType: formState.tracking_type,
+    });
   }
 
   async function handleCreateType(event: React.FormEvent) {
@@ -1316,10 +1336,10 @@ export default function Home() {
                   <button
                     type="button"
                     className="button danger"
-                    onClick={() => void handleDeletePlanningItem(editingPlanningItem.id)}
+                    onClick={requestDeletePlanningItem}
                     disabled={formBusy}
                   >
-                    {formBusy ? "Eliminando..." : planningDeleteLabel}
+                    {planningDeleteLabel}
                   </button>
                 ) : null}
                 <button type="button" className="button" onClick={() => setIsModalOpen(false)} disabled={formBusy}>
@@ -1416,6 +1436,51 @@ export default function Home() {
                   Editar registro
                 </button>
               ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {deleteConfirmation ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setDeleteConfirmation(null)}>
+          <div
+            className="modal-card confirm-modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-confirmation-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div>
+                <p className="eyebrow">Confirmacion</p>
+                <h2 id="delete-confirmation-title" className="card-title" style={{ marginTop: 12 }}>
+                  Eliminar {deleteConfirmation.trackingType === "real" ? "real" : "programacion"}
+                </h2>
+                <p className="body-copy" style={{ marginTop: 8 }}>
+                  Vas a eliminar <strong>{deleteConfirmation.label}</strong>. Esta accion no se puede deshacer.
+                </p>
+              </div>
+            </div>
+
+            {formError ? <p className="feedback">{formError}</p> : null}
+
+            <div className="modal-actions" style={{ marginTop: 20 }}>
+              <button
+                type="button"
+                className="button"
+                onClick={() => setDeleteConfirmation(null)}
+                disabled={formBusy}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="button danger"
+                onClick={() => void handleDeletePlanningItem(deleteConfirmation.id)}
+                disabled={formBusy}
+              >
+                {formBusy ? "Eliminando..." : "Confirmar eliminacion"}
+              </button>
             </div>
           </div>
         </div>
