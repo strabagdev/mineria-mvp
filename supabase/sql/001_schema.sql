@@ -21,7 +21,25 @@ create table if not exists planning_items (
   notes text null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint planning_items_valid_range check (end_time > start_time)
+  constraint planning_items_valid_range check (
+    start_time <> end_time
+    and (
+      (
+        shift = 'Dia'
+        and start_time >= time '08:00'
+        and end_time <= time '19:00'
+        and end_time > start_time
+      )
+      or (
+        shift = 'Noche'
+        and (
+          (start_time >= time '20:00' and end_time > start_time)
+          or (start_time >= time '20:00' and end_time <= time '07:00')
+          or (start_time <= time '07:00' and end_time <= time '07:00' and end_time > start_time)
+        )
+      )
+    )
+  )
 );
 
 create index if not exists planning_items_date_idx on planning_items (item_date);

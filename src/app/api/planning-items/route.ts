@@ -18,6 +18,25 @@ type PlanningItemPayload = {
   notes: string | null;
 };
 
+function toMinutes(time: string) {
+  const [hours, minutes] = time.slice(0, 5).split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+function isTimeWithinShift(time: string, shift: string) {
+  const minutes = toMinutes(time);
+
+  if (shift === "Dia") {
+    return minutes >= toMinutes("08:00") && minutes <= toMinutes("19:00");
+  }
+
+  if (shift === "Noche") {
+    return minutes >= toMinutes("20:00") || minutes <= toMinutes("07:00");
+  }
+
+  return false;
+}
+
 async function validateAndNormalizePlanningItem(
   req: Request,
   body: {
@@ -186,10 +205,28 @@ async function validateAndNormalizePlanningItem(
     };
   }
 
-  if (payload.end_time <= payload.start_time) {
+  if (!isTimeWithinShift(payload.start_time, payload.shift) || !isTimeWithinShift(payload.end_time, payload.shift)) {
     return {
       errorResponse: NextResponse.json(
-        { error: "La hora de termino debe ser mayor a la hora de inicio." },
+        { error: "El horario debe estar dentro de la ventana del turno seleccionado." },
+        { status: 400 }
+      ),
+    };
+  }
+
+  if (payload.start_time === payload.end_time) {
+    return {
+      errorResponse: NextResponse.json(
+        { error: "La hora de termino debe ser distinta a la hora de inicio." },
+        { status: 400 }
+      ),
+    };
+  }
+
+  if (payload.shift === "Dia" && payload.end_time <= payload.start_time) {
+    return {
+      errorResponse: NextResponse.json(
+        { error: "En turno Dia la hora de termino debe ser mayor a la hora de inicio." },
         { status: 400 }
       ),
     };
@@ -198,16 +235,25 @@ async function validateAndNormalizePlanningItem(
   return { db, payload, user };
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const db = getSupabaseServerClient();
-    const { data, error } = await db
+    const { searchParams } = new URL(req.url);
+    const date = searchParams.get("date")?.trim() ?? "";
+
+    let query = db
       .from("planning_items")
       .select(
         "id, activity_group_id, item_date, start_time, end_time, shift, level, front, category, tracking_type, item_type, description, notes"
       )
       .order("item_date", { ascending: true })
       .order("start_time", { ascending: true });
+
+    if (date) {
+      query = query.eq("item_date", date);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       throw error;

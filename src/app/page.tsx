@@ -126,6 +126,34 @@ type GanttScale = {
   }>;
 };
 
+type ShiftKey = "Dia" | "Noche";
+
+const SHIFT_CONFIG: Record<
+  ShiftKey,
+  {
+    title: string;
+    description: string;
+    start: string;
+    end: string;
+    wrapsMidnight: boolean;
+  }
+> = {
+  Dia: {
+    title: "Turno Dia",
+    description: "Ventana operacional de 08:00 a 19:00.",
+    start: "08:00",
+    end: "19:00",
+    wrapsMidnight: false,
+  },
+  Noche: {
+    title: "Turno Noche",
+    description: "Ventana operacional de 20:00 a 07:00.",
+    start: "20:00",
+    end: "07:00",
+    wrapsMidnight: true,
+  },
+};
+
 function toMinutes(time: string) {
   const normalized = time.slice(0, 5);
   const [hours, minutes] = normalized.split(":").map(Number);
@@ -341,8 +369,10 @@ function syncDetailAdminForm(form: DetailAdminForm, categories: CatalogCategory[
   };
 }
 
-async function fetchPlanningItems() {
-  const response = await fetch("/api/planning-items", { cache: "no-store" });
+async function fetchPlanningItems(date: string) {
+  const response = await fetch(`/api/planning-items?date=${encodeURIComponent(date)}`, {
+    cache: "no-store",
+  });
   const json = await response.json().catch(() => ({}));
 
   if (!response.ok) {
@@ -385,6 +415,7 @@ export default function Home() {
   const [planningItems, setPlanningItems] = useState<PlanningItem[]>([]);
   const [catalog, setCatalog] = useState<CatalogCategory[]>([]);
   const [selectedDate, setSelectedDate] = useState(todayIso);
+  const [activeShift, setActiveShift] = useState<ShiftKey>("Dia");
   const [itemsLoading, setItemsLoading] = useState(true);
   const [itemsError, setItemsError] = useState("");
   const [catalogLoading, setCatalogLoading] = useState(true);
@@ -413,23 +444,16 @@ export default function Home() {
   useEffect(() => {
     let active = true;
 
-    async function loadData() {
+    async function loadCatalog() {
       try {
-        setItemsLoading(true);
         setCatalogLoading(true);
-        setItemsError("");
         setCatalogError("");
-
-        const [nextItems, nextCatalog] = await Promise.all([
-          fetchPlanningItems(),
-          fetchPlanningCatalog(),
-        ]);
+        const nextCatalog = await fetchPlanningCatalog();
 
         if (!active) {
           return;
         }
 
-        setPlanningItems(nextItems);
         setCatalog(nextCatalog);
         setFormState((current) => syncPlanningForm(current, nextCatalog));
         setDetailForm((current) => syncDetailAdminForm(current, nextCatalog));
@@ -438,23 +462,56 @@ export default function Home() {
           error instanceof Error ? error.message : "No se pudieron cargar los datos del dashboard.";
 
         if (active) {
-          setItemsError(message);
           setCatalogError(message);
         }
       } finally {
         if (active) {
-          setItemsLoading(false);
           setCatalogLoading(false);
         }
       }
     }
 
-    void loadData();
+    void loadCatalog();
 
     return () => {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadPlanningItems() {
+      try {
+        setItemsLoading(true);
+        setItemsError("");
+        const nextItems = await fetchPlanningItems(selectedDate);
+
+        if (!active) {
+          return;
+        }
+
+        setPlanningItems(nextItems);
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error ? error.message : "No se pudo cargar la planificacion.";
+
+        if (active) {
+          setItemsError(message);
+        }
+      } finally {
+        if (active) {
+          setItemsLoading(false);
+        }
+      }
+    }
+
+    void loadPlanningItems();
+
+    return () => {
+      active = false;
+    };
+  }, [selectedDate]);
 
   useEffect(() => {
     if (formState.tracking_type !== "programado" || formState.category === "actividad") {
@@ -479,7 +536,7 @@ export default function Home() {
 
   function resetPlanningForm() {
     const nextForm = syncPlanningForm(toInitialPlanningForm(catalog), catalog);
-    setFormState({ ...nextForm, item_date: selectedDate });
+    setFormState({ ...nextForm, item_date: selectedDate, shift: activeShift });
     setFormError("");
     setEditingPlanningItem(null);
   }
@@ -489,7 +546,7 @@ export default function Home() {
   }
 
   async function refreshPlanningItems() {
-    const nextItems = await fetchPlanningItems();
+    const nextItems = await fetchPlanningItems(selectedDate);
     setPlanningItems(nextItems);
   }
 
@@ -783,10 +840,23 @@ export default function Home() {
   const availableDescriptions = selectedType?.details ?? [];
   const detailTypesForAdmin =
     catalog.find((category) => category.slug === detailForm.category)?.types ?? [];
-  const filteredPlanningItems = planningItems.filter((item) => item.item_date === selectedDate);
-  const hasPlanning = filteredPlanningItems.length > 0;
-  const groupedPlanningItems = groupPlanningItems(filteredPlanningItems);
-  const ganttScale = buildGanttScale("08:00", "08:00", true);
+  const planningGroupsByShift: Record<ShiftKey, PlanningGroup[]> = {
+    Dia: groupPlanningItems(planningItems.filter((item) => item.shift === "Dia")),
+    Noche: groupPlanningItems(planningItems.filter((item) => item.shift === "Noche")),
+  };
+  const hasPlanning = planningItems.length > 0;
+  const ganttScales: Record<ShiftKey, GanttScale> = {
+    Dia: buildGanttScale(
+      SHIFT_CONFIG.Dia.start,
+      SHIFT_CONFIG.Dia.end,
+      SHIFT_CONFIG.Dia.wrapsMidnight
+    ),
+    Noche: buildGanttScale(
+      SHIFT_CONFIG.Noche.start,
+      SHIFT_CONFIG.Noche.end,
+      SHIFT_CONFIG.Noche.wrapsMidnight
+    ),
+  };
   const selectedDateLabel = formatCurrentDateLabel(new Date(`${selectedDate}T00:00:00`));
   const isHistoricalView = selectedDate !== todayIso;
   const formContextLabel = isRealForm ? "Real" : "Programacion";
@@ -798,20 +868,20 @@ export default function Home() {
     : `Guardar ${isRealForm ? "real" : "programacion"}`;
   const planningDeleteLabel = `Eliminar ${isRealForm ? "real" : "programacion"}`;
 
-  function renderGanttBar(item: PlanningItem | null, layer: "programado" | "real") {
+  function renderGanttBar(item: PlanningItem | null, layer: "programado" | "real", scale: GanttScale) {
     if (!item) {
       return null;
     }
 
-    const start = positionMinutesInScale(item.start, ganttScale);
-    let end = positionMinutesInScale(item.end, ganttScale);
+    const start = positionMinutesInScale(item.start, scale);
+    let end = positionMinutesInScale(item.end, scale);
 
     if (end <= start) {
       end += 24 * 60;
     }
 
-    const scaleSpan = ganttScale.endMinutes - ganttScale.startMinutes;
-    const startOffset = ((start - ganttScale.startMinutes) / scaleSpan) * 100;
+    const scaleSpan = scale.endMinutes - scale.startMinutes;
+    const startOffset = ((start - scale.startMinutes) / scaleSpan) * 100;
     const width = ((end - start) / scaleSpan) * 100;
     const duration = formatDuration(item.start, item.end);
     const ariaLabel = buildPlanningItemAriaLabel(item, duration);
@@ -863,6 +933,125 @@ export default function Home() {
     setFormError("");
     setViewingPlanningItem(null);
     setIsModalOpen(true);
+  }
+
+  function renderShiftSection(shift: ShiftKey) {
+    const groups = planningGroupsByShift[shift];
+    const scale = ganttScales[shift];
+    const config = SHIFT_CONFIG[shift];
+
+    return (
+      <section className="gantt-section shift-section" key={shift}>
+        <div className="gantt-section-header shift-section-header">
+          <div className="shift-section-copy">
+            <h3 className="shift-section-title">{config.title}</h3>
+            <p className="shift-section-description">{config.description}</p>
+          </div>
+          <div className="gantt-legend" aria-label="Leyenda de barras">
+            <span className="gantt-legend-chip programado">Programado</span>
+            <span className="gantt-legend-chip real">Real</span>
+          </div>
+        </div>
+
+        <div className="gantt-header">
+          <div className="gantt-header-meta">Evento</div>
+          <div
+            className="gantt-header-timeline"
+            style={{ gridTemplateColumns: `repeat(${scale.slotCount}, minmax(0, 1fr))` }}
+          >
+            {scale.hourMarks.map((mark, index) => (
+              <span
+                key={`${shift}-${mark.key}`}
+                className={[
+                  mark.major ? "major" : "minor",
+                  mark.major && index === 0 ? "first-major" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+              >
+                {mark.major ? <span className="gantt-hour-label">{mark.label}</span> : null}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div
+          className="gantt-rows"
+          style={
+            {
+              "--gantt-slot-count": String(scale.slotCount),
+            } as CSSProperties
+          }
+        >
+          <div className="gantt-rows-timeline-bg" aria-hidden="true" />
+
+          {groups.length ? (
+            groups.map((group) => (
+              <article key={group.key} className="gantt-row gantt-row-dual">
+                <div className="gantt-meta">
+                  <div className="gantt-meta-primary">
+                    <h3 title={group.description}>{group.description}</h3>
+                    <div className="gantt-meta-line">
+                      <div className="field-list">
+                        <span className={`category-pill ${group.category === "interferencia" ? "warning" : "success"}`}>
+                          {toDisplayCategory(group.category)}
+                        </span>
+                        <span className="field-chip">{group.item_type}</span>
+                      </div>
+
+                      <div className="gantt-meta-secondary">
+                        {!isHistoricalView && group.programado ? (
+                          <button
+                            type="button"
+                            className="button icon-button programado"
+                            onClick={() => openEditPlanningItem(group.programado!)}
+                            aria-label={`Editar programacion de ${group.description}`}
+                            title="Editar programacion"
+                          >
+                            <span aria-hidden="true">P</span>
+                          </button>
+                        ) : null}
+                        {!isHistoricalView && group.real ? (
+                          <button
+                            type="button"
+                            className="button icon-button real"
+                            onClick={() => openEditPlanningItem(group.real!)}
+                            aria-label={`Editar real de ${group.description}`}
+                            title="Editar real"
+                          >
+                            <span aria-hidden="true">R</span>
+                          </button>
+                        ) : null}
+                        {!isHistoricalView && group.programado && !group.real ? (
+                          <button
+                            type="button"
+                            className="button icon-button real"
+                            onClick={() => openCreatePlanningVariant(group, "real")}
+                            aria-label={`Agregar real a ${group.description}`}
+                            title="Agregar real"
+                          >
+                            <span aria-hidden="true">+</span>
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="gantt-track gantt-track-compare">
+                  {renderGanttBar(group.programado, "programado", scale)}
+                  {renderGanttBar(group.real, "real", scale)}
+                </div>
+              </article>
+            ))
+          ) : (
+            <div className="shift-empty-state">
+              <p className="ops-copy">Sin actividades para este turno.</p>
+            </div>
+          )}
+        </div>
+      </section>
+    );
   }
 
   return (
@@ -954,108 +1143,24 @@ export default function Home() {
             ) : null}
 
             {hasPlanning ? (
-              <section className="gantt-section">
-                <div className="gantt-section-header">
-                  <div className="gantt-legend" aria-label="Leyenda de barras">
-                    <span className="gantt-legend-chip programado">Programado</span>
-                    <span className="gantt-legend-chip real">Real</span>
-                  </div>
+              <>
+                <div className="shift-tabs" role="tablist" aria-label="Turnos disponibles">
+                  {(["Dia", "Noche"] as ShiftKey[]).map((shift) => (
+                    <button
+                      key={shift}
+                      type="button"
+                      role="tab"
+                      aria-selected={activeShift === shift}
+                      className={`shift-tab ${activeShift === shift ? "active" : ""}`}
+                      onClick={() => setActiveShift(shift)}
+                    >
+                      {SHIFT_CONFIG[shift].title}
+                    </button>
+                  ))}
                 </div>
 
-                <div className="gantt-header">
-                  <div className="gantt-header-meta">Evento</div>
-                  <div
-                    className="gantt-header-timeline"
-                    style={{ gridTemplateColumns: `repeat(${ganttScale.slotCount}, minmax(0, 1fr))` }}
-                  >
-                    {ganttScale.hourMarks.map((mark, index) => (
-                      <span
-                        key={mark.key}
-                        className={[
-                          mark.major ? "major" : "minor",
-                          mark.major && index === 0 ? "first-major" : "",
-                        ]
-                          .filter(Boolean)
-                          .join(" ")}
-                      >
-                        {mark.major ? <span className="gantt-hour-label">{mark.label}</span> : null}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-
-                <div
-                  className="gantt-rows"
-                  style={
-                    {
-                      "--gantt-slot-count": String(ganttScale.slotCount),
-                    } as CSSProperties
-                  }
-                >
-                  <div className="gantt-rows-timeline-bg" aria-hidden="true" />
-
-                  {groupedPlanningItems.map((group) => {
-                    return (
-                      <article key={group.key} className="gantt-row gantt-row-dual">
-                        <div className="gantt-meta">
-                          <div className="gantt-meta-primary">
-                            <h3 title={group.description}>{group.description}</h3>
-                            <div className="gantt-meta-line">
-                              <div className="field-list">
-                                <span className={`category-pill ${group.category === "interferencia" ? "warning" : "success"}`}>
-                                  {toDisplayCategory(group.category)}
-                                </span>
-                                <span className="field-chip">{group.item_type}</span>
-                              </div>
-
-                              <div className="gantt-meta-secondary">
-                                {!isHistoricalView && group.programado ? (
-                                  <button
-                                    type="button"
-                                    className="button icon-button programado"
-                                    onClick={() => openEditPlanningItem(group.programado!)}
-                                    aria-label={`Editar programacion de ${group.description}`}
-                                    title="Editar programacion"
-                                  >
-                                    <span aria-hidden="true">P</span>
-                                  </button>
-                                ) : null}
-                                {!isHistoricalView && group.real ? (
-                                  <button
-                                    type="button"
-                                    className="button icon-button real"
-                                    onClick={() => openEditPlanningItem(group.real!)}
-                                    aria-label={`Editar real de ${group.description}`}
-                                    title="Editar real"
-                                  >
-                                    <span aria-hidden="true">R</span>
-                                  </button>
-                                ) : null}
-                                {!isHistoricalView && group.programado && !group.real ? (
-                                  <button
-                                    type="button"
-                                    className="button icon-button real"
-                                    onClick={() => openCreatePlanningVariant(group, "real")}
-                                    aria-label={`Agregar real a ${group.description}`}
-                                    title="Agregar real"
-                                  >
-                                    <span aria-hidden="true">+</span>
-                                  </button>
-                                ) : null}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="gantt-track gantt-track-compare">
-                          {renderGanttBar(group.programado, "programado")}
-                          {renderGanttBar(group.real, "real")}
-                        </div>
-                      </article>
-                    );
-                  })}
-                </div>
-              </section>
+                {renderShiftSection(activeShift)}
+              </>
             ) : null}
           </div>
         </div>
@@ -1174,16 +1279,7 @@ export default function Home() {
 
                 <label className="field">
                   Turno
-                  <select
-                    className="field-input"
-                    value={formState.shift}
-                    onChange={(event) =>
-                      setFormState((current) => ({ ...current, shift: event.target.value }))
-                    }
-                  >
-                    <option value="Dia">Dia</option>
-                    <option value="Noche">Noche</option>
-                  </select>
+                  <input className="field-input" value={formState.shift} readOnly />
                 </label>
 
                 <label className="field">

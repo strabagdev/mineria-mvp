@@ -629,6 +629,40 @@ textarea {
   gap: 0.85rem;
 }
 
+.shift-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: fit-content;
+  max-width: 100%;
+  padding: 0.25rem;
+  border: 1px solid rgba(17, 32, 28, 0.08);
+  border-radius: 999px;
+  background: rgba(248, 250, 252, 0.92);
+}
+
+.shift-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.1rem;
+  padding: 0.45rem 0.9rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+.shift-tab.active {
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--foreground);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+}
+
 .gantt-section {
   display: grid;
   gap: 0.85rem;
@@ -638,6 +672,10 @@ textarea {
   background: transparent;
 }
 
+.shift-section {
+  gap: 0.75rem;
+}
+
 .gantt-section-header {
   display: flex;
   justify-content: flex-end;
@@ -645,6 +683,30 @@ textarea {
   gap: 1rem;
   flex-wrap: wrap;
   padding: 0.1rem 0 0.2rem;
+}
+
+.shift-section-header {
+  justify-content: space-between;
+  align-items: end;
+  padding-top: 0.2rem;
+}
+
+.shift-section-copy {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.shift-section-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--foreground);
+}
+
+.shift-section-description {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted-soft);
 }
 
 .gantt-legend {
@@ -681,6 +743,12 @@ textarea {
   position: relative;
   display: grid;
   gap: 0;
+}
+
+.shift-empty-state {
+  position: relative;
+  z-index: 1;
+  padding: 0.9rem 1rem;
 }
 
 .gantt-rows-timeline-bg {
@@ -1382,6 +1450,12 @@ textarea {
     padding: 0.8rem 0.82rem 0.9rem;
   }
 
+  .shift-tab {
+    min-height: 1.9rem;
+    padding: 0.36rem 0.74rem;
+    font-size: 0.76rem;
+  }
+
   .gantt-header,
   .gantt-row {
     gap: 0.75rem;
@@ -1497,6 +1571,15 @@ textarea {
   .history-input {
     min-width: 0;
     width: 100%;
+  }
+
+  .shift-tabs {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .shift-tab {
+    flex: 1 1 0;
   }
 
   .hero-date-chip {
