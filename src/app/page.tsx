@@ -381,8 +381,10 @@ async function fetchPlanningCatalog() {
 
 export default function Home() {
   const { session } = useAuth();
+  const todayIso = new Date().toISOString().slice(0, 10);
   const [planningItems, setPlanningItems] = useState<PlanningItem[]>([]);
   const [catalog, setCatalog] = useState<CatalogCategory[]>([]);
+  const [selectedDate, setSelectedDate] = useState(todayIso);
   const [itemsLoading, setItemsLoading] = useState(true);
   const [itemsError, setItemsError] = useState("");
   const [catalogLoading, setCatalogLoading] = useState(true);
@@ -471,8 +473,13 @@ export default function Home() {
     }));
   }, [catalog, formState.category, formState.tracking_type]);
 
+  useEffect(() => {
+    setFormState((current) => ({ ...current, item_date: selectedDate }));
+  }, [selectedDate]);
+
   function resetPlanningForm() {
-    setFormState(syncPlanningForm(toInitialPlanningForm(catalog), catalog));
+    const nextForm = syncPlanningForm(toInitialPlanningForm(catalog), catalog);
+    setFormState({ ...nextForm, item_date: selectedDate });
     setFormError("");
     setEditingPlanningItem(null);
   }
@@ -557,6 +564,10 @@ export default function Home() {
   }
 
   function openEditPlanningItem(item: PlanningItem) {
+    if (selectedDate !== todayIso) {
+      return;
+    }
+
     const nextCategory =
       catalog.find((category) => category.slug === item.category) ?? null;
     const nextType = nextCategory?.types.find((type) => type.label === item.item_type) ?? nextCategory?.types[0] ?? null;
@@ -772,10 +783,12 @@ export default function Home() {
   const availableDescriptions = selectedType?.details ?? [];
   const detailTypesForAdmin =
     catalog.find((category) => category.slug === detailForm.category)?.types ?? [];
-  const hasPlanning = planningItems.length > 0;
-  const groupedPlanningItems = groupPlanningItems(planningItems);
-  const ganttScale = buildGanttScale("08:00", "07:30", true);
-  const todayLabel = formatCurrentDateLabel(new Date());
+  const filteredPlanningItems = planningItems.filter((item) => item.item_date === selectedDate);
+  const hasPlanning = filteredPlanningItems.length > 0;
+  const groupedPlanningItems = groupPlanningItems(filteredPlanningItems);
+  const ganttScale = buildGanttScale("08:00", "08:00", true);
+  const selectedDateLabel = formatCurrentDateLabel(new Date(`${selectedDate}T00:00:00`));
+  const isHistoricalView = selectedDate !== todayIso;
   const formContextLabel = isRealForm ? "Real" : "Programacion";
   const planningModalTitle = editingPlanningItem
     ? `Editar ${isRealForm ? "real" : "programacion"}`
@@ -822,6 +835,10 @@ export default function Home() {
   }
 
   function openCreatePlanningVariant(group: PlanningGroup, trackingType: "programado" | "real") {
+    if (isHistoricalView) {
+      return;
+    }
+
     const sourceItem = group[trackingType] ?? group.programado ?? group.real;
     const nextCategory = catalog.find((category) => category.slug === group.category) ?? null;
     const nextType = nextCategory?.types.find((type) => type.label === group.item_type) ?? nextCategory?.types[0] ?? null;
@@ -853,13 +870,47 @@ export default function Home() {
       <article className="surface-card hero hero-operational">
         <div className="hero-operational-line">
           <div className="hero-operational-copy">
-            <p className="eyebrow">Operacion</p>
-            <h2 className="hero-title">Carta Gantt operativa</h2>
+            <div className="hero-badge-row">
+              <span className="hero-badge hero-badge-strong">Planificacion diaria</span>
+              <span className="hero-badge">Programado vs real</span>
+            </div>
+            <h2 className="hero-title">Seguimiento operativo del turno</h2>
             <p className="body-copy">
-              Registro diario de actividades e interferencias con contraste entre lo programado y lo real.
+              Registra la programacion del dia y contrasta su ejecucion real dentro de una misma grilla operativa.
             </p>
           </div>
 
+          <div className="hero-date-chip" aria-label={`Fecha visualizada ${selectedDateLabel}`}>
+            <span className="hero-date-label">{isHistoricalView ? "Fecha historica" : "Fecha actual"}</span>
+            <strong className="hero-date-value">{selectedDateLabel}</strong>
+          </div>
+        </div>
+
+        <div className="hero-operational-footer">
+          <div className="hero-inline-block">
+            <p className="hero-inline-note">
+              {isHistoricalView
+                ? "Modo historico: puedes revisar registros anteriores, pero sin editar ni agregar cambios."
+                : "Gestion operativa simple, enfocada en registrar y comparar sin ruido visual."}
+            </p>
+            <div className="history-controls" aria-label="Selector de fecha">
+              <label className="field history-field">
+                <span className="history-label">Visualizar dia</span>
+                <input
+                  className="field-input history-input"
+                  type="date"
+                  max={todayIso}
+                  value={selectedDate}
+                  onChange={(event) => setSelectedDate(event.target.value)}
+                />
+              </label>
+              {isHistoricalView ? (
+                <button type="button" className="button" onClick={() => setSelectedDate(todayIso)}>
+                  Volver a hoy
+                </button>
+              ) : null}
+            </div>
+          </div>
           <div className="toolbar-actions">
             <button
               type="button"
@@ -877,7 +928,7 @@ export default function Home() {
                 setFormState((current) => ({ ...current, tracking_type: "programado" }));
                 setIsModalOpen(true);
               }}
-              disabled={!session || catalogLoading || !catalog.length}
+              disabled={!session || catalogLoading || !catalog.length || isHistoricalView}
             >
               Nueva programacion
             </button>
@@ -889,20 +940,6 @@ export default function Home() {
       </article>
 
       <section className="gantt-stage">
-        <div className="gantt-stage-header">
-          <div>
-            <p className="eyebrow">Gantt</p>
-            <h2 className="card-title" style={{ marginTop: 12 }}>
-              Programacion del dia
-            </h2>
-          </div>
-
-          <div className="gantt-date-callout" aria-label={`Fecha actual ${todayLabel}`}>
-            <p className="gantt-date-label">Fecha actual</p>
-            <p className="gantt-date-value">{todayLabel}</p>
-          </div>
-        </div>
-
         <div className="gantt-shell">
           <div className="gantt-body">
             {itemsLoading ? <p className="body-copy">Cargando planificacion...</p> : null}
@@ -911,7 +948,7 @@ export default function Home() {
               <div className="empty-state">
                 <p className="ops-kicker">Sin registros</p>
                 <p className="ops-copy">
-                  La tabla `planning_items` existe, pero todavia no tiene actividades o interferencias para mostrar.
+                  No hay actividades ni interferencias registradas para {formatDateLabel(selectedDate)}.
                 </p>
               </div>
             ) : null}
@@ -919,9 +956,6 @@ export default function Home() {
             {hasPlanning ? (
               <section className="gantt-section">
                 <div className="gantt-section-header">
-                  <span className="catalog-count">
-                    {groupedPlanningItems.length} actividades · {planningItems.length} registros
-                  </span>
                   <div className="gantt-legend" aria-label="Leyenda de barras">
                     <span className="gantt-legend-chip programado">Programado</span>
                     <span className="gantt-legend-chip real">Real</span>
@@ -975,7 +1009,7 @@ export default function Home() {
                               </div>
 
                               <div className="gantt-meta-secondary">
-                                {group.programado ? (
+                                {!isHistoricalView && group.programado ? (
                                   <button
                                     type="button"
                                     className="button icon-button programado"
@@ -986,7 +1020,7 @@ export default function Home() {
                                     <span aria-hidden="true">P</span>
                                   </button>
                                 ) : null}
-                                {group.real ? (
+                                {!isHistoricalView && group.real ? (
                                   <button
                                     type="button"
                                     className="button icon-button real"
@@ -997,7 +1031,7 @@ export default function Home() {
                                     <span aria-hidden="true">R</span>
                                   </button>
                                 ) : null}
-                                {group.programado && !group.real ? (
+                                {!isHistoricalView && group.programado && !group.real ? (
                                   <button
                                     type="button"
                                     className="button icon-button real"
@@ -1311,13 +1345,15 @@ export default function Home() {
               <button type="button" className="button" onClick={() => setViewingPlanningItem(null)}>
                 Cerrar
               </button>
-              <button
-                type="button"
-                className="button primary"
-                onClick={() => openEditPlanningItem(viewingPlanningItem)}
-              >
-                Editar registro
-              </button>
+              {!isHistoricalView ? (
+                <button
+                  type="button"
+                  className="button primary"
+                  onClick={() => openEditPlanningItem(viewingPlanningItem)}
+                >
+                  Editar registro
+                </button>
+              ) : null}
             </div>
           </div>
         </div>
