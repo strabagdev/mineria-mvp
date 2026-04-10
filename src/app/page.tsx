@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/providers/auth-provider";
 
 type PlanningItem = {
@@ -104,6 +104,7 @@ type DeleteConfirmation = {
 } | null;
 
 type ViewingPlanningItem = PlanningItem | null;
+type TimeFieldKey = "start_time" | "end_time";
 
 type PlanningGroup = {
   key: string;
@@ -125,6 +126,7 @@ type GanttScale = {
   endMinutes: number;
   slotMinutes: number;
   slotCount: number;
+  endLabel: string;
   hourMarks: Array<{
     key: string;
     label: string;
@@ -171,6 +173,13 @@ function toTimeLabel(totalMinutes: number) {
   const hours = Math.floor(normalized / 60);
   const minutes = normalized % 60;
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function formatLocalDateIso(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function formatDateLabel(value: string) {
@@ -255,6 +264,7 @@ function buildGanttScale(start: string, end: string, wrapsMidnight: boolean): Ga
     endMinutes,
     slotMinutes,
     slotCount,
+    endLabel: toTimeLabel(endMinutes),
     hourMarks,
   };
 }
@@ -268,7 +278,57 @@ function positionMinutesInScale(time: string, scale: GanttScale) {
   return minutes;
 }
 
-function toInitialPlanningForm(categories: CatalogCategory[]): PlanningItemForm {
+function getDefaultShiftTimes(shift: ShiftKey) {
+  if (shift === "Noche") {
+    return {
+      start_time: SHIFT_CONFIG.Noche.start,
+      end_time: "21:00",
+    };
+  }
+
+  return {
+    start_time: SHIFT_CONFIG.Dia.start,
+    end_time: "09:00",
+  };
+}
+
+function getShiftTimeOptions(shift: ShiftKey, extraValues: string[] = []) {
+  const config = SHIFT_CONFIG[shift];
+  const startMinutes = toMinutes(config.start);
+  const baseEndMinutes = config.wrapsMidnight ? toMinutes(config.end) + 24 * 60 : toMinutes(config.end);
+  const values = new Set<string>(extraValues.filter(Boolean).map((value) => value.slice(0, 5)));
+
+  for (let minutes = startMinutes; minutes <= baseEndMinutes; minutes += 30) {
+    values.add(toTimeLabel(minutes));
+  }
+
+  return Array.from(values).sort((left, right) => {
+    const leftMinutes = positionMinutesInScale(left, {
+      startMinutes,
+      endMinutes: baseEndMinutes,
+      slotMinutes: 30,
+      slotCount: 0,
+      endLabel: config.end,
+      hourMarks: [],
+    });
+    const rightMinutes = positionMinutesInScale(right, {
+      startMinutes,
+      endMinutes: baseEndMinutes,
+      slotMinutes: 30,
+      slotCount: 0,
+      endLabel: config.end,
+      hourMarks: [],
+    });
+
+    return leftMinutes - rightMinutes;
+  });
+}
+
+function toInitialPlanningForm(
+  categories: CatalogCategory[],
+  shift: ShiftKey = "Dia",
+  itemDate = formatLocalDateIso()
+): PlanningItemForm {
   const defaultCategory = categories[0] ?? {
     slug: "actividad" as const,
     label: "Actividad",
@@ -276,13 +336,14 @@ function toInitialPlanningForm(categories: CatalogCategory[]): PlanningItemForm 
   };
   const defaultType = defaultCategory.types[0];
   const defaultDetail = defaultType?.details[0];
+  const defaultTimes = getDefaultShiftTimes(shift);
 
   return {
     activity_group_id: crypto.randomUUID(),
-    item_date: new Date().toISOString().slice(0, 10),
-    start_time: "07:00",
-    end_time: "08:00",
-    shift: "Dia",
+    item_date: itemDate,
+    start_time: defaultTimes.start_time,
+    end_time: defaultTimes.end_time,
+    shift,
     level: "",
     front: "",
     category: defaultCategory.slug,
@@ -321,15 +382,33 @@ function syncPlanningForm(form: PlanningItemForm, categories: CatalogCategory[])
 function groupPlanningItems(items: PlanningItem[]) {
   const groups = new Map<string, PlanningGroup>();
 
+  function syncGroupSummary(group: PlanningGroup) {
+    const displayItem = group.programado ?? group.real;
+
+    if (!displayItem) {
+      return;
+    }
+
+    group.item_date = displayItem.item_date;
+    group.shift = displayItem.shift;
+    group.level = displayItem.level;
+    group.front = displayItem.front;
+    group.category = displayItem.category;
+    group.item_type = displayItem.item_type;
+    group.description = displayItem.description;
+    group.notes = group.programado?.notes ?? group.real?.notes ?? null;
+  }
+
   for (const item of items) {
     const existingGroup = groups.get(item.activity_group_id);
 
     if (existingGroup) {
       existingGroup[item.tracking_type] = item;
+      syncGroupSummary(existingGroup);
       continue;
     }
 
-    groups.set(item.activity_group_id, {
+    const nextGroup: PlanningGroup = {
       key: item.activity_group_id,
       activity_group_id: item.activity_group_id,
       item_date: item.item_date,
@@ -342,7 +421,9 @@ function groupPlanningItems(items: PlanningItem[]) {
       notes: item.notes ?? null,
       programado: item.tracking_type === "programado" ? item : null,
       real: item.tracking_type === "real" ? item : null,
-    });
+    };
+    syncGroupSummary(nextGroup);
+    groups.set(item.activity_group_id, nextGroup);
   }
 
   return Array.from(groups.values()).sort((left, right) => {
@@ -417,7 +498,7 @@ async function fetchPlanningCatalog() {
 
 export default function Home() {
   const { session } = useAuth();
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = formatLocalDateIso();
   const [planningItems, setPlanningItems] = useState<PlanningItem[]>([]);
   const [catalog, setCatalog] = useState<CatalogCategory[]>([]);
   const [selectedDate, setSelectedDate] = useState(todayIso);
@@ -435,7 +516,8 @@ export default function Home() {
   const [deleteConfirmation, setDeleteConfirmation] = useState<DeleteConfirmation>(null);
   const [catalogBusy, setCatalogBusy] = useState(false);
   const [catalogFormError, setCatalogFormError] = useState("");
-  const [formState, setFormState] = useState<PlanningItemForm>(toInitialPlanningForm([]));
+  const [formState, setFormState] = useState<PlanningItemForm>(toInitialPlanningForm([], "Dia", formatLocalDateIso()));
+  const [openTimeField, setOpenTimeField] = useState<TimeFieldKey | null>(null);
   const [typeForm, setTypeForm] = useState<TypeAdminForm>({
     category: "actividad",
     label: "",
@@ -447,6 +529,7 @@ export default function Home() {
   });
   const [editingType, setEditingType] = useState<EditTypeForm | null>(null);
   const [editingDetail, setEditingDetail] = useState<EditDetailForm | null>(null);
+  const timePickerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -541,11 +624,29 @@ export default function Home() {
     setFormState((current) => ({ ...current, item_date: selectedDate }));
   }, [selectedDate]);
 
+  useEffect(() => {
+    if (!openTimeField) {
+      return;
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      if (!timePickerRef.current?.contains(event.target as Node)) {
+        setOpenTimeField(null);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+    };
+  }, [openTimeField]);
+
   function resetPlanningForm() {
-    const nextForm = syncPlanningForm(toInitialPlanningForm(catalog), catalog);
+    const nextForm = syncPlanningForm(toInitialPlanningForm(catalog, activeShift, selectedDate), catalog);
     setFormState({ ...nextForm, item_date: selectedDate, shift: activeShift });
     setFormError("");
     setEditingPlanningItem(null);
+    setOpenTimeField(null);
   }
 
   function openPlanningDetail(item: PlanningItem) {
@@ -860,11 +961,12 @@ export default function Home() {
   const availableDescriptions = selectedType?.details ?? [];
   const detailTypesForAdmin =
     catalog.find((category) => category.slug === detailForm.category)?.types ?? [];
+  const formShift = formState.shift === "Noche" ? "Noche" : "Dia";
+  const timeOptions = getShiftTimeOptions(formShift, [formState.start_time, formState.end_time]);
   const planningGroupsByShift: Record<ShiftKey, PlanningGroup[]> = {
     Dia: groupPlanningItems(planningItems.filter((item) => item.shift === "Dia")),
     Noche: groupPlanningItems(planningItems.filter((item) => item.shift === "Noche")),
   };
-  const hasPlanning = planningItems.length > 0;
   const ganttScales: Record<ShiftKey, GanttScale> = {
     Dia: buildGanttScale(
       SHIFT_CONFIG.Dia.start,
@@ -920,7 +1022,13 @@ export default function Home() {
           }
         }}
         style={{ left: `${startOffset}%`, width: `${width}%` }}
-      />
+      >
+        {layer === "programado" ? (
+          <span className="gantt-bar-label" aria-hidden="true">
+            {item.description}
+          </span>
+        ) : null}
+      </div>
     );
   }
 
@@ -1010,6 +1118,9 @@ export default function Home() {
                 {mark.major ? <span className="gantt-hour-label">{mark.label}</span> : null}
               </span>
             ))}
+            <span className="gantt-end-label" aria-hidden="true">
+              <span className="gantt-hour-label">{scale.endLabel}</span>
+            </span>
           </div>
         </div>
 
@@ -1054,6 +1165,48 @@ export default function Home() {
           )}
         </div>
       </section>
+    );
+  }
+
+  function renderTimePicker(field: TimeFieldKey, label: string) {
+    const isOpen = openTimeField === field;
+
+    return (
+      <label className="field">
+        {label}
+        <div
+          className={`time-picker-field ${isOpen ? "open" : ""}`}
+          ref={isOpen ? timePickerRef : null}
+        >
+          <button
+            type="button"
+            className="field-input time-picker-trigger"
+            aria-expanded={isOpen}
+            aria-haspopup="listbox"
+            onClick={() => setOpenTimeField((current) => (current === field ? null : field))}
+          >
+            <span>{formState[field]}</span>
+          </button>
+
+          {isOpen ? (
+            <div className="time-picker-popover" role="listbox" aria-label={label}>
+              {timeOptions.map((time) => (
+                <button
+                  key={`${field}-${time}`}
+                  type="button"
+                  className={`time-option ${formState[field] === time ? "active" : ""}`}
+                  onClick={() => {
+                    setFormState((current) => ({ ...current, [field]: time }));
+                    setOpenTimeField(null);
+                  }}
+                >
+                  {time}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </label>
     );
   }
 
@@ -1136,16 +1289,7 @@ export default function Home() {
           <div className="gantt-body">
             {itemsLoading ? <p className="body-copy">Cargando planificacion...</p> : null}
 
-            {!itemsLoading && !hasPlanning ? (
-              <div className="empty-state">
-                <p className="ops-kicker">Sin registros</p>
-                <p className="ops-copy">
-                  No hay actividades ni interferencias registradas para {formatDateLabel(selectedDate)}.
-                </p>
-              </div>
-            ) : null}
-
-            {hasPlanning ? (
+            {!itemsLoading ? (
               <>
                 <div className="shift-tabs" role="tablist" aria-label="Turnos disponibles">
                   {(["Dia", "Noche"] as ShiftKey[]).map((shift) => (
@@ -1268,29 +1412,9 @@ export default function Home() {
                   </select>
                 </label>
 
-                <label className="field">
-                  Hora inicio
-                  <input
-                    className="field-input"
-                    type="time"
-                    value={formState.start_time}
-                    onChange={(event) =>
-                      setFormState((current) => ({ ...current, start_time: event.target.value }))
-                    }
-                  />
-                </label>
+                {renderTimePicker("start_time", "Hora inicio")}
 
-                <label className="field">
-                  Hora termino
-                  <input
-                    className="field-input"
-                    type="time"
-                    value={formState.end_time}
-                    onChange={(event) =>
-                      setFormState((current) => ({ ...current, end_time: event.target.value }))
-                    }
-                  />
-                </label>
+                {renderTimePicker("end_time", "Hora termino")}
 
                 <label className="field">
                   Nivel
