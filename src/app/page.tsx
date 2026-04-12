@@ -1103,7 +1103,7 @@ export default function Home() {
           <div className="gantt-header-meta">Evento</div>
           <div
             className="gantt-header-timeline"
-            style={{ gridTemplateColumns: `repeat(${scale.slotCount}, minmax(0, 1fr))` }}
+            style={{ gridTemplateColumns: `repeat(${scale.slotCount}, minmax(0, 1fr)) auto` }}
           >
             {scale.hourMarks.map((mark, index) => (
               <span

@@ -625,12 +625,9 @@ textarea {
 }
 
 .gantt-end-label {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
+  position: relative;
+  justify-self: end;
   width: max-content;
-  overflow: visible;
   pointer-events: none;
 }
 
@@ -639,16 +636,16 @@ textarea {
   position: absolute;
   top: 0;
   bottom: 0;
-  right: 0;
+  left: 0;
   width: 1px;
   background: rgba(100, 116, 139, 0.28);
 }
 
 .gantt-end-label .gantt-hour-label {
-  left: auto;
-  right: 0;
+  left: 0;
+  right: auto;
   transform: translateX(0);
-  text-align: right;
+  text-align: left;
 }
 
 .gantt-body {
