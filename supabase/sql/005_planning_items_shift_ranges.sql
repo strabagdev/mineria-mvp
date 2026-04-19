@@ -9,15 +9,15 @@ alter table planning_items
       (
         shift = 'Dia'
         and start_time >= time '08:00'
-        and end_time <= time '19:00'
+        and end_time <= time '20:00'
         and end_time > start_time
       )
       or (
         shift = 'Noche'
         and (
           (start_time >= time '20:00' and end_time > start_time)
-          or (start_time >= time '20:00' and end_time <= time '07:00')
-          or (start_time <= time '07:00' and end_time <= time '07:00' and end_time > start_time)
+          or (start_time >= time '20:00' and end_time <= time '08:00')
+          or (start_time <= time '08:00' and end_time <= time '08:00' and end_time > start_time)
         )
       )
     )
