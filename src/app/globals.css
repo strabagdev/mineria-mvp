@@ -1046,6 +1046,41 @@ textarea {
   margin-top: 1.25rem;
 }
 
+.admin-user-list {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+
+.admin-user-card {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.admin-user-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.admin-user-badges,
+.admin-user-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.75rem;
+}
+
+.admin-user-actions .field {
+  min-width: min(100%, 12rem);
+  flex: 1 1 12rem;
+}
+
 .field {
   display: grid;
   gap: 0.375rem;
@@ -1076,68 +1111,6 @@ select.field-input {
     calc(100% - 0.72rem) calc(50% - 0.12rem);
   background-size: 0.38rem 0.38rem, 0.38rem 0.38rem;
   background-repeat: no-repeat;
-}
-
-.time-picker-field {
-  position: relative;
-}
-
-.time-picker-trigger {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  text-align: left;
-  cursor: pointer;
-}
-
-.time-picker-trigger::after {
-  content: "";
-  flex: 0 0 auto;
-  width: 0.45rem;
-  height: 0.45rem;
-  border-right: 2px solid rgba(68, 64, 60, 0.88);
-  border-bottom: 2px solid rgba(68, 64, 60, 0.88);
-  transform: rotate(45deg) translateY(-10%);
-}
-
-.time-picker-popover {
-  position: absolute;
-  z-index: 3;
-  top: calc(100% + 0.4rem);
-  left: 0;
-  right: 0;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.35rem;
-  padding: 0.7rem;
-  border: 1px solid rgba(214, 211, 209, 0.95);
-  border-radius: 0.95rem;
-  background: rgba(255, 255, 255, 0.98);
-  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.14);
-}
-
-.time-option {
-  min-height: 2rem;
-  border: 1px solid rgba(226, 232, 240, 0.92);
-  border-radius: 0.7rem;
-  background: #f8fafc;
-  color: var(--foreground);
-  font-size: 0.78rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
-}
-
-.time-option:hover {
-  background: #eff6ff;
-  border-color: #93c5fd;
-}
-
-.time-option.active {
-  background: #dbeafe;
-  border-color: #60a5fa;
-  color: #1d4ed8;
 }
 
 .field-input:focus {
@@ -1734,9 +1707,5 @@ select.field-input {
   .toolbar-actions > *,
   .modal-actions > * {
     width: 100%;
-  }
-
-  .time-picker-popover {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
+import { requireAdminUser } from "@/lib/accessControl";
 import { getErrorMessage } from "@/lib/errorMessage";
-import { requireAuthUser } from "@/lib/requireAuthUser";
 import { getSupabaseServerClient } from "@/lib/supabaseServer";
 
 const categoryLabels = {
@@ -73,7 +73,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    await requireAuthUser(req);
+    await requireAdminUser(req);
     const body = (await req.json()) as {
       entity?: "type" | "detail";
       category?: string;
@@ -151,7 +151,7 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
-    await requireAuthUser(req);
+    await requireAdminUser(req);
     const body = (await req.json()) as {
       entity?: "type" | "detail";
       id?: number;
@@ -234,7 +234,7 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    await requireAuthUser(req);
+    await requireAdminUser(req);
     const body = (await req.json()) as {
       entity?: "type" | "detail";
       id?: number;

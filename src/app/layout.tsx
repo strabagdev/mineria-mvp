@@ -1,7 +1,5 @@
 import React from "react";
 import "./globals.css";
-import { SiteShell } from "@/components/site-shell";
-import { AuthProvider } from "@/providers/auth-provider";
 
 export const metadata = {
   title: "Mineria MVP",
@@ -11,11 +9,7 @@ export const metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es">
-      <body>
-        <AuthProvider>
-          <SiteShell>{children}</SiteShell>
-        </AuthProvider>
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

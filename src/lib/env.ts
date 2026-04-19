@@ -3,6 +3,8 @@ import "server-only";
 type ServerEnv = {
   supabaseUrl: string;
   supabaseServiceRoleKey: string;
+  supabaseAuthUrl: string;
+  supabaseAuthServiceRoleKey: string;
 };
 
 function normalizeSupabaseUrl(rawUrl: string) {
@@ -34,6 +36,15 @@ export function getServerEnv(): ServerEnv {
     process.env.SUPABASE_DATA_SERVICE_ROLE_KEY ??
     process.env.SUPABASE_AUTH_SERVICE_ROLE_KEY ??
     process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const rawAuthUrl =
+    process.env.NEXT_PUBLIC_SUPABASE_AUTH_URL ??
+    process.env.NEXT_PUBLIC_SUPABASE_URL ??
+    process.env.SUPABASE_AUTH_URL ??
+    rawUrl;
+  const authServiceRoleKey =
+    process.env.SUPABASE_AUTH_SERVICE_ROLE_KEY ??
+    process.env.SUPABASE_SERVICE_ROLE_KEY ??
+    serviceRoleKey;
 
   return {
     supabaseUrl: normalizeSupabaseUrl(
@@ -45,6 +56,16 @@ export function getServerEnv(): ServerEnv {
     supabaseServiceRoleKey: requireEnv(
       "SUPABASE_DATA_SERVICE_ROLE_KEY (or SUPABASE_AUTH_SERVICE_ROLE_KEY / SUPABASE_SERVICE_ROLE_KEY)",
       serviceRoleKey
+    ),
+    supabaseAuthUrl: normalizeSupabaseUrl(
+      requireEnv(
+        "NEXT_PUBLIC_SUPABASE_AUTH_URL (or NEXT_PUBLIC_SUPABASE_URL / SUPABASE_AUTH_URL)",
+        rawAuthUrl
+      )
+    ),
+    supabaseAuthServiceRoleKey: requireEnv(
+      "SUPABASE_AUTH_SERVICE_ROLE_KEY (or SUPABASE_SERVICE_ROLE_KEY)",
+      authServiceRoleKey
     ),
   };
 }

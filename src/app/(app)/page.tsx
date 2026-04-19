@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useAuth } from "@/providers/auth-provider";
 
 type PlanningItem = {
@@ -104,7 +104,6 @@ type DeleteConfirmation = {
 } | null;
 
 type ViewingPlanningItem = PlanningItem | null;
-type TimeFieldKey = "start_time" | "end_time";
 
 type PlanningGroup = {
   key: string;
@@ -118,7 +117,7 @@ type PlanningGroup = {
   description: string;
   notes?: string | null;
   programado: PlanningItem | null;
-  real: PlanningItem | null;
+  realSegments: PlanningItem[];
 };
 
 type GanttScale = {
@@ -148,16 +147,16 @@ const SHIFT_CONFIG: Record<
 > = {
   Dia: {
     title: "Turno Dia",
-    description: "Ventana operacional de 08:00 a 19:00.",
+    description: "Ventana operacional de 08:00 a 20:00.",
     start: "08:00",
-    end: "19:00",
+    end: "20:00",
     wrapsMidnight: false,
   },
   Noche: {
     title: "Turno Noche",
-    description: "Ventana operacional de 20:00 a 07:00.",
+    description: "Ventana operacional de 20:00 a 08:00.",
     start: "20:00",
-    end: "07:00",
+    end: "08:00",
     wrapsMidnight: true,
   },
 };
@@ -292,37 +291,6 @@ function getDefaultShiftTimes(shift: ShiftKey) {
   };
 }
 
-function getShiftTimeOptions(shift: ShiftKey, extraValues: string[] = []) {
-  const config = SHIFT_CONFIG[shift];
-  const startMinutes = toMinutes(config.start);
-  const baseEndMinutes = config.wrapsMidnight ? toMinutes(config.end) + 24 * 60 : toMinutes(config.end);
-  const values = new Set<string>(extraValues.filter(Boolean).map((value) => value.slice(0, 5)));
-
-  for (let minutes = startMinutes; minutes <= baseEndMinutes; minutes += 30) {
-    values.add(toTimeLabel(minutes));
-  }
-
-  return Array.from(values).sort((left, right) => {
-    const leftMinutes = positionMinutesInScale(left, {
-      startMinutes,
-      endMinutes: baseEndMinutes,
-      slotMinutes: 30,
-      slotCount: 0,
-      endLabel: config.end,
-      hourMarks: [],
-    });
-    const rightMinutes = positionMinutesInScale(right, {
-      startMinutes,
-      endMinutes: baseEndMinutes,
-      slotMinutes: 30,
-      slotCount: 0,
-      endLabel: config.end,
-      hourMarks: [],
-    });
-
-    return leftMinutes - rightMinutes;
-  });
-}
 
 function toInitialPlanningForm(
   categories: CatalogCategory[],
@@ -383,7 +351,7 @@ function groupPlanningItems(items: PlanningItem[]) {
   const groups = new Map<string, PlanningGroup>();
 
   function syncGroupSummary(group: PlanningGroup) {
-    const displayItem = group.programado ?? group.real;
+    const displayItem = group.programado ?? group.realSegments[0] ?? null;
 
     if (!displayItem) {
       return;
@@ -396,14 +364,21 @@ function groupPlanningItems(items: PlanningItem[]) {
     group.category = displayItem.category;
     group.item_type = displayItem.item_type;
     group.description = displayItem.description;
-    group.notes = group.programado?.notes ?? group.real?.notes ?? null;
+    group.notes = group.programado?.notes ?? group.realSegments[0]?.notes ?? null;
   }
 
   for (const item of items) {
     const existingGroup = groups.get(item.activity_group_id);
 
     if (existingGroup) {
-      existingGroup[item.tracking_type] = item;
+      if (item.tracking_type === "programado") {
+        existingGroup.programado = item;
+      } else {
+        existingGroup.realSegments.push(item);
+        existingGroup.realSegments.sort((left, right) =>
+          `${left.item_date}-${left.start}`.localeCompare(`${right.item_date}-${right.start}`)
+        );
+      }
       syncGroupSummary(existingGroup);
       continue;
     }
@@ -420,15 +395,15 @@ function groupPlanningItems(items: PlanningItem[]) {
       description: item.description,
       notes: item.notes ?? null,
       programado: item.tracking_type === "programado" ? item : null,
-      real: item.tracking_type === "real" ? item : null,
+      realSegments: item.tracking_type === "real" ? [item] : [],
     };
     syncGroupSummary(nextGroup);
     groups.set(item.activity_group_id, nextGroup);
   }
 
   return Array.from(groups.values()).sort((left, right) => {
-    const leftItem = left.programado ?? left.real;
-    const rightItem = right.programado ?? right.real;
+    const leftItem = left.programado ?? left.realSegments[0] ?? null;
+    const rightItem = right.programado ?? right.realSegments[0] ?? null;
 
     if (!leftItem || !rightItem) {
       return 0;
@@ -436,6 +411,30 @@ function groupPlanningItems(items: PlanningItem[]) {
 
     return `${leftItem.item_date}-${leftItem.start}`.localeCompare(`${rightItem.item_date}-${rightItem.start}`);
   });
+}
+
+function findSegmentContinuation(
+  item: PlanningItem | null,
+  groups: PlanningGroup[]
+): { previous: PlanningItem | null; next: PlanningItem | null } | null {
+  if (!item || item.tracking_type !== "real") {
+    return null;
+  }
+
+  const group = groups.find((entry) => entry.activity_group_id === item.activity_group_id);
+  if (!group || group.realSegments.length <= 1) {
+    return null;
+  }
+
+  const index = group.realSegments.findIndex((segment) => segment.id === item.id);
+  if (index === -1) {
+    return null;
+  }
+
+  return {
+    previous: group.realSegments[index - 1] ?? null,
+    next: group.realSegments[index + 1] ?? null,
+  };
 }
 
 function syncDetailAdminForm(form: DetailAdminForm, categories: CatalogCategory[]) {
@@ -517,7 +516,6 @@ export default function Home() {
   const [catalogBusy, setCatalogBusy] = useState(false);
   const [catalogFormError, setCatalogFormError] = useState("");
   const [formState, setFormState] = useState<PlanningItemForm>(toInitialPlanningForm([], "Dia", formatLocalDateIso()));
-  const [openTimeField, setOpenTimeField] = useState<TimeFieldKey | null>(null);
   const [typeForm, setTypeForm] = useState<TypeAdminForm>({
     category: "actividad",
     label: "",
@@ -529,7 +527,6 @@ export default function Home() {
   });
   const [editingType, setEditingType] = useState<EditTypeForm | null>(null);
   const [editingDetail, setEditingDetail] = useState<EditDetailForm | null>(null);
-  const timePickerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -624,29 +621,11 @@ export default function Home() {
     setFormState((current) => ({ ...current, item_date: selectedDate }));
   }, [selectedDate]);
 
-  useEffect(() => {
-    if (!openTimeField) {
-      return;
-    }
-
-    function handlePointerDown(event: MouseEvent) {
-      if (!timePickerRef.current?.contains(event.target as Node)) {
-        setOpenTimeField(null);
-      }
-    }
-
-    document.addEventListener("mousedown", handlePointerDown);
-    return () => {
-      document.removeEventListener("mousedown", handlePointerDown);
-    };
-  }, [openTimeField]);
-
   function resetPlanningForm() {
     const nextForm = syncPlanningForm(toInitialPlanningForm(catalog, activeShift, selectedDate), catalog);
     setFormState({ ...nextForm, item_date: selectedDate, shift: activeShift });
     setFormError("");
     setEditingPlanningItem(null);
-    setOpenTimeField(null);
   }
 
   function openPlanningDetail(item: PlanningItem) {
@@ -758,7 +737,7 @@ export default function Home() {
     setIsModalOpen(true);
   }
 
-  async function handleDeletePlanningItem(id: number) {
+  async function handleDeletePlanningItem(id: number, trackingType: PlanningItem["tracking_type"]) {
     setFormError("");
 
     if (!session?.access_token) {
@@ -775,7 +754,7 @@ export default function Home() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ id }),
+        body: JSON.stringify({ id, tracking_type: trackingType }),
       });
       const json = await response.json().catch(() => ({}));
 
@@ -961,11 +940,14 @@ export default function Home() {
   const availableDescriptions = selectedType?.details ?? [];
   const detailTypesForAdmin =
     catalog.find((category) => category.slug === detailForm.category)?.types ?? [];
-  const formShift = formState.shift === "Noche" ? "Noche" : "Dia";
-  const timeOptions = getShiftTimeOptions(formShift, [formState.start_time, formState.end_time]);
+  const allPlanningGroups = groupPlanningItems(planningItems);
   const planningGroupsByShift: Record<ShiftKey, PlanningGroup[]> = {
-    Dia: groupPlanningItems(planningItems.filter((item) => item.shift === "Dia")),
-    Noche: groupPlanningItems(planningItems.filter((item) => item.shift === "Noche")),
+    Dia: allPlanningGroups.filter(
+      (group) => group.programado?.shift === "Dia" || group.realSegments.some((segment) => segment.shift === "Dia")
+    ),
+    Noche: allPlanningGroups.filter(
+      (group) => group.programado?.shift === "Noche" || group.realSegments.some((segment) => segment.shift === "Noche")
+    ),
   };
   const ganttScales: Record<ShiftKey, GanttScale> = {
     Dia: buildGanttScale(
@@ -989,6 +971,7 @@ export default function Home() {
     ? `Guardar ${isRealForm ? "real" : "programacion"}`
     : `Guardar ${isRealForm ? "real" : "programacion"}`;
   const planningDeleteLabel = `Eliminar ${isRealForm ? "real" : "programacion"}`;
+  const viewingContinuation = findSegmentContinuation(viewingPlanningItem, allPlanningGroups);
 
   function renderGanttBar(item: PlanningItem | null, layer: "programado" | "real", scale: GanttScale) {
     if (!item) {
@@ -1033,7 +1016,7 @@ export default function Home() {
   }
 
   function renderCreateRealButton(group: PlanningGroup) {
-    if (isHistoricalView || !group.programado || group.real) {
+    if (isHistoricalView || !group.programado) {
       return null;
     }
 
@@ -1042,7 +1025,7 @@ export default function Home() {
         type="button"
         className="button icon-button gantt-meta-add-real"
         onClick={() => openCreatePlanningVariant(group, "real")}
-        aria-label={`Agregar real a ${group.description}`}
+        aria-label={`Agregar tramo real a ${group.description}`}
         title="Agregar real"
       >
         <span aria-hidden="true">+</span>
@@ -1055,17 +1038,22 @@ export default function Home() {
       return;
     }
 
-    const sourceItem = group[trackingType] ?? group.programado ?? group.real;
+    const lastRealSegment = group.realSegments[group.realSegments.length - 1] ?? null;
+    const sourceItem =
+      trackingType === "real"
+        ? lastRealSegment ?? group.programado
+        : group.programado ?? lastRealSegment;
     const nextCategory = catalog.find((category) => category.slug === group.category) ?? null;
     const nextType = nextCategory?.types.find((type) => type.label === group.item_type) ?? nextCategory?.types[0] ?? null;
     const nextDetail =
       nextType?.details.find((detail) => detail.label === group.description) ?? nextType?.details[0] ?? null;
+    const defaultTimes = getDefaultShiftTimes(group.shift === "Noche" ? "Noche" : "Dia");
 
     setFormState({
       activity_group_id: group.activity_group_id,
       item_date: sourceItem?.item_date ?? group.item_date,
-      start_time: sourceItem?.start ?? "07:00",
-      end_time: sourceItem?.end ?? "08:00",
+      start_time: sourceItem?.start ?? defaultTimes.start_time,
+      end_time: sourceItem?.end ?? defaultTimes.end_time,
       shift: sourceItem?.shift ?? group.shift,
       level: sourceItem?.level ?? group.level,
       front: sourceItem?.front ?? group.front,
@@ -1135,7 +1123,11 @@ export default function Home() {
           <div className="gantt-rows-timeline-bg" aria-hidden="true" />
 
           {groups.length ? (
-            groups.map((group) => (
+            groups.map((group) => {
+              const realSegmentsForShift = group.realSegments.filter((segment) => segment.shift === shift);
+              const plannedItemForShift = group.programado?.shift === shift ? group.programado : null;
+
+              return (
               <article key={group.key} className="gantt-row gantt-row-dual">
                 <div className="gantt-meta">
                   <div className="gantt-meta-primary">
@@ -1153,11 +1145,13 @@ export default function Home() {
                 </div>
 
                 <div className="gantt-track gantt-track-compare">
-                  {renderGanttBar(group.programado, "programado", scale)}
-                  {renderGanttBar(group.real, "real", scale)}
+                  {renderGanttBar(plannedItemForShift, "programado", scale)}
+                  {realSegmentsForShift.map((segment) => (
+                    <Fragment key={`real-segment-${segment.id}`}>{renderGanttBar(segment, "real", scale)}</Fragment>
+                  ))}
                 </div>
               </article>
-            ))
+            )})
           ) : (
             <div className="shift-empty-state">
               <p className="ops-copy">Sin actividades para este turno.</p>
@@ -1165,48 +1159,6 @@ export default function Home() {
           )}
         </div>
       </section>
-    );
-  }
-
-  function renderTimePicker(field: TimeFieldKey, label: string) {
-    const isOpen = openTimeField === field;
-
-    return (
-      <label className="field">
-        {label}
-        <div
-          className={`time-picker-field ${isOpen ? "open" : ""}`}
-          ref={isOpen ? timePickerRef : null}
-        >
-          <button
-            type="button"
-            className="field-input time-picker-trigger"
-            aria-expanded={isOpen}
-            aria-haspopup="listbox"
-            onClick={() => setOpenTimeField((current) => (current === field ? null : field))}
-          >
-            <span>{formState[field]}</span>
-          </button>
-
-          {isOpen ? (
-            <div className="time-picker-popover" role="listbox" aria-label={label}>
-              {timeOptions.map((time) => (
-                <button
-                  key={`${field}-${time}`}
-                  type="button"
-                  className={`time-option ${formState[field] === time ? "active" : ""}`}
-                  onClick={() => {
-                    setFormState((current) => ({ ...current, [field]: time }));
-                    setOpenTimeField(null);
-                  }}
-                >
-                  {time}
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      </label>
     );
   }
 
@@ -1412,9 +1364,29 @@ export default function Home() {
                   </select>
                 </label>
 
-                {renderTimePicker("start_time", "Hora inicio")}
+                <label className="field">
+                  Hora inicio
+                  <input
+                    className="field-input"
+                    type="time"
+                    value={formState.start_time}
+                    onChange={(event) =>
+                      setFormState((current) => ({ ...current, start_time: event.target.value }))
+                    }
+                  />
+                </label>
 
-                {renderTimePicker("end_time", "Hora termino")}
+                <label className="field">
+                  Hora termino
+                  <input
+                    className="field-input"
+                    type="time"
+                    value={formState.end_time}
+                    onChange={(event) =>
+                      setFormState((current) => ({ ...current, end_time: event.target.value }))
+                    }
+                  />
+                </label>
 
                 <label className="field">
                   Nivel
@@ -1540,6 +1512,24 @@ export default function Home() {
               </article>
             </div>
 
+            {viewingContinuation ? (
+              <article className="detail-notes-card" style={{ marginTop: 16 }}>
+                <p className="detail-label">Continuidad</p>
+                <p className="detail-notes-copy">
+                  {viewingContinuation.previous
+                    ? `Este registro es la continuacion del tramo ${formatDateLabel(
+                        viewingContinuation.previous.item_date
+                      )} (${viewingContinuation.previous.shift}) ${viewingContinuation.previous.start} - ${viewingContinuation.previous.end}.`
+                    : "Este registro corresponde al primer tramo del real."}
+                  {viewingContinuation.next
+                    ? ` Tiene continuacion el ${formatDateLabel(
+                        viewingContinuation.next.item_date
+                      )} (${viewingContinuation.next.shift}) ${viewingContinuation.next.start} - ${viewingContinuation.next.end}.`
+                    : " No tiene continuacion posterior."}
+                </p>
+              </article>
+            ) : null}
+
             {viewingPlanningItem.notes ? (
               <article className="detail-notes-card">
                 <p className="detail-label">Notas</p>
@@ -1600,7 +1590,7 @@ export default function Home() {
               <button
                 type="button"
                 className="button danger"
-                onClick={() => void handleDeletePlanningItem(deleteConfirmation.id)}
+                onClick={() => void handleDeletePlanningItem(deleteConfirmation.id, deleteConfirmation.trackingType)}
                 disabled={formBusy}
               >
                 {formBusy ? "Eliminando..." : "Confirmar eliminacion"}

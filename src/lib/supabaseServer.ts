@@ -6,3 +6,12 @@ export function getSupabaseServerClient() {
     auth: { persistSession: false },
   });
 }
+
+export function getSupabaseAuthAdminClient() {
+  return createClient(serverEnv.supabaseAuthUrl, serverEnv.supabaseAuthServiceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+}

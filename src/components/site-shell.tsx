@@ -1,23 +1,48 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 import { supabaseAuth } from "@/lib/authClient";
 import { useAuth } from "@/providers/auth-provider";
 
 export function SiteShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const pathname = usePathname();
-  const { loading, session, user } = useAuth();
-  const isAuthRoute = pathname === "/login" || pathname === "/auth/callback";
+  const { loading, session, user, profile } = useAuth();
+
+  useEffect(() => {
+    if (!loading && (!session || !profile)) {
+      router.replace("/login");
+    }
+  }, [loading, profile, router, session]);
 
   async function signOut() {
     await supabaseAuth.auth.signOut();
+
+    if (typeof window !== "undefined") {
+      window.location.assign(`${window.location.origin}/login`);
+      return;
+    }
+
     router.replace("/login");
   }
 
-  if (isAuthRoute) {
-    return <>{children}</>;
+  if (loading && (!session || !profile)) {
+    return (
+      <main className="app-background auth-layout">
+        <section className="auth-card">
+          <p className="eyebrow">Mineria MVP</p>
+          <h1 className="hero-title" style={{ fontSize: "2.125rem" }}>Cargando</h1>
+          <p className="body-copy" style={{ marginTop: 0 }}>
+            Validando tu sesion.
+          </p>
+        </section>
+      </main>
+    );
+  }
+
+  if (!session || !profile) {
+    return null;
   }
 
   return (
@@ -47,6 +72,11 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
                   <Link href="/" className="button">
                     Inicio
                   </Link>
+                  {!loading && profile?.role === "admin" ? (
+                    <Link href="/admin/users" className="button">
+                      Usuarios
+                    </Link>
+                  ) : null}
                   {!loading && session ? (
                     <button type="button" onClick={() => void signOut()} className="button">
                       Cerrar sesion
