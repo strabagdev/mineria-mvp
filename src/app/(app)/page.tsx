@@ -207,9 +207,20 @@ function toTrackingTypeLabel(trackingType: PlanningItem["tracking_type"]) {
   return trackingType === "programado" ? "Programado" : "Real";
 }
 
+function buildEventTitle(item: {
+  level?: string | null;
+  front?: string | null;
+  description?: string | null;
+}) {
+  return [item.level, item.front, item.description]
+    .map((part) => String(part ?? "").trim())
+    .filter(Boolean)
+    .join(" - ");
+}
+
 function buildPlanningItemAriaLabel(item: PlanningItem, duration: string) {
   return [
-    item.description,
+    buildEventTitle(item),
     `${toDisplayCategory(item.category)}, ${item.item_type}`,
     `Vista ${toTrackingTypeLabel(item.tracking_type)}`,
     `Frente ${item.front}, nivel ${item.level}`,
@@ -1008,7 +1019,7 @@ export default function Home() {
       >
         {layer === "programado" ? (
           <span className="gantt-bar-label" aria-hidden="true">
-            {item.description}
+            {buildEventTitle(item)}
           </span>
         ) : null}
       </div>
@@ -1025,7 +1036,7 @@ export default function Home() {
         type="button"
         className="button icon-button gantt-meta-add-real"
         onClick={() => openCreatePlanningVariant(group, "real")}
-        aria-label={`Agregar tramo real a ${group.description}`}
+        aria-label={`Agregar tramo real a ${buildEventTitle(group)}`}
         title="Agregar real"
       >
         <span aria-hidden="true">+</span>
@@ -1126,12 +1137,13 @@ export default function Home() {
             groups.map((group) => {
               const realSegmentsForShift = group.realSegments.filter((segment) => segment.shift === shift);
               const plannedItemForShift = group.programado?.shift === shift ? group.programado : null;
+              const eventTitle = buildEventTitle(group);
 
               return (
               <article key={group.key} className="gantt-row gantt-row-dual">
                 <div className="gantt-meta">
                   <div className="gantt-meta-primary">
-                    <h3 title={group.description}>{group.description}</h3>
+                    <h3 title={eventTitle}>{eventTitle}</h3>
                     <div className="gantt-meta-line">
                       <div className="field-list">
                         <span className={`category-pill ${group.category === "interferencia" ? "warning" : "success"}`}>
@@ -1463,7 +1475,7 @@ export default function Home() {
               <div>
                 <p className="eyebrow">Detalle</p>
                 <h2 id="planning-detail-title" className="card-title" style={{ marginTop: 12 }}>
-                  {viewingPlanningItem.description}
+                  {buildEventTitle(viewingPlanningItem)}
                 </h2>
               </div>
               <button type="button" className="button" onClick={() => setViewingPlanningItem(null)}>
