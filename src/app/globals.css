@@ -281,50 +281,52 @@ textarea {
 }
 
 .surface-card.hero.hero-operational {
-  gap: 0.72rem;
-  padding: 0.95rem 1rem;
-  border-color: rgba(17, 32, 28, 0.08);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(247, 251, 249, 0.94));
-  box-shadow: 0 16px 42px rgba(15, 23, 42, 0.05);
+  gap: 0.7rem;
+  padding: 0.7rem 0.85rem;
+  border-color: rgba(255, 255, 255, 0.1);
+  background: #0f1115;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.18);
 }
 
 .hero-operational-line {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  gap: 1.25rem;
-  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.9rem;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 .hero-operational-copy {
-  display: grid;
-  gap: 0.35rem;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
   min-width: 0;
-  flex: 1 1 auto;
+  flex: 1 1 16rem;
 }
 
 .hero-date-chip {
   display: grid;
-  gap: 0.25rem;
-  min-width: min(100%, 18rem);
+  gap: 0.15rem;
+  min-width: min(100%, 12rem);
   justify-items: end;
 }
 
 .hero-date-label {
-  font-size: 0.8rem;
+  font-size: 0.68rem;
   font-weight: 800;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--muted-soft);
+  color: rgba(248, 250, 252, 0.58);
   margin: 0;
 }
 
 .hero-date-value {
-  font-size: clamp(1.6rem, 2.9vw, 2.35rem);
+  font-size: clamp(1rem, 1.55vw, 1.25rem);
   line-height: 1.08;
   font-weight: 800;
-  color: var(--foreground);
+  color: #f8fafc;
   margin: 0;
 }
 
@@ -357,9 +359,29 @@ textarea {
 
 .hero-operational .hero-title {
   margin: 0;
-  font-size: clamp(1.38rem, 2.15vw, 1.75rem);
+  font-size: clamp(1.08rem, 1.7vw, 1.38rem);
   line-height: 1.08;
-  letter-spacing: -0.03em;
+  letter-spacing: 0;
+  color: #f8fafc;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hero-operational .shift-tabs {
+  flex: 0 0 auto;
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.hero-operational .shift-tab {
+  color: rgba(248, 250, 252, 0.72);
+}
+
+.hero-operational .shift-tab.active {
+  background: #f8fafc;
+  color: #0f1115;
+  box-shadow: none;
 }
 
 .hero-operational .body-copy {
@@ -373,10 +395,10 @@ textarea {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 0.85rem;
-  padding-top: 0.2rem;
+  gap: 0.75rem;
+  padding-top: 0.7rem;
   flex-wrap: wrap;
-  border-top: 1px solid rgba(17, 32, 28, 0.06);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .hero-inline-block {
@@ -395,18 +417,70 @@ textarea {
 }
 
 .hero-operational-footer .toolbar-actions {
-  padding-top: 0.7rem;
+  padding-top: 0;
 }
 
 .history-controls {
   display: flex;
-  align-items: end;
-  gap: 0.65rem;
-  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
 }
 
 .history-field {
   gap: 0.3rem;
+}
+
+.hero-operational .history-field {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: rgba(248, 250, 252, 0.72);
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+.hero-operational .history-input {
+  min-width: 11.25rem;
+  padding: 0.68rem 0.82rem;
+  border-color: rgba(245, 158, 11, 0.82);
+  background: rgba(255, 255, 255, 0.12);
+  color: #f8fafc;
+  color-scheme: dark;
+  font-size: 0.95rem;
+  font-weight: 800;
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.12);
+}
+
+.hero-operational .button {
+  min-height: 2.5rem;
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+  color: #f8fafc;
+}
+
+.hero-operational .button.hero-action-button {
+  width: 2.5rem;
+  min-width: 2.5rem;
+  min-height: 2.5rem;
+  padding: 0;
+}
+
+.hero-action-button svg {
+  width: 1.15rem;
+  height: 1.15rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.hero-operational .button.primary {
+  border-color: #f59e0b;
+  background: #f59e0b;
+  color: #1c1917;
 }
 
 .history-label {
@@ -669,8 +743,9 @@ textarea {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 2.1rem;
-  padding: 0.45rem 0.9rem;
+  min-height: 2.65rem;
+  min-width: 2.9rem;
+  padding: 0.42rem 0.72rem;
   border: 0;
   border-radius: 999px;
   background: transparent;
@@ -679,6 +754,17 @@ textarea {
   font-weight: 700;
   cursor: pointer;
   transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+.shift-tab svg,
+.shift-section-title svg {
+  width: 1.55rem;
+  height: 1.55rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
 }
 
 .shift-tab.active {
@@ -725,6 +811,8 @@ textarea {
   font-size: 1rem;
   font-weight: 800;
   color: var(--foreground);
+  display: inline-flex;
+  align-items: center;
 }
 
 .shift-section-description {
@@ -805,6 +893,11 @@ textarea {
   align-items: center;
 }
 
+.gantt-row:has(.gantt-bar:hover),
+.gantt-row:focus-within {
+  z-index: 30;
+}
+
 .gantt-row-dual {
   padding: 0.62rem 0;
 }
@@ -830,6 +923,17 @@ textarea {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.gantt-meta-subtitle {
+  margin: -0.25rem 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .gantt-meta-line {
@@ -901,6 +1005,10 @@ textarea {
   overflow: visible;
 }
 
+.gantt-track-compare .gantt-bar {
+  height: 50%;
+}
+
 .gantt-bar {
   position: absolute;
   transform: none;
@@ -936,6 +1044,16 @@ textarea {
   border-color: #1d4ed8;
 }
 
+.gantt-bar.warning.programado {
+  background: #fed7aa;
+  border-color: #fdba74;
+}
+
+.gantt-bar.warning.real {
+  background: #ea580c;
+  border-color: #c2410c;
+}
+
 .gantt-bar.success,
 .gantt-bar.warning {
   color: inherit;
@@ -951,6 +1069,59 @@ textarea {
   white-space: nowrap;
   text-overflow: ellipsis;
   pointer-events: none;
+}
+
+.gantt-bar-tooltip {
+  position: absolute;
+  left: 50%;
+  z-index: 100;
+  display: grid;
+  gap: 0.18rem;
+  width: max-content;
+  max-width: min(18rem, 78vw);
+  padding: 0.65rem 0.72rem;
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  border-radius: 0.7rem;
+  background: rgba(15, 17, 21, 0.96);
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.24);
+  color: #f8fafc;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.32;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(0.3rem);
+  transition: opacity 120ms ease, transform 120ms ease;
+  white-space: normal;
+}
+
+.gantt-bar-tooltip strong {
+  color: #ffffff;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.gantt-bar-tooltip span {
+  color: rgba(248, 250, 252, 0.78);
+}
+
+.gantt-bar.programado .gantt-bar-tooltip {
+  top: calc(100% + 0.42rem);
+}
+
+.gantt-bar.real .gantt-bar-tooltip {
+  bottom: calc(100% + 0.42rem);
+}
+
+.gantt-bar:hover .gantt-bar-tooltip,
+.gantt-bar:focus-visible .gantt-bar-tooltip {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.gantt-bar:hover,
+.gantt-bar:focus-visible {
+  z-index: 40;
 }
 
 .gantt-bar:focus-visible {
@@ -1178,6 +1349,13 @@ select.field-input {
   display: grid;
   gap: 1rem;
   margin-top: 1.25rem;
+}
+
+.planning-category-title {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 1rem;
+  font-weight: 800;
 }
 
 .modal-grid {
@@ -1549,8 +1727,8 @@ select.field-input {
   }
 
   .shift-tab {
-    min-height: 1.9rem;
-    padding: 0.36rem 0.74rem;
+    min-height: 2.45rem;
+    padding: 0.34rem 0.64rem;
     font-size: 0.76rem;
   }
 
@@ -1575,6 +1753,10 @@ select.field-input {
     font-size: 1.12rem;
   }
 
+  .gantt-meta-subtitle {
+    font-size: 0.7rem;
+  }
+
   .gantt-meta-line {
     min-height: 1.5rem;
   }
@@ -1584,7 +1766,7 @@ select.field-input {
   }
 
   .gantt-bar {
-    min-height: 1.48rem;
+    min-height: 0;
     padding: 0 0.44rem;
     font-size: 0.62rem;
     border-radius: 0.54rem;
@@ -1660,15 +1842,29 @@ select.field-input {
     width: 100%;
   }
 
+  .hero-operational-line {
+    gap: 0.55rem;
+  }
+
+  .hero-operational .hero-title {
+    font-size: 0.92rem;
+  }
+
+  .hero-operational-copy {
+    gap: 0.45rem;
+  }
+
   .hero-inline-block,
   .history-controls,
   .history-field {
-    width: 100%;
+    width: auto;
   }
 
-  .history-input {
-    min-width: 0;
-    width: 100%;
+  .hero-operational .history-input {
+    min-width: 9.8rem;
+    width: auto;
+    padding-inline: 0.62rem;
+    font-size: 0.86rem;
   }
 
   .shift-tabs {
@@ -1676,8 +1872,17 @@ select.field-input {
     justify-content: stretch;
   }
 
+  .hero-operational .shift-tabs {
+    width: fit-content;
+    justify-content: center;
+  }
+
   .shift-tab {
     flex: 1 1 0;
+  }
+
+  .hero-operational .shift-tab {
+    flex: 0 0 auto;
   }
 
   .hero-date-chip {
@@ -1707,5 +1912,10 @@ select.field-input {
   .toolbar-actions > *,
   .modal-actions > * {
     width: 100%;
+  }
+
+  .hero-operational .toolbar-actions > *,
+  .hero-operational .history-controls > .button {
+    width: 2.5rem;
   }
 }

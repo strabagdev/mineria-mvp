@@ -161,6 +161,30 @@ const SHIFT_CONFIG: Record<
   },
 };
 
+function ShiftIcon({ shift }: { shift: ShiftKey }) {
+  if (shift === "Dia") {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+        <path d="M12 4V2" />
+        <path d="M12 22v-2" />
+        <path d="m4.93 4.93 1.41 1.41" />
+        <path d="m17.66 17.66 1.41 1.41" />
+        <path d="M4 12H2" />
+        <path d="M22 12h-2" />
+        <path d="m4.93 19.07 1.41-1.41" />
+        <path d="m17.66 6.34 1.41-1.41" />
+        <path d="M12 16.25a4.25 4.25 0 1 0 0-8.5 4.25 4.25 0 0 0 0 8.5Z" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+      <path d="M20.25 14.4A8.25 8.25 0 0 1 9.6 3.75 8.25 8.25 0 1 0 20.25 14.4Z" />
+    </svg>
+  );
+}
+
 function toMinutes(time: string) {
   const normalized = time.slice(0, 5);
   const [hours, minutes] = normalized.split(":").map(Number);
@@ -188,17 +212,6 @@ function formatDateLabel(value: string) {
   }).format(new Date(`${value}T00:00:00`));
 }
 
-function formatCurrentDateLabel(value: Date) {
-  const formatted = new Intl.DateTimeFormat("es-CL", {
-    weekday: "long",
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-  }).format(value);
-
-  return formatted.charAt(0).toUpperCase() + formatted.slice(1);
-}
-
 function toDisplayCategory(category: PlanningItem["category"]) {
   return category === "interferencia" ? "Interferencia" : "Actividad";
 }
@@ -212,10 +225,17 @@ function buildEventTitle(item: {
   front?: string | null;
   description?: string | null;
 }) {
-  return [item.level, item.front, item.description]
+  return String(item.description ?? "").trim();
+}
+
+function buildEventSubtitle(item: {
+  level?: string | null;
+  front?: string | null;
+}) {
+  return [item.level, item.front]
     .map((part) => String(part ?? "").trim())
     .filter(Boolean)
-    .join(" - ");
+    .join(" · ");
 }
 
 function buildPlanningItemAriaLabel(item: PlanningItem, duration: string) {
@@ -972,7 +992,6 @@ export default function Home() {
       SHIFT_CONFIG.Noche.wrapsMidnight
     ),
   };
-  const selectedDateLabel = formatCurrentDateLabel(new Date(`${selectedDate}T00:00:00`));
   const isHistoricalView = selectedDate !== todayIso;
   const formContextLabel = isRealForm ? "Real" : "Programacion";
   const planningModalTitle = editingPlanningItem
@@ -1001,6 +1020,13 @@ export default function Home() {
     const width = ((end - start) / scaleSpan) * 100;
     const duration = formatDuration(item.start, item.end);
     const ariaLabel = buildPlanningItemAriaLabel(item, duration);
+    const tooltipDetails = [
+      `${toTrackingTypeLabel(item.tracking_type)} · ${toDisplayCategory(item.category)}`,
+      item.item_type,
+      buildEventSubtitle(item),
+      `${formatDateLabel(item.item_date)} · Turno ${item.shift}`,
+      `${item.start} - ${item.end} · ${duration}`,
+    ].filter(Boolean);
 
     return (
       <div
@@ -1022,12 +1048,19 @@ export default function Home() {
             {buildEventTitle(item)}
           </span>
         ) : null}
+        <span className="gantt-bar-tooltip" role="tooltip">
+          <strong>{buildEventTitle(item)}</strong>
+          {tooltipDetails.map((detail) => (
+            <span key={detail}>{detail}</span>
+          ))}
+          {item.notes ? <span>Notas: {item.notes}</span> : null}
+        </span>
       </div>
     );
   }
 
   function renderCreateRealButton(group: PlanningGroup) {
-    if (isHistoricalView || !group.programado) {
+    if (isHistoricalView || !group.programado || group.realSegments.length > 0) {
       return null;
     }
 
@@ -1072,7 +1105,7 @@ export default function Home() {
       tracking_type: trackingType,
       item_type: nextType?.label ?? group.item_type,
       description: nextDetail?.label ?? group.description,
-      notes: sourceItem?.notes ?? group.notes ?? "",
+      notes: trackingType === "real" ? "" : sourceItem?.notes ?? group.notes ?? "",
     });
     setEditingPlanningItem(null);
     setFormError("");
@@ -1089,7 +1122,9 @@ export default function Home() {
       <section className="gantt-section shift-section" key={shift}>
         <div className="gantt-section-header shift-section-header">
           <div className="shift-section-copy">
-            <h3 className="shift-section-title">{config.title}</h3>
+            <h3 className="shift-section-title" aria-label={config.title} title={config.title}>
+              <ShiftIcon shift={shift} />
+            </h3>
             <p className="shift-section-description">{config.description}</p>
           </div>
           <div className="gantt-legend" aria-label="Leyenda de barras">
@@ -1138,12 +1173,14 @@ export default function Home() {
               const realSegmentsForShift = group.realSegments.filter((segment) => segment.shift === shift);
               const plannedItemForShift = group.programado?.shift === shift ? group.programado : null;
               const eventTitle = buildEventTitle(group);
+              const eventSubtitle = buildEventSubtitle(group);
 
               return (
               <article key={group.key} className="gantt-row gantt-row-dual">
                 <div className="gantt-meta">
                   <div className="gantt-meta-primary">
                     <h3 title={eventTitle}>{eventTitle}</h3>
+                    {eventSubtitle ? <p className="gantt-meta-subtitle">{eventSubtitle}</p> : null}
                     <div className="gantt-meta-line">
                       <div className="field-list">
                         <span className={`category-pill ${group.category === "interferencia" ? "warning" : "success"}`}>
@@ -1179,67 +1216,83 @@ export default function Home() {
       <article className="surface-card hero hero-operational">
         <div className="hero-operational-line">
           <div className="hero-operational-copy">
-            <div className="hero-badge-row">
-              <span className="hero-badge hero-badge-strong">Planificacion diaria</span>
-              <span className="hero-badge">Programado vs real</span>
+            <div className="shift-tabs" role="tablist" aria-label="Turnos disponibles">
+              {(["Dia", "Noche"] as ShiftKey[]).map((shift) => (
+                <button
+                  key={shift}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeShift === shift}
+                  className={`shift-tab ${activeShift === shift ? "active" : ""}`}
+                  onClick={() => setActiveShift(shift)}
+                  aria-label={SHIFT_CONFIG[shift].title}
+                  title={SHIFT_CONFIG[shift].title}
+                >
+                  <ShiftIcon shift={shift} />
+                </button>
+              ))}
             </div>
             <h2 className="hero-title">Seguimiento operativo del turno</h2>
-            <p className="body-copy">
-              Registra la programacion del dia y contrasta su ejecucion real dentro de una misma grilla operativa.
-            </p>
           </div>
 
-          <div className="hero-date-chip" aria-label={`Fecha visualizada ${selectedDateLabel}`}>
-            <span className="hero-date-label">{isHistoricalView ? "Fecha historica" : "Fecha actual"}</span>
-            <strong className="hero-date-value">{selectedDateLabel}</strong>
-          </div>
-        </div>
-
-        <div className="hero-operational-footer">
-          <div className="hero-inline-block">
-            <p className="hero-inline-note">
-              {isHistoricalView
-                ? "Modo historico: puedes revisar registros anteriores, pero sin editar ni agregar cambios."
-                : "Gestion operativa simple, enfocada en registrar y comparar sin ruido visual."}
-            </p>
-            <div className="history-controls" aria-label="Selector de fecha">
-              <label className="field history-field">
-                <span className="history-label">Visualizar dia</span>
-                <input
-                  className="field-input history-input"
-                  type="date"
-                  max={todayIso}
-                  value={selectedDate}
-                  onChange={(event) => setSelectedDate(event.target.value)}
-                />
-              </label>
-              {isHistoricalView ? (
-                <button type="button" className="button" onClick={() => setSelectedDate(todayIso)}>
-                  Volver a hoy
-                </button>
-              ) : null}
-            </div>
+          <div className="history-controls" aria-label="Selector de fecha">
+            <label className="field history-field">
+              <span className="history-label">Dia</span>
+              <input
+                className="field-input history-input"
+                type="date"
+                aria-label={isHistoricalView ? "Fecha historica" : "Fecha actual"}
+                max={todayIso}
+                value={selectedDate}
+                onChange={(event) => setSelectedDate(event.target.value)}
+              />
+            </label>
+            {isHistoricalView ? (
+              <button
+                type="button"
+                className="button icon-button hero-action-button"
+                onClick={() => setSelectedDate(todayIso)}
+                aria-label="Volver a hoy"
+                title="Volver a hoy"
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+                  <path d="M12 5.25a6.75 6.75 0 1 1-6.44 4.72" />
+                  <path d="M5.25 5.25v4.5h4.5" />
+                </svg>
+              </button>
+            ) : null}
           </div>
           <div className="toolbar-actions">
             <button
               type="button"
-              className="button"
+              className="button icon-button hero-action-button"
               onClick={() => setIsCatalogModalOpen(true)}
               disabled={!session || catalogLoading}
+              aria-label="Configurar catalogo"
+              title="Configurar catalogo"
             >
-              Configurar catalogo
+              <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+                <path d="M12 8.25a3.75 3.75 0 1 0 0 7.5 3.75 3.75 0 0 0 0-7.5Z" />
+                <path d="M19.5 12a7.9 7.9 0 0 0-.08-1.08l2.08-1.63-2-3.46-2.46.99a7.58 7.58 0 0 0-1.86-1.08L14.8 3h-5.6l-.38 2.74a7.58 7.58 0 0 0-1.86 1.08L4.5 5.83l-2 3.46 2.08 1.63a7.76 7.76 0 0 0 0 2.16L2.5 14.71l2 3.46 2.46-.99a7.58 7.58 0 0 0 1.86 1.08L9.2 21h5.6l.38-2.74a7.58 7.58 0 0 0 1.86-1.08l2.46.99 2-3.46-2.08-1.63c.05-.35.08-.71.08-1.08Z" />
+              </svg>
             </button>
             <button
               type="button"
-              className="button primary"
+              className="button primary icon-button hero-action-button"
               onClick={() => {
                 resetPlanningForm();
                 setFormState((current) => ({ ...current, tracking_type: "programado" }));
                 setIsModalOpen(true);
               }}
               disabled={!session || catalogLoading || !catalog.length || isHistoricalView}
+              aria-label="Nueva programacion"
+              title="Nueva programacion"
             >
-              Nueva programacion
+              <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+                <path d="M12 5v14" />
+                <path d="M5 12h14" />
+                <path d="M7.5 3.5h9A2.5 2.5 0 0 1 19 6v12a2.5 2.5 0 0 1-2.5 2.5h-9A2.5 2.5 0 0 1 5 18V6a2.5 2.5 0 0 1 2.5-2.5Z" />
+              </svg>
             </button>
           </div>
         </div>
@@ -1254,24 +1307,7 @@ export default function Home() {
             {itemsLoading ? <p className="body-copy">Cargando planificacion...</p> : null}
 
             {!itemsLoading ? (
-              <>
-                <div className="shift-tabs" role="tablist" aria-label="Turnos disponibles">
-                  {(["Dia", "Noche"] as ShiftKey[]).map((shift) => (
-                    <button
-                      key={shift}
-                      type="button"
-                      role="tab"
-                      aria-selected={activeShift === shift}
-                      className={`shift-tab ${activeShift === shift ? "active" : ""}`}
-                      onClick={() => setActiveShift(shift)}
-                    >
-                      {SHIFT_CONFIG[shift].title}
-                    </button>
-                  ))}
-                </div>
-
-                {renderShiftSection(activeShift)}
-              </>
+              renderShiftSection(activeShift)
             ) : null}
           </div>
         </div>
@@ -1328,10 +1364,7 @@ export default function Home() {
                   </select>
                 </label>
               ) : (
-                <label className="field">
-                  Categoria
-                  <input className="field-input" value="Actividad" readOnly />
-                </label>
+                <p className="planning-category-title">Actividad</p>
               )}
 
               <div className="modal-grid">

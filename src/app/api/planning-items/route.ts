@@ -507,6 +507,24 @@ export async function POST(req: Request) {
 
     const segments = buildRealSegments(payload) ?? [];
 
+    const { data: existingReal, error: existingRealError } = await db
+      .from("activity_execution_segments")
+      .select("id")
+      .eq("activity_group_id", payload.activity_group_id)
+      .limit(1)
+      .maybeSingle();
+
+    if (existingRealError) {
+      throw existingRealError;
+    }
+
+    if (existingReal) {
+      return NextResponse.json(
+        { error: "Esta programacion ya tiene un real registrado." },
+        { status: 400 }
+      );
+    }
+
     const baseSegmentOrder = getSegmentOrderBase();
 
     const { data, error } = await db
