@@ -166,6 +166,33 @@ function getRequestErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message || fallback : fallback;
 }
 
+async function readApiErrorMessage(response: Response, fallback: string) {
+  const rawText = await response.text().catch(() => "");
+
+  if (rawText) {
+    try {
+      const parsed = JSON.parse(rawText) as { error?: unknown; message?: unknown };
+      const parsedMessage = parsed.error ?? parsed.message;
+
+      if (typeof parsedMessage === "string" && parsedMessage.trim()) {
+        return parsedMessage.trim();
+      }
+    } catch {
+      const plainText = rawText.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+
+      if (/invalid session/i.test(plainText)) {
+        return "Invalid session";
+      }
+
+      if (plainText) {
+        return plainText.slice(0, 240);
+      }
+    }
+  }
+
+  return `${fallback} (${response.status} ${response.statusText || "HTTP error"})`;
+}
+
 function readPendingPlanningMutations() {
   if (typeof window === "undefined") {
     return [];
@@ -874,13 +901,12 @@ export default function Home() {
       },
       body: JSON.stringify(payload),
     });
-    const json = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      throw new Error(String(json.error ?? "No se pudo sincronizar el registro."));
+      throw new Error(await readApiErrorMessage(response, "No se pudo sincronizar el registro."));
     }
 
-    return json;
+    return response.json().catch(() => ({}));
   }
 
   function enqueuePlanningMutation(
