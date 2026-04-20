@@ -50,8 +50,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         return json.profile ?? null;
       } catch {
-        await supabaseAuth.auth.signOut();
-        return null;
+        return profileRef.current;
       }
     }
 

@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/providers/auth-provider";
 
 type PlanningItem = {
@@ -18,6 +18,7 @@ type PlanningItem = {
   tracking_type: "programado" | "real";
   item_type: string;
   notes?: string | null;
+  sync_status?: "pending";
 };
 
 type PlanningItemApi = {
@@ -119,6 +120,161 @@ type PlanningGroup = {
   programado: PlanningItem | null;
   realSegments: PlanningItem[];
 };
+
+type PendingPlanningMutation = {
+  id: string;
+  method: "POST" | "PATCH" | "DELETE";
+  payload: Record<string, unknown>;
+  createdAt: string;
+};
+
+const NETWORK_ERROR_MESSAGE =
+  "No se pudo conectar con el servidor. Si estas en interior mina, probablemente se perdio la senal; vuelve a intentar cuando recuperes conexion.";
+const PLANNING_MUTATION_QUEUE_KEY = "mineria.pendingPlanningMutations.v1";
+
+function isNetworkRequestError(error: unknown) {
+  return error instanceof Error && /failed to fetch|fetch failed|load failed|networkerror/i.test(error.message);
+}
+
+function isBrowserOffline() {
+  return typeof navigator !== "undefined" && !navigator.onLine;
+}
+
+function shouldQueuePlanningMutation(error: unknown) {
+  return (
+    isBrowserOffline() ||
+    isNetworkRequestError(error) ||
+    (error instanceof Error && /invalid session/i.test(error.message))
+  );
+}
+
+function getRequestErrorMessage(error: unknown, fallback: string) {
+  if (isNetworkRequestError(error)) {
+    return NETWORK_ERROR_MESSAGE;
+  }
+
+  return error instanceof Error ? error.message || fallback : fallback;
+}
+
+function readPendingPlanningMutations() {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(PLANNING_MUTATION_QUEUE_KEY) ?? "[]");
+    return Array.isArray(parsed) ? (parsed as PendingPlanningMutation[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePendingPlanningMutations(mutations: PendingPlanningMutation[]) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(PLANNING_MUTATION_QUEUE_KEY, JSON.stringify(mutations));
+}
+
+function makePendingPlanningMutation(
+  method: PendingPlanningMutation["method"],
+  payload: Record<string, unknown>
+): PendingPlanningMutation {
+  return {
+    id: crypto.randomUUID(),
+    method,
+    payload,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function getPendingItemId(mutation: PendingPlanningMutation) {
+  const explicitId = Number(mutation.payload.id);
+  if (Number.isFinite(explicitId) && explicitId > 0) {
+    return explicitId;
+  }
+
+  let hash = 0;
+  for (const char of mutation.id) {
+    hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  }
+  return -Math.max(1, hash);
+}
+
+function toOptimisticPlanningItem(mutation: PendingPlanningMutation): PlanningItem | null {
+  if (mutation.method === "DELETE") {
+    return null;
+  }
+
+  const payload = mutation.payload;
+  const itemDate = String(payload.item_date ?? "").trim();
+  const startTime = String(payload.start_time ?? "").trim();
+  const endTime = String(payload.end_time ?? "").trim();
+  const activityGroupId = String(payload.activity_group_id ?? "").trim();
+  const category = String(payload.category ?? "").trim();
+  const trackingType = String(payload.tracking_type ?? "").trim();
+
+  if (
+    !itemDate ||
+    !startTime ||
+    !endTime ||
+    !activityGroupId ||
+    !["actividad", "interferencia"].includes(category) ||
+    !["programado", "real"].includes(trackingType)
+  ) {
+    return null;
+  }
+
+  return {
+    id: getPendingItemId(mutation),
+    activity_group_id: activityGroupId,
+    item_date: itemDate,
+    start: startTime.slice(0, 5),
+    end: endTime.slice(0, 5),
+    shift: String(payload.shift ?? ""),
+    level: String(payload.level ?? ""),
+    front: String(payload.front ?? ""),
+    category: category as PlanningItem["category"],
+    tracking_type: trackingType as PlanningItem["tracking_type"],
+    item_type: String(payload.item_type ?? ""),
+    description: String(payload.description ?? ""),
+    notes: payload.notes ? String(payload.notes) : null,
+    sync_status: "pending",
+  };
+}
+
+function applyPendingPlanningMutations(items: PlanningItem[], mutations: PendingPlanningMutation[], date: string) {
+  const visibleItems = [...items];
+
+  for (const mutation of mutations) {
+    const mutationId = Number(mutation.payload.id);
+
+    if (mutation.method === "DELETE") {
+      if (Number.isFinite(mutationId)) {
+        const index = visibleItems.findIndex((item) => item.id === mutationId);
+        if (index !== -1) {
+          visibleItems.splice(index, 1);
+        }
+      }
+      continue;
+    }
+
+    const optimisticItem = toOptimisticPlanningItem(mutation);
+    if (!optimisticItem || optimisticItem.item_date !== date) {
+      continue;
+    }
+
+    const existingIndex = visibleItems.findIndex((item) => item.id === optimisticItem.id);
+    if (existingIndex === -1) {
+      visibleItems.push(optimisticItem);
+    } else {
+      visibleItems[existingIndex] = optimisticItem;
+    }
+  }
+
+  return visibleItems;
+}
 
 type GanttScale = {
   startMinutes: number;
@@ -535,6 +691,11 @@ export default function Home() {
   const [activeShift, setActiveShift] = useState<ShiftKey>("Dia");
   const [itemsLoading, setItemsLoading] = useState(true);
   const [itemsError, setItemsError] = useState("");
+  const [pendingPlanningMutations, setPendingPlanningMutations] = useState<PendingPlanningMutation[]>(
+    () => readPendingPlanningMutations()
+  );
+  const syncPendingPlanningMutationsRef = useRef<() => void>(() => undefined);
+  const [queueSyncing, setQueueSyncing] = useState(false);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -576,8 +737,10 @@ export default function Home() {
         setFormState((current) => syncPlanningForm(current, nextCatalog));
         setDetailForm((current) => syncDetailAdminForm(current, nextCatalog));
       } catch (error: unknown) {
-        const message =
-          error instanceof Error ? error.message : "No se pudieron cargar los datos del dashboard.";
+        const message = getRequestErrorMessage(
+          error,
+          "No se pudieron cargar los datos del dashboard."
+        );
 
         if (active) {
           setCatalogError(message);
@@ -611,8 +774,7 @@ export default function Home() {
 
         setPlanningItems(nextItems);
       } catch (error: unknown) {
-        const message =
-          error instanceof Error ? error.message : "No se pudo cargar la planificacion.";
+        const message = getRequestErrorMessage(error, "No se pudo cargar la planificacion.");
 
         if (active) {
           setItemsError(message);
@@ -652,6 +814,24 @@ export default function Home() {
     setFormState((current) => ({ ...current, item_date: selectedDate }));
   }, [selectedDate]);
 
+  useEffect(() => {
+    function syncWhenOnline() {
+      syncPendingPlanningMutationsRef.current();
+    }
+
+    window.addEventListener("online", syncWhenOnline);
+    window.addEventListener("focus", syncWhenOnline);
+
+    return () => {
+      window.removeEventListener("online", syncWhenOnline);
+      window.removeEventListener("focus", syncWhenOnline);
+    };
+  }, []);
+
+  useEffect(() => {
+    syncPendingPlanningMutationsRef.current();
+  }, [pendingPlanningMutations, session?.access_token]);
+
   function resetPlanningForm() {
     const nextForm = syncPlanningForm(toInitialPlanningForm(catalog, activeShift, selectedDate), catalog);
     setFormState({ ...nextForm, item_date: selectedDate, shift: activeShift });
@@ -667,6 +847,89 @@ export default function Home() {
     const nextItems = await fetchPlanningItems(selectedDate);
     setPlanningItems(nextItems);
   }
+
+  async function sendPlanningMutation(
+    method: PendingPlanningMutation["method"],
+    payload: Record<string, unknown>
+  ) {
+    if (!session?.access_token) {
+      throw new Error("Necesitas iniciar sesion para registrar actividades.");
+    }
+
+    const response = await fetch("/api/planning-items", {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    const json = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(String(json.error ?? "No se pudo sincronizar el registro."));
+    }
+
+    return json;
+  }
+
+  function enqueuePlanningMutation(
+    method: PendingPlanningMutation["method"],
+    payload: Record<string, unknown>
+  ) {
+    const pendingMutation = makePendingPlanningMutation(method, payload);
+    setPendingPlanningMutations((current) => {
+      const next = [...current, pendingMutation];
+      writePendingPlanningMutations(next);
+      return next;
+    });
+    return pendingMutation;
+  }
+
+  async function syncPendingPlanningMutations() {
+    if (!session?.access_token || queueSyncing || !pendingPlanningMutations.length) {
+      return;
+    }
+
+    if (isBrowserOffline()) {
+      return;
+    }
+
+    setQueueSyncing(true);
+
+    const remaining: PendingPlanningMutation[] = [];
+
+    for (let index = 0; index < pendingPlanningMutations.length; index += 1) {
+      const mutation = pendingPlanningMutations[index];
+
+      try {
+        await sendPlanningMutation(mutation.method, mutation.payload);
+      } catch (error: unknown) {
+        remaining.push(mutation);
+        remaining.push(...pendingPlanningMutations.slice(index + 1));
+
+        if (!isNetworkRequestError(error)) {
+          setItemsError(getRequestErrorMessage(error, "No se pudo sincronizar un registro pendiente."));
+        }
+
+        break;
+      }
+    }
+
+    setPendingPlanningMutations(remaining);
+    writePendingPlanningMutations(remaining);
+    setQueueSyncing(false);
+
+    if (remaining.length !== pendingPlanningMutations.length) {
+      await refreshPlanningItems().catch((error: unknown) => {
+        setItemsError(getRequestErrorMessage(error, "No se pudo recargar la planificacion."));
+      });
+    }
+  }
+
+  syncPendingPlanningMutationsRef.current = () => {
+    void syncPendingPlanningMutations();
+  };
 
   async function refreshCatalog() {
     const nextCatalog = await fetchPlanningCatalog();
@@ -704,7 +967,20 @@ export default function Home() {
     event.preventDefault();
     setFormError("");
 
+    const method = editingPlanningItem ? "PATCH" : "POST";
+    const payload = editingPlanningItem ? { id: editingPlanningItem.id, ...formState } : { ...formState };
+
     if (!session?.access_token) {
+      if (isBrowserOffline()) {
+        enqueuePlanningMutation(method, payload);
+        setItemsError(
+          "Sin conexion: el registro quedo guardado en este equipo y se sincronizara automaticamente cuando vuelva la senal."
+        );
+        setIsModalOpen(false);
+        resetPlanningForm();
+        return;
+      }
+
       setFormError("Necesitas iniciar sesion para registrar actividades.");
       return;
     }
@@ -712,27 +988,22 @@ export default function Home() {
     setFormBusy(true);
 
     try {
-      const response = await fetch("/api/planning-items", {
-        method: editingPlanningItem ? "PATCH" : "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify(
-          editingPlanningItem ? { id: editingPlanningItem.id, ...formState } : formState
-        ),
-      });
-      const json = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(String(json.error ?? "No se pudo crear el registro."));
-      }
-
+      await sendPlanningMutation(method, payload);
       await refreshPlanningItems();
       setIsModalOpen(false);
       resetPlanningForm();
     } catch (error: unknown) {
-      setFormError(error instanceof Error ? error.message : "No se pudo crear el registro.");
+      if (shouldQueuePlanningMutation(error)) {
+        enqueuePlanningMutation(method, payload);
+        setItemsError(
+          "Sin conexion: el registro quedo guardado en este equipo y se sincronizara automaticamente cuando vuelva la senal."
+        );
+        setIsModalOpen(false);
+        resetPlanningForm();
+        return;
+      }
+
+      setFormError(getRequestErrorMessage(error, "No se pudo crear el registro."));
     } finally {
       setFormBusy(false);
     }
@@ -770,8 +1041,22 @@ export default function Home() {
 
   async function handleDeletePlanningItem(id: number, trackingType: PlanningItem["tracking_type"]) {
     setFormError("");
+    const payload = { id, tracking_type: trackingType };
 
     if (!session?.access_token) {
+      if (isBrowserOffline()) {
+        enqueuePlanningMutation("DELETE", payload);
+        setItemsError(
+          "Sin conexion: la eliminacion quedo pendiente y se sincronizara automaticamente cuando vuelva la senal."
+        );
+        setDeleteConfirmation(null);
+        if (editingPlanningItem?.id === id) {
+          resetPlanningForm();
+          setIsModalOpen(false);
+        }
+        return;
+      }
+
       setFormError("Necesitas iniciar sesion para eliminar registros.");
       return;
     }
@@ -779,20 +1064,7 @@ export default function Home() {
     setFormBusy(true);
 
     try {
-      const response = await fetch("/api/planning-items", {
-        method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ id, tracking_type: trackingType }),
-      });
-      const json = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(String(json.error ?? "No se pudo eliminar el registro."));
-      }
-
+      await sendPlanningMutation("DELETE", payload);
       await refreshPlanningItems();
       setDeleteConfirmation(null);
       if (editingPlanningItem?.id === id) {
@@ -800,7 +1072,20 @@ export default function Home() {
         setIsModalOpen(false);
       }
     } catch (error: unknown) {
-      setFormError(error instanceof Error ? error.message : "No se pudo eliminar el registro.");
+      if (shouldQueuePlanningMutation(error)) {
+        enqueuePlanningMutation("DELETE", payload);
+        setItemsError(
+          "Sin conexion: la eliminacion quedo pendiente y se sincronizara automaticamente cuando vuelva la senal."
+        );
+        setDeleteConfirmation(null);
+        if (editingPlanningItem?.id === id) {
+          resetPlanningForm();
+          setIsModalOpen(false);
+        }
+        return;
+      }
+
+      setFormError(getRequestErrorMessage(error, "No se pudo eliminar el registro."));
     } finally {
       setFormBusy(false);
     }
@@ -837,7 +1122,7 @@ export default function Home() {
       });
       setTypeForm((current) => ({ ...current, label: "" }));
     } catch (error: unknown) {
-      setCatalogFormError(error instanceof Error ? error.message : "No se pudo crear el tipo.");
+      setCatalogFormError(getRequestErrorMessage(error, "No se pudo crear el tipo."));
     } finally {
       setCatalogBusy(false);
     }
@@ -862,7 +1147,7 @@ export default function Home() {
       });
       setDetailForm((current) => ({ ...current, label: "" }));
     } catch (error: unknown) {
-      setCatalogFormError(error instanceof Error ? error.message : "No se pudo crear el detalle.");
+      setCatalogFormError(getRequestErrorMessage(error, "No se pudo crear el detalle."));
     } finally {
       setCatalogBusy(false);
     }
@@ -886,7 +1171,7 @@ export default function Home() {
       });
       setEditingType(null);
     } catch (error: unknown) {
-      setCatalogFormError(error instanceof Error ? error.message : "No se pudo editar el tipo.");
+      setCatalogFormError(getRequestErrorMessage(error, "No se pudo editar el tipo."));
     } finally {
       setCatalogBusy(false);
     }
@@ -910,7 +1195,7 @@ export default function Home() {
       });
       setEditingDetail(null);
     } catch (error: unknown) {
-      setCatalogFormError(error instanceof Error ? error.message : "No se pudo editar el detalle.");
+      setCatalogFormError(getRequestErrorMessage(error, "No se pudo editar el detalle."));
     } finally {
       setCatalogBusy(false);
     }
@@ -932,7 +1217,7 @@ export default function Home() {
         setEditingDetail(null);
       }
     } catch (error: unknown) {
-      setCatalogFormError(error instanceof Error ? error.message : "No se pudo eliminar el tipo.");
+      setCatalogFormError(getRequestErrorMessage(error, "No se pudo eliminar el tipo."));
     } finally {
       setCatalogBusy(false);
     }
@@ -951,7 +1236,7 @@ export default function Home() {
         setEditingDetail(null);
       }
     } catch (error: unknown) {
-      setCatalogFormError(error instanceof Error ? error.message : "No se pudo eliminar el detalle.");
+      setCatalogFormError(getRequestErrorMessage(error, "No se pudo eliminar el detalle."));
     } finally {
       setCatalogBusy(false);
     }
@@ -971,7 +1256,12 @@ export default function Home() {
   const availableDescriptions = selectedType?.details ?? [];
   const detailTypesForAdmin =
     catalog.find((category) => category.slug === detailForm.category)?.types ?? [];
-  const allPlanningGroups = groupPlanningItems(planningItems);
+  const visiblePlanningItems = applyPendingPlanningMutations(
+    planningItems,
+    pendingPlanningMutations,
+    selectedDate
+  );
+  const allPlanningGroups = groupPlanningItems(visiblePlanningItems);
   const planningGroupsByShift: Record<ShiftKey, PlanningGroup[]> = {
     Dia: allPlanningGroups.filter(
       (group) => group.programado?.shift === "Dia" || group.realSegments.some((segment) => segment.shift === "Dia")
@@ -1030,7 +1320,9 @@ export default function Home() {
 
     return (
       <div
-        className={`gantt-bar ${item.category === "interferencia" ? "warning" : "success"} ${layer}`}
+        className={`gantt-bar ${item.category === "interferencia" ? "warning" : "success"} ${layer} ${
+          item.sync_status === "pending" ? "pending-sync" : ""
+        }`}
         aria-label={ariaLabel}
         role="button"
         tabIndex={0}
@@ -1053,6 +1345,7 @@ export default function Home() {
           {tooltipDetails.map((detail) => (
             <span key={detail}>{detail}</span>
           ))}
+          {item.sync_status === "pending" ? <span>Pendiente de sincronizacion</span> : null}
           {item.notes ? <span>Notas: {item.notes}</span> : null}
         </span>
       </div>
@@ -1299,6 +1592,15 @@ export default function Home() {
 
         {itemsError ? <p className="feedback">{itemsError}</p> : null}
         {catalogError && catalogError !== itemsError ? <p className="feedback">{catalogError}</p> : null}
+        {pendingPlanningMutations.length ? (
+          <p className="feedback">
+            {queueSyncing
+              ? "Sincronizando registros pendientes..."
+              : `${pendingPlanningMutations.length} registro${
+                  pendingPlanningMutations.length === 1 ? "" : "s"
+                } pendiente${pendingPlanningMutations.length === 1 ? "" : "s"} de sincronizacion.`}
+          </p>
+        ) : null}
       </article>
 
       <section className="gantt-stage">

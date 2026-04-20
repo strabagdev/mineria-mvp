@@ -1054,6 +1054,17 @@ textarea {
   border-color: #c2410c;
 }
 
+.gantt-bar.pending-sync {
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.24) 0,
+    rgba(255, 255, 255, 0.24) 6px,
+    rgba(15, 23, 42, 0.08) 6px,
+    rgba(15, 23, 42, 0.08) 12px
+  );
+  box-shadow: 0 0 0 2px rgba(14, 116, 144, 0.2), 0 8px 16px rgba(14, 116, 144, 0.16);
+}
+
 .gantt-bar.success,
 .gantt-bar.warning {
   color: inherit;
