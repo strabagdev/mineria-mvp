@@ -1634,12 +1634,15 @@ export default function Home() {
         {itemsError ? <p className="feedback">{itemsError}</p> : null}
         {catalogError && catalogError !== itemsError ? <p className="feedback">{catalogError}</p> : null}
         {pendingPlanningMutations.length ? (
-          <p className="feedback">
-            {queueSyncing
-              ? "Sincronizando registros pendientes..."
-              : `${pendingPlanningMutations.length} registro${
-                  pendingPlanningMutations.length === 1 ? "" : "s"
-                } pendiente${pendingPlanningMutations.length === 1 ? "" : "s"} de sincronizacion.`}
+          <p className={`feedback sync-feedback ${queueSyncing ? "syncing" : ""}`}>
+            {queueSyncing ? <span className="sync-spinner" aria-hidden="true" /> : null}
+            <span>
+              {queueSyncing
+                ? "Sincronizando registros pendientes..."
+                : `${pendingPlanningMutations.length} registro${
+                    pendingPlanningMutations.length === 1 ? "" : "s"
+                  } pendiente${pendingPlanningMutations.length === 1 ? "" : "s"} de sincronizacion.`}
+            </span>
           </p>
         ) : null}
       </article>
