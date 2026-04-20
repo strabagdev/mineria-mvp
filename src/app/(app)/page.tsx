@@ -130,10 +130,16 @@ type PendingPlanningMutation = {
 
 const NETWORK_ERROR_MESSAGE =
   "No se pudo conectar con el servidor. Si estas en interior mina, probablemente se perdio la senal; vuelve a intentar cuando recuperes conexion.";
+const AUTH_SYNC_ERROR_MESSAGE =
+  "Los registros siguen guardados en este equipo, pero no pudimos validar tu sesion para sincronizarlos. Vuelve a iniciar sesion cuando tengas conexion.";
 const PLANNING_MUTATION_QUEUE_KEY = "mineria.pendingPlanningMutations.v1";
 
 function isNetworkRequestError(error: unknown) {
   return error instanceof Error && /failed to fetch|fetch failed|load failed|networkerror/i.test(error.message);
+}
+
+function isInvalidSessionError(error: unknown) {
+  return error instanceof Error && /invalid session/i.test(error.message);
 }
 
 function isBrowserOffline() {
@@ -144,13 +150,17 @@ function shouldQueuePlanningMutation(error: unknown) {
   return (
     isBrowserOffline() ||
     isNetworkRequestError(error) ||
-    (error instanceof Error && /invalid session/i.test(error.message))
+    isInvalidSessionError(error)
   );
 }
 
 function getRequestErrorMessage(error: unknown, fallback: string) {
   if (isNetworkRequestError(error)) {
     return NETWORK_ERROR_MESSAGE;
+  }
+
+  if (isInvalidSessionError(error)) {
+    return AUTH_SYNC_ERROR_MESSAGE;
   }
 
   return error instanceof Error ? error.message || fallback : fallback;
@@ -916,11 +926,16 @@ export default function Home() {
       }
     }
 
-    setPendingPlanningMutations(remaining);
-    writePendingPlanningMutations(remaining);
+    const syncedCount = pendingPlanningMutations.length - remaining.length;
+
+    if (syncedCount > 0) {
+      setPendingPlanningMutations(remaining);
+      writePendingPlanningMutations(remaining);
+    }
+
     setQueueSyncing(false);
 
-    if (remaining.length !== pendingPlanningMutations.length) {
+    if (syncedCount > 0) {
       await refreshPlanningItems().catch((error: unknown) => {
         setItemsError(getRequestErrorMessage(error, "No se pudo recargar la planificacion."));
       });
