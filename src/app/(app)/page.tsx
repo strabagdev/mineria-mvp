@@ -405,6 +405,44 @@ function formatDateLabel(value: string) {
   }).format(new Date(`${value}T00:00:00`));
 }
 
+function formatDateTitle(value: string) {
+  return new Intl.DateTimeFormat("es-CL", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(new Date(`${value}T00:00:00`));
+}
+
+function formatMonthTitle(date: Date) {
+  return new Intl.DateTimeFormat("es-CL", {
+    month: "long",
+    year: "numeric",
+  }).format(date);
+}
+
+function getCalendarDays(monthDate: Date) {
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstWeekday = (firstDay.getDay() + 6) % 7;
+  const days: Array<Date | null> = Array.from({ length: firstWeekday }, () => null);
+
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    days.push(new Date(year, month, day));
+  }
+
+  while (days.length % 7 !== 0) {
+    days.push(null);
+  }
+
+  return days;
+}
+
+function isSameCalendarMonth(left: Date, right: Date) {
+  return left.getFullYear() === right.getFullYear() && left.getMonth() === right.getMonth();
+}
+
 function toDisplayCategory(category: PlanningItem["category"]) {
   return category === "interferencia" ? "Interferencia" : "Actividad";
 }
@@ -720,11 +758,14 @@ async function fetchPlanningCatalog() {
 }
 
 export default function Home() {
-  const { session } = useAuth();
+  const { session, profile } = useAuth();
   const todayIso = formatLocalDateIso();
   const [planningItems, setPlanningItems] = useState<PlanningItem[]>([]);
   const [catalog, setCatalog] = useState<CatalogCategory[]>([]);
   const [selectedDate, setSelectedDate] = useState(todayIso);
+  const [historicalEditingEnabled, setHistoricalEditingEnabled] = useState(false);
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(() => new Date(`${todayIso}T00:00:00`));
   const [activeShift, setActiveShift] = useState<ShiftKey>("Dia");
   const [itemsLoading, setItemsLoading] = useState(true);
   const [itemsError, setItemsError] = useState("");
@@ -732,6 +773,7 @@ export default function Home() {
     () => readPendingPlanningMutations()
   );
   const syncPendingPlanningMutationsRef = useRef<() => void>(() => undefined);
+  const datePickerRef = useRef<HTMLDivElement | null>(null);
   const [queueSyncing, setQueueSyncing] = useState(false);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState("");
@@ -868,6 +910,24 @@ export default function Home() {
   useEffect(() => {
     syncPendingPlanningMutationsRef.current();
   }, [pendingPlanningMutations, session?.access_token]);
+
+  useEffect(() => {
+    if (!isDatePickerOpen) {
+      return;
+    }
+
+    function closeDatePickerOnOutsideClick(event: PointerEvent) {
+      if (!datePickerRef.current?.contains(event.target as Node)) {
+        setIsDatePickerOpen(false);
+      }
+    }
+
+    window.addEventListener("pointerdown", closeDatePickerOnOutsideClick);
+
+    return () => {
+      window.removeEventListener("pointerdown", closeDatePickerOnOutsideClick);
+    };
+  }, [isDatePickerOpen]);
 
   function resetPlanningForm() {
     const nextForm = syncPlanningForm(toInitialPlanningForm(catalog, activeShift, selectedDate), catalog);
@@ -1051,7 +1111,7 @@ export default function Home() {
   }
 
   function openEditPlanningItem(item: PlanningItem) {
-    if (selectedDate !== todayIso) {
+    if (selectedDate !== todayIso && !historicalEditingEnabled) {
       return;
     }
 
@@ -1324,7 +1384,12 @@ export default function Home() {
     ),
   };
   const isHistoricalView = selectedDate !== todayIso;
+  const isHistoricalReadOnly = isHistoricalView && !historicalEditingEnabled;
+  const todayDate = new Date(`${todayIso}T00:00:00`);
+  const calendarDays = getCalendarDays(calendarMonth);
+  const canGoNextMonth = !isSameCalendarMonth(calendarMonth, todayDate) && calendarMonth < todayDate;
   const formContextLabel = isRealForm ? "Real" : "Programacion";
+  const canManageCatalog = profile?.role === "admin";
   const planningModalTitle = editingPlanningItem
     ? `Editar ${isRealForm ? "real" : "programacion"}`
     : `Crear ${isRealForm ? "real" : "programacion"}`;
@@ -1376,11 +1441,9 @@ export default function Home() {
         }}
         style={{ left: `${startOffset}%`, width: `${width}%` }}
       >
-        {layer === "programado" ? (
-          <span className="gantt-bar-label" aria-hidden="true">
-            {buildEventTitle(item)}
-          </span>
-        ) : null}
+        <span className={`gantt-bar-label ${layer}`} aria-hidden="true">
+          {layer === "programado" ? buildEventTitle(item) : "Real"}
+        </span>
         <span className="gantt-bar-tooltip" role="tooltip">
           <strong>{buildEventTitle(item)}</strong>
           {tooltipDetails.map((detail) => (
@@ -1394,25 +1457,33 @@ export default function Home() {
   }
 
   function renderCreateRealButton(group: PlanningGroup) {
-    if (isHistoricalView || !group.programado || group.realSegments.length > 0) {
+    if (isHistoricalReadOnly || !group.programado || group.realSegments.length > 0) {
       return null;
     }
 
     return (
       <button
         type="button"
-        className="button icon-button gantt-meta-add-real"
+        className="button gantt-meta-add-real"
         onClick={() => openCreatePlanningVariant(group, "real")}
         aria-label={`Agregar tramo real a ${buildEventTitle(group)}`}
         title="Agregar real"
       >
         <span aria-hidden="true">+</span>
+        <span>Agregar real</span>
       </button>
     );
   }
 
+  function selectOperationalDate(date: string) {
+    setSelectedDate(date);
+    setCalendarMonth(new Date(`${date}T00:00:00`));
+    setHistoricalEditingEnabled(false);
+    setIsDatePickerOpen(false);
+  }
+
   function openCreatePlanningVariant(group: PlanningGroup, trackingType: "programado" | "real") {
-    if (isHistoricalView) {
+    if (isHistoricalReadOnly) {
       return;
     }
 
@@ -1469,26 +1540,28 @@ export default function Home() {
 
         <div className="gantt-header">
           <div className="gantt-header-meta">Evento</div>
-          <div
-            className="gantt-header-timeline"
-            style={{ gridTemplateColumns: `repeat(${scale.slotCount}, minmax(0, 1fr)) auto` }}
-          >
-            {scale.hourMarks.map((mark, index) => (
-              <span
-                key={`${shift}-${mark.key}`}
-                className={[
-                  mark.major ? "major" : "minor",
-                  mark.major && index === 0 ? "first-major" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-              >
-                {mark.major ? <span className="gantt-hour-label">{mark.label}</span> : null}
+          <div className="gantt-timeline-scroll">
+            <div
+              className="gantt-header-timeline"
+              style={{ gridTemplateColumns: `repeat(${scale.slotCount}, minmax(0, 1fr)) auto` }}
+            >
+              {scale.hourMarks.map((mark, index) => (
+                <span
+                  key={`${shift}-${mark.key}`}
+                  className={[
+                    mark.major ? "major" : "minor",
+                    mark.major && index === 0 ? "first-major" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                >
+                  {mark.major ? <span className="gantt-hour-label">{mark.label}</span> : null}
+                </span>
+              ))}
+              <span className="gantt-end-label" aria-hidden="true">
+                <span className="gantt-hour-label">{scale.endLabel}</span>
               </span>
-            ))}
-            <span className="gantt-end-label" aria-hidden="true">
-              <span className="gantt-hour-label">{scale.endLabel}</span>
-            </span>
+            </div>
           </div>
         </div>
 
@@ -1522,16 +1595,22 @@ export default function Home() {
                         </span>
                         <span className="field-chip">{group.item_type}</span>
                       </div>
-                      <div className="gantt-meta-secondary">{renderCreateRealButton(group)}</div>
+                      <div className="gantt-meta-secondary">
+                        {renderCreateRealButton(group)}
+                      </div>
                     </div>
                   </div>
                 </div>
 
                 <div className="gantt-track gantt-track-compare">
-                  {renderGanttBar(plannedItemForShift, "programado", scale)}
-                  {realSegmentsForShift.map((segment) => (
-                    <Fragment key={`real-segment-${segment.id}`}>{renderGanttBar(segment, "real", scale)}</Fragment>
-                  ))}
+                  <div className="gantt-track-scale">
+                    <span className="gantt-lane-label programado" aria-hidden="true">Plan</span>
+                    <span className="gantt-lane-label real" aria-hidden="true">Real</span>
+                    {renderGanttBar(plannedItemForShift, "programado", scale)}
+                    {realSegmentsForShift.map((segment) => (
+                      <Fragment key={`real-segment-${segment.id}`}>{renderGanttBar(segment, "real", scale)}</Fragment>
+                    ))}
+                  </div>
                 </div>
               </article>
             )})
@@ -1569,23 +1648,108 @@ export default function Home() {
             <h2 className="hero-title">Seguimiento operativo del turno</h2>
           </div>
 
-          <div className="history-controls" aria-label="Selector de fecha">
-            <label className="field history-field">
-              <span className="history-label">Dia</span>
-              <input
-                className="field-input history-input"
-                type="date"
-                aria-label={isHistoricalView ? "Fecha historica" : "Fecha actual"}
-                max={todayIso}
-                value={selectedDate}
-                onChange={(event) => setSelectedDate(event.target.value)}
-              />
-            </label>
+          <div className="history-controls" aria-label="Selector de fecha" ref={datePickerRef}>
+            <div className="date-picker-shell">
+              <button
+                type="button"
+                className={`date-display-button ${isDatePickerOpen ? "active" : ""}`}
+                aria-haspopup="dialog"
+                aria-expanded={isDatePickerOpen}
+                onClick={() => setIsDatePickerOpen((current) => !current)}
+              >
+                <span className="history-control-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" focusable="false">
+                    <path d="M7 3v3" />
+                    <path d="M17 3v3" />
+                    <path d="M4.5 8.25h15" />
+                    <path d="M6.75 5h10.5a2.25 2.25 0 0 1 2.25 2.25v10.5A2.25 2.25 0 0 1 17.25 20H6.75a2.25 2.25 0 0 1-2.25-2.25V7.25A2.25 2.25 0 0 1 6.75 5Z" />
+                  </svg>
+                </span>
+                <span className="date-display-copy">
+                  <span className="date-display-value">{formatDateTitle(selectedDate)}</span>
+                </span>
+              </button>
+
+              {isDatePickerOpen ? (
+                <div className="date-picker-popover" role="dialog" aria-label="Seleccionar fecha operacional">
+                  <div className="date-picker-header">
+                    <button
+                      type="button"
+                      className="button icon-button date-picker-nav"
+                      onClick={() =>
+                        setCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))
+                      }
+                      aria-label="Mes anterior"
+                    >
+                      <span aria-hidden="true">‹</span>
+                    </button>
+                    <p className="date-picker-month">{formatMonthTitle(calendarMonth)}</p>
+                    <button
+                      type="button"
+                      className="button icon-button date-picker-nav"
+                      disabled={!canGoNextMonth}
+                      onClick={() =>
+                        setCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))
+                      }
+                      aria-label="Mes siguiente"
+                    >
+                      <span aria-hidden="true">›</span>
+                    </button>
+                  </div>
+
+                  <div className="date-picker-weekdays" aria-hidden="true">
+                    {["L", "M", "M", "J", "V", "S", "D"].map((day, index) => (
+                      <span key={`${day}-${index}`}>{day}</span>
+                    ))}
+                  </div>
+
+                  <div className="date-picker-grid">
+                    {calendarDays.map((date, index) => {
+                      if (!date) {
+                        return <span key={`empty-${index}`} aria-hidden="true" />;
+                      }
+
+                      const dateIso = formatLocalDateIso(date);
+                      const isSelected = dateIso === selectedDate;
+                      const isToday = dateIso === todayIso;
+                      const isFuture = date > todayDate;
+
+                      return (
+                        <button
+                          key={dateIso}
+                          type="button"
+                          className={[
+                            "date-picker-day",
+                            isSelected ? "selected" : "",
+                            isToday ? "today" : "",
+                          ]
+                            .filter(Boolean)
+                            .join(" ")}
+                          disabled={isFuture}
+                          onClick={() => selectOperationalDate(dateIso)}
+                          aria-pressed={isSelected}
+                        >
+                          {date.getDate()}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="date-picker-footer">
+                    <button type="button" className="button date-picker-today" onClick={() => selectOperationalDate(todayIso)}>
+                      Volver a hoy
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
             {isHistoricalView ? (
               <button
                 type="button"
                 className="button icon-button hero-action-button"
-                onClick={() => setSelectedDate(todayIso)}
+                onClick={() => {
+                  selectOperationalDate(todayIso);
+                }}
                 aria-label="Volver a hoy"
                 title="Volver a hoy"
               >
@@ -1597,55 +1761,89 @@ export default function Home() {
             ) : null}
           </div>
           <div className="toolbar-actions">
+            {canManageCatalog ? (
+              <button
+                type="button"
+                className="button hero-action-button"
+                onClick={() => setIsCatalogModalOpen(true)}
+                disabled={!session || catalogLoading}
+                aria-label="Configurar catalogo"
+                title="Configurar catalogo"
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+                  <path d="M12 8.25a3.75 3.75 0 1 0 0 7.5 3.75 3.75 0 0 0 0-7.5Z" />
+                  <path d="M19.5 12a7.9 7.9 0 0 0-.08-1.08l2.08-1.63-2-3.46-2.46.99a7.58 7.58 0 0 0-1.86-1.08L14.8 3h-5.6l-.38 2.74a7.58 7.58 0 0 0-1.86 1.08L4.5 5.83l-2 3.46 2.08 1.63a7.76 7.76 0 0 0 0 2.16L2.5 14.71l2 3.46 2.46-.99a7.58 7.58 0 0 0 1.86 1.08L9.2 21h5.6l.38-2.74a7.58 7.58 0 0 0 1.86-1.08l2.46.99 2-3.46-2.08-1.63c.05-.35.08-.71.08-1.08Z" />
+                </svg>
+                <span>Catalogo</span>
+              </button>
+            ) : null}
             <button
               type="button"
-              className="button icon-button hero-action-button"
-              onClick={() => setIsCatalogModalOpen(true)}
-              disabled={!session || catalogLoading}
-              aria-label="Configurar catalogo"
-              title="Configurar catalogo"
-            >
-              <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
-                <path d="M12 8.25a3.75 3.75 0 1 0 0 7.5 3.75 3.75 0 0 0 0-7.5Z" />
-                <path d="M19.5 12a7.9 7.9 0 0 0-.08-1.08l2.08-1.63-2-3.46-2.46.99a7.58 7.58 0 0 0-1.86-1.08L14.8 3h-5.6l-.38 2.74a7.58 7.58 0 0 0-1.86 1.08L4.5 5.83l-2 3.46 2.08 1.63a7.76 7.76 0 0 0 0 2.16L2.5 14.71l2 3.46 2.46-.99a7.58 7.58 0 0 0 1.86 1.08L9.2 21h5.6l.38-2.74a7.58 7.58 0 0 0 1.86-1.08l2.46.99 2-3.46-2.08-1.63c.05-.35.08-.71.08-1.08Z" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              className="button primary icon-button hero-action-button"
+              className="button primary hero-action-button"
               onClick={() => {
                 resetPlanningForm();
                 setFormState((current) => ({ ...current, tracking_type: "programado" }));
                 setIsModalOpen(true);
               }}
-              disabled={!session || catalogLoading || !catalog.length || isHistoricalView}
+              disabled={!session || catalogLoading || !catalog.length || isHistoricalReadOnly}
               aria-label="Nueva programacion"
-              title="Nueva programacion"
+              title={isHistoricalReadOnly ? "Habilita la edicion historica para crear registros" : "Nueva programacion"}
             >
               <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
-                <path d="M12 5v14" />
-                <path d="M5 12h14" />
-                <path d="M7.5 3.5h9A2.5 2.5 0 0 1 19 6v12a2.5 2.5 0 0 1-2.5 2.5h-9A2.5 2.5 0 0 1 5 18V6a2.5 2.5 0 0 1 2.5-2.5Z" />
+                <path d="M7 3v3" />
+                <path d="M17 3v3" />
+                <path d="M4.5 8.25h15" />
+                <path d="M6.75 5h10.5a2.25 2.25 0 0 1 2.25 2.25v10.5A2.25 2.25 0 0 1 17.25 20H6.75a2.25 2.25 0 0 1-2.25-2.25V7.25A2.25 2.25 0 0 1 6.75 5Z" />
+                <path d="M12 11.25v5" />
+                <path d="M9.5 13.75h5" />
               </svg>
+              <span>Nueva programacion</span>
             </button>
           </div>
         </div>
 
-        {itemsError ? <p className="feedback">{itemsError}</p> : null}
-        {catalogError && catalogError !== itemsError ? <p className="feedback">{catalogError}</p> : null}
-        {pendingPlanningMutations.length ? (
-          <p className={`feedback sync-feedback ${queueSyncing ? "syncing" : ""}`}>
-            {queueSyncing ? <span className="sync-spinner" aria-hidden="true" /> : null}
-            <span>
-              {queueSyncing
-                ? "Sincronizando registros pendientes..."
-                : `${pendingPlanningMutations.length} registro${
-                    pendingPlanningMutations.length === 1 ? "" : "s"
-                  } pendiente${pendingPlanningMutations.length === 1 ? "" : "s"} de sincronizacion.`}
-            </span>
-          </p>
-        ) : null}
       </article>
+
+      {isHistoricalView ? (
+        <div className={`historical-mode-strip ${historicalEditingEnabled ? "editing" : ""}`} aria-live="polite">
+          <div>
+            <p className="historical-mode-title">
+              {historicalEditingEnabled ? "Edicion historica activa" : "Vista historica: solo lectura"}
+            </p>
+            <p className="historical-mode-copy">
+              {historicalEditingEnabled
+                ? "Puedes editar registros de esta fecha. Los cambios quedaran asociados al dia seleccionado."
+                : "Para proteger datos cerrados, las acciones de edicion estan ocultas hasta que las habilites."}
+            </p>
+          </div>
+          <button
+            type="button"
+            className="button historical-mode-action"
+            onClick={() => setHistoricalEditingEnabled((current) => !current)}
+          >
+            {historicalEditingEnabled ? "Bloquear edicion" : "Habilitar edicion"}
+          </button>
+        </div>
+      ) : null}
+
+      {itemsError || (catalogError && catalogError !== itemsError) || pendingPlanningMutations.length ? (
+        <div className="gantt-status-strip" aria-live="polite">
+          {itemsError ? <p className="feedback">{itemsError}</p> : null}
+          {catalogError && catalogError !== itemsError ? <p className="feedback">{catalogError}</p> : null}
+          {pendingPlanningMutations.length ? (
+            <p className={`feedback sync-feedback ${queueSyncing ? "syncing" : ""}`}>
+              {queueSyncing ? <span className="sync-spinner" aria-hidden="true" /> : null}
+              <span>
+                {queueSyncing
+                  ? "Sincronizando registros pendientes..."
+                  : `${pendingPlanningMutations.length} registro${
+                      pendingPlanningMutations.length === 1 ? "" : "s"
+                    } pendiente${pendingPlanningMutations.length === 1 ? "" : "s"} de sincronizacion.`}
+              </span>
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       <section className="gantt-stage">
         <div className="gantt-shell">
@@ -1932,7 +2130,7 @@ export default function Home() {
               <button type="button" className="button" onClick={() => setViewingPlanningItem(null)}>
                 Cerrar
               </button>
-              {!isHistoricalView ? (
+              {!isHistoricalReadOnly ? (
                 <button
                   type="button"
                   className="button primary"
