@@ -2,7 +2,7 @@ import React from "react";
 import "./globals.css";
 
 export const metadata = {
-  title: "Mineria MVP",
+  title: "ZÜBLIN/STRABAG",
   description: "Carta gantt operacional para actividades e interferencias mineras",
 };
 

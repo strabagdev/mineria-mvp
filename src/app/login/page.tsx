@@ -113,7 +113,7 @@ export default function LoginPage() {
   return (
     <main className="app-background auth-layout">
       <section className="auth-card">
-        <p className="eyebrow">Mineria MVP</p>
+        <p className="eyebrow">ZÜBLIN/STRABAG</p>
         <h1 className="hero-title" style={{ fontSize: "2.125rem" }}>Acceso</h1>
         <p className="body-copy" style={{ marginTop: 0 }}>
           Ingresa con tu cuenta aprobada o solicita acceso para que un administrador habilite tu perfil.

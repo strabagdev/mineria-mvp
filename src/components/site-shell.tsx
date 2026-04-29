@@ -31,7 +31,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
     return (
       <main className="app-background auth-layout">
         <section className="auth-card">
-          <p className="eyebrow">Mineria MVP</p>
+          <p className="eyebrow">ZÜBLIN/STRABAG</p>
           <h1 className="hero-title" style={{ fontSize: "2.125rem" }}>Cargando</h1>
           <p className="body-copy" style={{ marginTop: 0 }}>
             Validando tu sesion.
@@ -54,8 +54,8 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
               <div className="header-row">
                 <div className="header-copy-block">
                   <div className="header-badge-row">
-                    <span className="header-badge header-badge-strong">Mineria MVP</span>
-                    <span className="header-badge">Operacion diaria</span>
+                    <span className="header-badge header-badge-strong">ZÜBLIN/STRABAG</span>
+                    <span className="header-badge">CC-2010</span>
                   </div>
                   <h1 className="header-title">Control Gantt Operacional</h1>
                   <p className="header-copy">
