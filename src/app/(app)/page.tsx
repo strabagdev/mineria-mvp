@@ -553,6 +553,30 @@ function getDefaultShiftTimes(shift: ShiftKey) {
   };
 }
 
+function getDefaultRealEventTimes(group: PlanningGroup) {
+  const lastRealSegment = group.realSegments[group.realSegments.length - 1] ?? null;
+
+  if (!lastRealSegment) {
+    return {
+      start_time: group.programado?.start ?? getDefaultShiftTimes(group.shift as ShiftKey).start_time,
+      end_time: group.programado?.end ?? getDefaultShiftTimes(group.shift as ShiftKey).end_time,
+    };
+  }
+
+  const start_time = lastRealSegment.end;
+  const plannedEnd = group.programado?.end ?? "";
+  const shift = lastRealSegment.shift === "Noche" ? "Noche" : "Dia";
+  const scale = buildGanttScale(SHIFT_CONFIG[shift].start, SHIFT_CONFIG[shift].end, SHIFT_CONFIG[shift].wrapsMidnight);
+  const startOffset = positionMinutesInScale(start_time, scale);
+  const plannedEndOffset = plannedEnd ? positionMinutesInScale(plannedEnd, scale) : startOffset;
+  const end_time = plannedEnd && plannedEndOffset > startOffset ? plannedEnd : toTimeLabel(startOffset + 60);
+
+  return {
+    start_time,
+    end_time,
+  };
+}
+
 
 function toInitialPlanningForm(
   categories: CatalogCategory[],
@@ -1388,15 +1412,15 @@ export default function Home() {
   const todayDate = new Date(`${todayIso}T00:00:00`);
   const calendarDays = getCalendarDays(calendarMonth);
   const canGoNextMonth = !isSameCalendarMonth(calendarMonth, todayDate) && calendarMonth < todayDate;
-  const formContextLabel = isRealForm ? "Real" : "Programacion";
+  const formContextLabel = isRealForm ? "Evento real" : "Programacion";
   const canManageCatalog = profile?.role === "admin";
   const planningModalTitle = editingPlanningItem
-    ? `Editar ${isRealForm ? "real" : "programacion"}`
-    : `Crear ${isRealForm ? "real" : "programacion"}`;
+    ? `Editar ${isRealForm ? "evento real" : "programacion"}`
+    : `Crear ${isRealForm ? "evento real" : "programacion"}`;
   const planningSubmitLabel = editingPlanningItem
-    ? `Guardar ${isRealForm ? "real" : "programacion"}`
-    : `Guardar ${isRealForm ? "real" : "programacion"}`;
-  const planningDeleteLabel = `Eliminar ${isRealForm ? "real" : "programacion"}`;
+    ? `Guardar ${isRealForm ? "evento real" : "programacion"}`
+    : `Guardar ${isRealForm ? "evento real" : "programacion"}`;
+  const planningDeleteLabel = `Eliminar ${isRealForm ? "evento real" : "programacion"}`;
   const viewingContinuation = findSegmentContinuation(viewingPlanningItem, allPlanningGroups);
 
   function renderGanttBar(item: PlanningItem | null, layer: "programado" | "real", scale: GanttScale) {
@@ -1442,7 +1466,7 @@ export default function Home() {
         style={{ left: `${startOffset}%`, width: `${width}%` }}
       >
         <span className={`gantt-bar-label ${layer}`} aria-hidden="true">
-          {layer === "programado" ? buildEventTitle(item) : "Real"}
+          {buildEventTitle(item)}
         </span>
         <span className="gantt-bar-tooltip" role="tooltip">
           <strong>{buildEventTitle(item)}</strong>
@@ -1457,7 +1481,7 @@ export default function Home() {
   }
 
   function renderCreateRealButton(group: PlanningGroup) {
-    if (isHistoricalReadOnly || !group.programado || group.realSegments.length > 0) {
+    if (isHistoricalReadOnly || !group.programado) {
       return null;
     }
 
@@ -1466,11 +1490,11 @@ export default function Home() {
         type="button"
         className="button gantt-meta-add-real"
         onClick={() => openCreatePlanningVariant(group, "real")}
-        aria-label={`Agregar tramo real a ${buildEventTitle(group)}`}
-        title="Agregar real"
+        aria-label={`Agregar evento real a ${buildEventTitle(group)}`}
+        title="Agregar evento real"
       >
         <span aria-hidden="true">+</span>
-        <span>Agregar real</span>
+        <span>Agregar evento</span>
       </button>
     );
   }
@@ -1496,13 +1520,16 @@ export default function Home() {
     const nextType = nextCategory?.types.find((type) => type.label === group.item_type) ?? nextCategory?.types[0] ?? null;
     const nextDetail =
       nextType?.details.find((detail) => detail.label === group.description) ?? nextType?.details[0] ?? null;
-    const defaultTimes = getDefaultShiftTimes(group.shift === "Noche" ? "Noche" : "Dia");
+    const defaultTimes =
+      trackingType === "real"
+        ? getDefaultRealEventTimes(group)
+        : getDefaultShiftTimes(group.shift === "Noche" ? "Noche" : "Dia");
 
     setFormState({
       activity_group_id: group.activity_group_id,
       item_date: sourceItem?.item_date ?? group.item_date,
-      start_time: sourceItem?.start ?? defaultTimes.start_time,
-      end_time: sourceItem?.end ?? defaultTimes.end_time,
+      start_time: trackingType === "real" ? defaultTimes.start_time : sourceItem?.start ?? defaultTimes.start_time,
+      end_time: trackingType === "real" ? defaultTimes.end_time : sourceItem?.end ?? defaultTimes.end_time,
       shift: sourceItem?.shift ?? group.shift,
       level: sourceItem?.level ?? group.level,
       front: sourceItem?.front ?? group.front,

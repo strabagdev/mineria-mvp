@@ -34,6 +34,14 @@ type PlanningItemResponse = {
   notes: string | null;
 };
 
+type RealSegmentRangeInput = {
+  id?: number;
+  item_date: string;
+  start_time: string;
+  end_time: string;
+  shift: string;
+};
+
 function toMinutes(time: string) {
   const [hours, minutes] = time.slice(0, 5).split(":").map(Number);
   return hours * 60 + minutes;
@@ -74,6 +82,32 @@ function toOperationalOffsetMinutes(time: string, shift: string) {
   }
 
   return minutes >= toMinutes("20:00") ? minutes : minutes + 24 * 60;
+}
+
+function toDateBaseMinutes(dateString: string) {
+  return Math.floor(new Date(`${dateString}T00:00:00Z`).getTime() / 60000);
+}
+
+function toTimelineRange(segment: RealSegmentRangeInput) {
+  const baseMinutes = toDateBaseMinutes(segment.item_date);
+  const start = baseMinutes + toOperationalOffsetMinutes(segment.start_time, segment.shift);
+  let end = baseMinutes + toOperationalOffsetMinutes(segment.end_time, segment.shift);
+
+  if (end <= start) {
+    end += 24 * 60;
+  }
+
+  return { start, end };
+}
+
+function rangesOverlap(
+  left: RealSegmentRangeInput,
+  right: RealSegmentRangeInput
+) {
+  const leftRange = toTimelineRange(left);
+  const rightRange = toTimelineRange(right);
+
+  return leftRange.start < rightRange.end && leftRange.end > rightRange.start;
 }
 
 function buildRealSegments(payload: PlanningItemPayload) {
@@ -205,8 +239,78 @@ function mapPlanningRow(row: Omit<PlanningItemResponse, "tracking_type"> & { tra
   };
 }
 
-function getSegmentOrderBase() {
-  return Math.floor(Date.now() / 1000);
+async function getNextSegmentOrder(
+  db: ReturnType<typeof getSupabaseServerClient>,
+  activityGroupId: string
+) {
+  const { data, error } = await db
+    .from("activity_execution_segments")
+    .select("segment_order")
+    .eq("activity_group_id", activityGroupId)
+    .order("segment_order", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return Number(data?.segment_order ?? 0) + 1;
+}
+
+async function validateRealSegmentsDoNotOverlap(
+  db: ReturnType<typeof getSupabaseServerClient>,
+  activityGroupId: string,
+  segments: RealSegmentRangeInput[],
+  excludedSegmentId?: number
+) {
+  const { data: existingSegments, error } = await db
+    .from("activity_execution_segments")
+    .select("id, item_date, start_time, end_time, shift")
+    .eq("activity_group_id", activityGroupId);
+
+  if (error) {
+    throw error;
+  }
+
+  const comparableExistingSegments = (existingSegments ?? []).filter(
+    (segment) => Number(segment.id) !== excludedSegmentId
+  );
+
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index];
+
+    for (let nextIndex = index + 1; nextIndex < segments.length; nextIndex += 1) {
+      if (rangesOverlap(segment, segments[nextIndex])) {
+        return NextResponse.json(
+          { error: "Los eventos reales de una misma programacion no pueden solaparse." },
+          { status: 400 }
+        );
+      }
+    }
+
+    const overlappingSegment = comparableExistingSegments.find((existingSegment) =>
+      rangesOverlap(segment, {
+        id: Number(existingSegment.id),
+        item_date: String(existingSegment.item_date),
+        start_time: String(existingSegment.start_time),
+        end_time: String(existingSegment.end_time),
+        shift: String(existingSegment.shift),
+      })
+    );
+
+    if (overlappingSegment) {
+      return NextResponse.json(
+        {
+          error:
+            "Ese horario se solapa con otro evento real del mismo programado. Solo puedes agregar eventos en espacios vacios.",
+        },
+        { status: 400 }
+      );
+    }
+  }
+
+  return null;
 }
 
 async function validateAndNormalizePlanningItem(
@@ -506,26 +610,13 @@ export async function POST(req: Request) {
     }
 
     const segments = buildRealSegments(payload) ?? [];
+    const overlapError = await validateRealSegmentsDoNotOverlap(db, payload.activity_group_id, segments);
 
-    const { data: existingReal, error: existingRealError } = await db
-      .from("activity_execution_segments")
-      .select("id")
-      .eq("activity_group_id", payload.activity_group_id)
-      .limit(1)
-      .maybeSingle();
-
-    if (existingRealError) {
-      throw existingRealError;
+    if (overlapError) {
+      return overlapError;
     }
 
-    if (existingReal) {
-      return NextResponse.json(
-        { error: "Esta programacion ya tiene un real registrado." },
-        { status: 400 }
-      );
-    }
-
-    const baseSegmentOrder = getSegmentOrderBase();
+    const baseSegmentOrder = await getNextSegmentOrder(db, payload.activity_group_id);
 
     const { data, error } = await db
       .from("activity_execution_segments")
@@ -547,9 +638,7 @@ export async function POST(req: Request) {
             created_by: user.id,
           } as Record<string, unknown>;
 
-          if (segments.length > 1) {
-            base.segment_order = baseSegmentOrder + index;
-          }
+          base.segment_order = baseSegmentOrder + index;
 
           return base;
         })
@@ -629,6 +718,17 @@ export async function PATCH(req: Request) {
       }
 
       return NextResponse.json({ item: mapPlanningRow(data) });
+    }
+
+    const overlapError = await validateRealSegmentsDoNotOverlap(
+      db,
+      payload.activity_group_id,
+      buildRealSegments(payload) ?? [],
+      id
+    );
+
+    if (overlapError) {
+      return overlapError;
     }
 
     const { data, error } = await db
