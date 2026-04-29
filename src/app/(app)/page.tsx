@@ -459,6 +459,14 @@ function buildEventTitle(item: {
   return String(item.description ?? "").trim();
 }
 
+function buildGanttBarLabel(item: PlanningItem, layer: "programado" | "real") {
+  if (layer === "real") {
+    return String(item.item_type || item.description).trim();
+  }
+
+  return buildEventTitle(item);
+}
+
 function buildEventSubtitle(item: {
   level?: string | null;
   front?: string | null;
@@ -1440,6 +1448,7 @@ export default function Home() {
     const width = ((end - start) / scaleSpan) * 100;
     const duration = formatDuration(item.start, item.end);
     const ariaLabel = buildPlanningItemAriaLabel(item, duration);
+    const barLabel = buildGanttBarLabel(item, layer);
     const tooltipDetails = [
       `${toTrackingTypeLabel(item.tracking_type)} · ${toDisplayCategory(item.category)}`,
       item.item_type,
@@ -1466,7 +1475,7 @@ export default function Home() {
         style={{ left: `${startOffset}%`, width: `${width}%` }}
       >
         <span className={`gantt-bar-label ${layer}`} aria-hidden="true">
-          {buildEventTitle(item)}
+          {barLabel}
         </span>
         <span className="gantt-bar-tooltip" role="tooltip">
           <strong>{buildEventTitle(item)}</strong>
@@ -1561,7 +1570,8 @@ export default function Home() {
           </div>
           <div className="gantt-legend" aria-label="Leyenda de barras">
             <span className="gantt-legend-chip programado">Programado</span>
-            <span className="gantt-legend-chip real">Real</span>
+            <span className="gantt-legend-chip actividad">Actividad</span>
+            <span className="gantt-legend-chip interferencia">Interferencia</span>
           </div>
         </div>
 
@@ -1632,7 +1642,7 @@ export default function Home() {
                 <div className="gantt-track gantt-track-compare">
                   <div className="gantt-track-scale">
                     <span className="gantt-lane-label programado" aria-hidden="true">Plan</span>
-                    <span className="gantt-lane-label real" aria-hidden="true">Real</span>
+                    <span className="gantt-lane-label real" aria-hidden="true">Eventos</span>
                     {renderGanttBar(plannedItemForShift, "programado", scale)}
                     {realSegmentsForShift.map((segment) => (
                       <Fragment key={`real-segment-${segment.id}`}>{renderGanttBar(segment, "real", scale)}</Fragment>
