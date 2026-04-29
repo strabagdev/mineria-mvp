@@ -1503,7 +1503,6 @@ export default function Home() {
         title="Agregar evento real"
       >
         <span aria-hidden="true">+</span>
-        <span>Agregar evento</span>
       </button>
     );
   }
@@ -1616,8 +1615,9 @@ export default function Home() {
             groups.map((group) => {
               const realSegmentsForShift = group.realSegments.filter((segment) => segment.shift === shift);
               const plannedItemForShift = group.programado?.shift === shift ? group.programado : null;
-              const eventTitle = buildEventTitle(group);
-              const eventSubtitle = buildEventSubtitle(group);
+              const activityName = buildEventTitle(group);
+              const eventTitle = group.front || activityName;
+              const eventSubtitle = [group.level, activityName].filter(Boolean).join(" · ");
 
               return (
               <article key={group.key} className="gantt-row gantt-row-dual">
@@ -1631,8 +1631,6 @@ export default function Home() {
                           {toDisplayCategory(group.category)}
                         </span>
                         <span className="field-chip">{group.item_type}</span>
-                      </div>
-                      <div className="gantt-meta-secondary">
                         {renderCreateRealButton(group)}
                       </div>
                     </div>

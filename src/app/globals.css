@@ -1474,31 +1474,34 @@ textarea {
 }
 
 .button.gantt-meta-add-real {
-  gap: 0.32rem;
-  min-width: 0;
-  min-height: 1.9rem;
-  padding: 0.2rem 0.6rem;
+  flex: 0 0 auto;
+  min-width: 1.75rem;
+  width: 1.75rem;
+  min-height: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
   border-radius: 999px;
-  border: 1px solid #93c5fd;
-  background: #dbeafe;
-  color: #1e3a8a;
-  font-size: 0.75rem;
+  border: 1px solid rgba(15, 118, 110, 0.34);
+  background: rgba(240, 253, 250, 0.94);
+  color: #0f766e;
+  font-size: 1rem;
   font-weight: 900;
+  line-height: 1;
   box-shadow: none;
 }
 
 .button.gantt-meta-add-real:hover {
-  background: #bfdbfe;
-  border-color: #60a5fa;
-  color: #1e40af;
+  background: #ccfbf1;
+  border-color: rgba(15, 118, 110, 0.58);
+  color: #115e59;
   transform: none;
   box-shadow: none;
 }
 
 .button.gantt-meta-add-real:active {
-  background: #93c5fd;
-  border-color: #3b82f6;
-  color: #172554;
+  background: #99f6e4;
+  border-color: rgba(15, 118, 110, 0.72);
+  color: #134e4a;
 }
 
 .empty-state {

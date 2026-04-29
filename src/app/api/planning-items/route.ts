@@ -720,10 +720,19 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ item: mapPlanningRow(data) });
     }
 
+    const realSegments = buildRealSegments(payload) ?? [];
+
+    if (realSegments.length !== 1) {
+      return NextResponse.json(
+        { error: "Para cruzar de turno, crea un nuevo evento real en el espacio correspondiente." },
+        { status: 400 }
+      );
+    }
+
     const overlapError = await validateRealSegmentsDoNotOverlap(
       db,
       payload.activity_group_id,
-      buildRealSegments(payload) ?? [],
+      realSegments,
       id
     );
 
