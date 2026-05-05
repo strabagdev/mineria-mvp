@@ -3,6 +3,7 @@
 import React from "react";
 import { useRouter } from "next/navigation";
 import { supabaseAuth } from "@/lib/authClient";
+import { NETWORK_ERROR_MESSAGE, assertBrowserOnline } from "@/lib/networkStatus";
 
 type AuthMode = "signin" | "request";
 
@@ -26,10 +27,14 @@ export default function LoginPage() {
       if (synced) {
         router.replace("/");
       }
+    }).catch(() => {
+      setMessage(NETWORK_ERROR_MESSAGE);
     });
   }, [router]);
 
   async function syncProfile(token: string) {
+    assertBrowserOnline();
+
     const res = await fetch("/api/profile/sync", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
@@ -58,6 +63,8 @@ export default function LoginPage() {
     setBusy(true);
 
     try {
+      assertBrowserOnline();
+
       const { data, error } = await supabaseAuth.auth.signInWithPassword({
         email: normalizedEmail,
         password,
@@ -83,6 +90,8 @@ export default function LoginPage() {
     setBusy(true);
 
     try {
+      assertBrowserOnline();
+
       const response = await fetch("/api/auth/request-access", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

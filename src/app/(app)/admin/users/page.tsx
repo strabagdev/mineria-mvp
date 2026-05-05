@@ -3,6 +3,7 @@
 import React from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/providers/auth-provider";
+import { assertBrowserOnline } from "@/lib/networkStatus";
 
 type AdminUser = {
   user_id: string;
@@ -56,6 +57,8 @@ export default function AdminUsersPage() {
       return;
     }
 
+    assertBrowserOnline();
+
     const response = await fetch("/api/users", {
       headers: { Authorization: `Bearer ${session.access_token}` },
     });
@@ -97,6 +100,8 @@ export default function AdminUsersPage() {
     setMessage("");
 
     try {
+      assertBrowserOnline();
+
       const response = await fetch("/api/users", {
         method,
         headers: {

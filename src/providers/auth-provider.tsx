@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabaseAuth } from "@/lib/authClient";
+import { isBrowserOffline } from "@/lib/networkStatus";
 
 type AuthContextValue = {
   session: Session | null;
@@ -34,6 +35,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async function syncProfile(nextSession: Session | null): Promise<AuthContextValue["profile"]> {
       if (!nextSession?.access_token) {
         return null;
+      }
+
+      if (isBrowserOffline()) {
+        return profileRef.current;
       }
 
       try {

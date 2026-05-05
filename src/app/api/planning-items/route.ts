@@ -182,6 +182,23 @@ function buildRealSegments(payload: PlanningItemPayload) {
 }
 
 async function validateCatalogSelection(db: ReturnType<typeof getSupabaseServerClient>, payload: PlanningItemPayload) {
+  const { data: selectedLevel, error: levelError } = await db
+    .from("planning_levels")
+    .select("id")
+    .eq("label", payload.level)
+    .maybeSingle();
+
+  if (levelError) {
+    throw levelError;
+  }
+
+  if (!selectedLevel) {
+    return NextResponse.json(
+      { error: "El nivel seleccionado no es valido." },
+      { status: 400 }
+    );
+  }
+
   const { data: selectedType, error: typeError } = await db
     .from("planning_catalog_types")
     .select("id")

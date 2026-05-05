@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { supabaseAuth } from "@/lib/authClient";
+import { NETWORK_ERROR_MESSAGE, assertBrowserOnline } from "@/lib/networkStatus";
 
 export default function AuthCallbackPage() {
   const router = useRouter();
@@ -41,6 +42,8 @@ export default function AuthCallbackPage() {
         return;
       }
 
+      assertBrowserOnline();
+
       const res = await fetch("/api/profile/sync", {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
@@ -64,7 +67,9 @@ export default function AuthCallbackPage() {
       }
 
       router.replace("/");
-    })();
+    })().catch((error: unknown) => {
+      setMessage(error instanceof Error ? error.message : NETWORK_ERROR_MESSAGE);
+    });
   }, [router]);
 
   return (

@@ -3,6 +3,12 @@
 import type { CSSProperties } from "react";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/providers/auth-provider";
+import {
+  NETWORK_ERROR_MESSAGE,
+  assertBrowserOnline,
+  isBrowserOffline,
+  isNetworkRequestError,
+} from "@/lib/networkStatus";
 
 type PlanningItem = {
   id: number;
@@ -55,6 +61,17 @@ type CatalogCategory = {
   types: CatalogType[];
 };
 
+type CatalogLevel = {
+  id: number;
+  slug: string;
+  label: string;
+};
+
+type PlanningCatalog = {
+  categories: CatalogCategory[];
+  levels: CatalogLevel[];
+};
+
 type PlanningItemForm = {
   activity_group_id: string;
   item_date: string;
@@ -81,6 +98,10 @@ type DetailAdminForm = {
   label: string;
 };
 
+type LevelAdminForm = {
+  label: string;
+};
+
 type EditTypeForm = {
   id: number;
   category: "actividad" | "interferencia";
@@ -91,6 +112,11 @@ type EditDetailForm = {
   id: number;
   category: "actividad" | "interferencia";
   typeId: string;
+  label: string;
+};
+
+type EditLevelForm = {
+  id: number;
   label: string;
 };
 
@@ -128,22 +154,12 @@ type PendingPlanningMutation = {
   createdAt: string;
 };
 
-const NETWORK_ERROR_MESSAGE =
-  "No se pudo conectar con el servidor. Si estas en interior mina, probablemente se perdio la senal; vuelve a intentar cuando recuperes conexion.";
 const AUTH_SYNC_ERROR_MESSAGE =
   "Los registros siguen guardados en este equipo, pero no pudimos validar tu sesion para sincronizarlos. Vuelve a iniciar sesion cuando tengas conexion.";
 const PLANNING_MUTATION_QUEUE_KEY = "mineria.pendingPlanningMutations.v1";
 
-function isNetworkRequestError(error: unknown) {
-  return error instanceof Error && /failed to fetch|fetch failed|load failed|networkerror/i.test(error.message);
-}
-
 function isInvalidSessionError(error: unknown) {
   return error instanceof Error && /invalid session/i.test(error.message);
-}
-
-function isBrowserOffline() {
-  return typeof navigator !== "undefined" && !navigator.onLine;
 }
 
 function shouldQueuePlanningMutation(error: unknown) {
@@ -588,6 +604,7 @@ function getDefaultRealEventTimes(group: PlanningGroup) {
 
 function toInitialPlanningForm(
   categories: CatalogCategory[],
+  levels: CatalogLevel[],
   shift: ShiftKey = "Dia",
   itemDate = formatLocalDateIso()
 ): PlanningItemForm {
@@ -598,6 +615,7 @@ function toInitialPlanningForm(
   };
   const defaultType = defaultCategory.types[0];
   const defaultDetail = defaultType?.details[0];
+  const defaultLevel = levels[0];
   const defaultTimes = getDefaultShiftTimes(shift);
 
   return {
@@ -606,7 +624,7 @@ function toInitialPlanningForm(
     start_time: defaultTimes.start_time,
     end_time: defaultTimes.end_time,
     shift,
-    level: "",
+    level: defaultLevel?.label ?? "",
     front: "",
     category: defaultCategory.slug,
     tracking_type: "programado",
@@ -616,8 +634,8 @@ function toInitialPlanningForm(
   };
 }
 
-function syncPlanningForm(form: PlanningItemForm, categories: CatalogCategory[]) {
-  const fallback = toInitialPlanningForm(categories);
+function syncPlanningForm(form: PlanningItemForm, categories: CatalogCategory[], levels: CatalogLevel[]) {
+  const fallback = toInitialPlanningForm(categories, levels);
   const normalizedCategory =
     form.tracking_type === "programado" ? ("actividad" as const) : form.category;
   const selectedCategory =
@@ -636,6 +654,7 @@ function syncPlanningForm(form: PlanningItemForm, categories: CatalogCategory[])
   return {
     ...form,
     category: selectedCategory.slug,
+    level: levels.some((level) => level.label === form.level) ? form.level : fallback.level,
     item_type: selectedType?.label ?? "",
     description: selectedDetail?.label ?? "",
   };
@@ -750,6 +769,8 @@ function syncDetailAdminForm(form: DetailAdminForm, categories: CatalogCategory[
 }
 
 async function fetchPlanningItems(date: string) {
+  assertBrowserOnline();
+
   const response = await fetch(`/api/planning-items?date=${encodeURIComponent(date)}`, {
     cache: "no-store",
   });
@@ -778,7 +799,9 @@ async function fetchPlanningItems(date: string) {
     : [];
 }
 
-async function fetchPlanningCatalog() {
+async function fetchPlanningCatalog(): Promise<PlanningCatalog> {
+  assertBrowserOnline();
+
   const response = await fetch("/api/planning-catalog", { cache: "no-store" });
   const json = await response.json().catch(() => ({}));
 
@@ -786,7 +809,10 @@ async function fetchPlanningCatalog() {
     throw new Error(String(json.error ?? "No se pudo cargar el catalogo."));
   }
 
-  return Array.isArray(json.categories) ? (json.categories as CatalogCategory[]) : [];
+  return {
+    categories: Array.isArray(json.categories) ? (json.categories as CatalogCategory[]) : [],
+    levels: Array.isArray(json.levels) ? (json.levels as CatalogLevel[]) : [],
+  };
 }
 
 export default function Home() {
@@ -794,6 +820,7 @@ export default function Home() {
   const todayIso = formatLocalDateIso();
   const [planningItems, setPlanningItems] = useState<PlanningItem[]>([]);
   const [catalog, setCatalog] = useState<CatalogCategory[]>([]);
+  const [levels, setLevels] = useState<CatalogLevel[]>([]);
   const [selectedDate, setSelectedDate] = useState(todayIso);
   const [historicalEditingEnabled, setHistoricalEditingEnabled] = useState(false);
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
@@ -818,9 +845,12 @@ export default function Home() {
   const [deleteConfirmation, setDeleteConfirmation] = useState<DeleteConfirmation>(null);
   const [catalogBusy, setCatalogBusy] = useState(false);
   const [catalogFormError, setCatalogFormError] = useState("");
-  const [formState, setFormState] = useState<PlanningItemForm>(toInitialPlanningForm([], "Dia", formatLocalDateIso()));
+  const [formState, setFormState] = useState<PlanningItemForm>(toInitialPlanningForm([], [], "Dia", formatLocalDateIso()));
   const [typeForm, setTypeForm] = useState<TypeAdminForm>({
     category: "actividad",
+    label: "",
+  });
+  const [levelForm, setLevelForm] = useState<LevelAdminForm>({
     label: "",
   });
   const [detailForm, setDetailForm] = useState<DetailAdminForm>({
@@ -829,6 +859,7 @@ export default function Home() {
     label: "",
   });
   const [editingType, setEditingType] = useState<EditTypeForm | null>(null);
+  const [editingLevel, setEditingLevel] = useState<EditLevelForm | null>(null);
   const [editingDetail, setEditingDetail] = useState<EditDetailForm | null>(null);
 
   useEffect(() => {
@@ -844,9 +875,10 @@ export default function Home() {
           return;
         }
 
-        setCatalog(nextCatalog);
-        setFormState((current) => syncPlanningForm(current, nextCatalog));
-        setDetailForm((current) => syncDetailAdminForm(current, nextCatalog));
+        setCatalog(nextCatalog.categories);
+        setLevels(nextCatalog.levels);
+        setFormState((current) => syncPlanningForm(current, nextCatalog.categories, nextCatalog.levels));
+        setDetailForm((current) => syncDetailAdminForm(current, nextCatalog.categories));
       } catch (error: unknown) {
         const message = getRequestErrorMessage(
           error,
@@ -962,7 +994,7 @@ export default function Home() {
   }, [isDatePickerOpen]);
 
   function resetPlanningForm() {
-    const nextForm = syncPlanningForm(toInitialPlanningForm(catalog, activeShift, selectedDate), catalog);
+    const nextForm = syncPlanningForm(toInitialPlanningForm(catalog, levels, activeShift, selectedDate), catalog, levels);
     setFormState({ ...nextForm, item_date: selectedDate, shift: activeShift });
     setFormError("");
     setEditingPlanningItem(null);
@@ -981,6 +1013,8 @@ export default function Home() {
     method: PendingPlanningMutation["method"],
     payload: Record<string, unknown>
   ) {
+    assertBrowserOnline();
+
     if (!session?.access_token) {
       throw new Error("Necesitas iniciar sesion para registrar actividades.");
     }
@@ -1066,15 +1100,21 @@ export default function Home() {
 
   async function refreshCatalog() {
     const nextCatalog = await fetchPlanningCatalog();
-    setCatalog(nextCatalog);
-    setFormState((current) => syncPlanningForm(current, nextCatalog));
-    setDetailForm((current) => syncDetailAdminForm(current, nextCatalog));
+    setCatalog(nextCatalog.categories);
+    setLevels(nextCatalog.levels);
+    setFormState((current) => syncPlanningForm(current, nextCatalog.categories, nextCatalog.levels));
+    setDetailForm((current) => syncDetailAdminForm(current, nextCatalog.categories));
     setEditingDetail((current) =>
-      current ? { ...current, ...syncDetailAdminForm(current, nextCatalog) } : null
+      current ? { ...current, ...syncDetailAdminForm(current, nextCatalog.categories) } : null
+    );
+    setEditingLevel((current) =>
+      current && nextCatalog.levels.some((level) => level.id === current.id) ? current : null
     );
   }
 
   async function mutateCatalog(method: "POST" | "PATCH" | "DELETE", payload: Record<string, unknown>) {
+    assertBrowserOnline();
+
     if (!session?.access_token) {
       throw new Error("Necesitas iniciar sesion para administrar el catalogo.");
     }
@@ -1286,6 +1326,30 @@ export default function Home() {
     }
   }
 
+  async function handleCreateLevel(event: React.FormEvent) {
+    event.preventDefault();
+    setCatalogFormError("");
+
+    if (!session?.access_token) {
+      setCatalogFormError("Necesitas iniciar sesion para administrar el catalogo.");
+      return;
+    }
+
+    setCatalogBusy(true);
+
+    try {
+      await mutateCatalog("POST", {
+        entity: "level",
+        label: levelForm.label,
+      });
+      setLevelForm({ label: "" });
+    } catch (error: unknown) {
+      setCatalogFormError(getRequestErrorMessage(error, "No se pudo crear el nivel."));
+    } finally {
+      setCatalogBusy(false);
+    }
+  }
+
   async function handleUpdateType(event: React.FormEvent) {
     event.preventDefault();
     if (!editingType) {
@@ -1334,6 +1398,29 @@ export default function Home() {
     }
   }
 
+  async function handleUpdateLevel(event: React.FormEvent) {
+    event.preventDefault();
+    if (!editingLevel) {
+      return;
+    }
+
+    setCatalogFormError("");
+    setCatalogBusy(true);
+
+    try {
+      await mutateCatalog("PATCH", {
+        entity: "level",
+        id: editingLevel.id,
+        label: editingLevel.label,
+      });
+      setEditingLevel(null);
+    } catch (error: unknown) {
+      setCatalogFormError(getRequestErrorMessage(error, "No se pudo editar el nivel."));
+    } finally {
+      setCatalogBusy(false);
+    }
+  }
+
   async function handleDeleteType(id: number) {
     setCatalogFormError("");
     setCatalogBusy(true);
@@ -1351,6 +1438,25 @@ export default function Home() {
       }
     } catch (error: unknown) {
       setCatalogFormError(getRequestErrorMessage(error, "No se pudo eliminar el tipo."));
+    } finally {
+      setCatalogBusy(false);
+    }
+  }
+
+  async function handleDeleteLevel(id: number) {
+    setCatalogFormError("");
+    setCatalogBusy(true);
+
+    try {
+      await mutateCatalog("DELETE", {
+        entity: "level",
+        id,
+      });
+      if (editingLevel?.id === id) {
+        setEditingLevel(null);
+      }
+    } catch (error: unknown) {
+      setCatalogFormError(getRequestErrorMessage(error, "No se pudo eliminar el nivel."));
     } finally {
       setCatalogBusy(false);
     }
@@ -1615,16 +1721,16 @@ export default function Home() {
             groups.map((group) => {
               const realSegmentsForShift = group.realSegments.filter((segment) => segment.shift === shift);
               const plannedItemForShift = group.programado?.shift === shift ? group.programado : null;
-              const activityName = buildEventTitle(group);
-              const eventTitle = group.front || activityName;
-              const eventSubtitle = [group.level, activityName].filter(Boolean).join(" · ");
+              const eventTitle = [group.level, group.front]
+                .map((part) => String(part ?? "").trim())
+                .filter(Boolean)
+                .join(" - ");
 
               return (
               <article key={group.key} className="gantt-row gantt-row-dual">
                 <div className="gantt-meta">
                   <div className="gantt-meta-primary">
                     <h3 title={eventTitle}>{eventTitle}</h3>
-                    {eventSubtitle ? <p className="gantt-meta-subtitle">{eventSubtitle}</p> : null}
                     <div className="gantt-meta-line">
                       <div className="field-list">
                         <span className={`category-pill ${group.category === "interferencia" ? "warning" : "success"}`}>
@@ -2014,14 +2120,20 @@ export default function Home() {
 
                 <label className="field">
                   Nivel
-                  <input
+                  <select
                     className="field-input"
                     value={formState.level}
                     onChange={(event) =>
                       setFormState((current) => ({ ...current, level: event.target.value }))
                     }
-                    placeholder="Ej: Nivel 840"
-                  />
+                    disabled={!levels.length}
+                  >
+                    {levels.map((level) => (
+                      <option key={level.id} value={level.label}>
+                        {level.label}
+                      </option>
+                    ))}
+                  </select>
                 </label>
 
                 <label className="field">
@@ -2240,7 +2352,7 @@ export default function Home() {
                   Configuracion jerarquica
                 </h2>
                 <p className="body-copy" style={{ marginTop: 8 }}>
-                  Aqui administras como se comporta el formulario: categoria, tipo y detalle.
+                  Aqui administras como se comporta el formulario: nivel, categoria, tipo y detalle.
                 </p>
               </div>
               <button type="button" className="button" onClick={() => setIsCatalogModalOpen(false)}>
@@ -2287,6 +2399,27 @@ export default function Home() {
 
                     <button type="submit" className="button primary" disabled={catalogBusy || !typeForm.label.trim()}>
                       Agregar tipo
+                    </button>
+                  </form>
+                </article>
+
+                <article className="surface-card soft padded">
+                  <p className="eyebrow">Nuevo nivel</p>
+                  <form className="modal-form" onSubmit={handleCreateLevel}>
+                    <label className="field">
+                      Nombre del nivel
+                      <input
+                        className="field-input"
+                        value={levelForm.label}
+                        onChange={(event) =>
+                          setLevelForm({ label: event.target.value.toUpperCase() })
+                        }
+                        placeholder="Ej: NTI"
+                      />
+                    </label>
+
+                    <button type="submit" className="button primary" disabled={catalogBusy || !levelForm.label.trim()}>
+                      Agregar nivel
                     </button>
                   </form>
                 </article>
@@ -2364,6 +2497,76 @@ export default function Home() {
 
               <div className="catalog-tree">
                 {catalogLoading ? <p className="body-copy">Cargando catalogo...</p> : null}
+
+                <article className="catalog-category-card">
+                  <div className="catalog-category-header">
+                    <div>
+                      <p className="eyebrow">Niveles</p>
+                      <h3 className="card-title" style={{ marginTop: 10 }}>
+                        Lista administrable
+                      </h3>
+                    </div>
+                    <span className="catalog-count">{levels.length} niveles</span>
+                  </div>
+
+                  <div className="catalog-detail-list">
+                    {levels.map((level) => (
+                      <div key={level.id} className="catalog-detail-row">
+                        {editingLevel?.id === level.id ? (
+                          <form className="catalog-edit-form detail" onSubmit={handleUpdateLevel}>
+                            <label className="field">
+                              Nivel
+                              <input
+                                className="field-input"
+                                value={editingLevel.label}
+                                onChange={(event) =>
+                                  setEditingLevel((current) =>
+                                    current ? { ...current, label: event.target.value.toUpperCase() } : current
+                                  )
+                                }
+                              />
+                            </label>
+
+                            <div className="catalog-inline-actions">
+                              <button type="submit" className="button small primary" disabled={catalogBusy || !editingLevel.label.trim()}>
+                                Guardar
+                              </button>
+                              <button type="button" className="button small" onClick={() => setEditingLevel(null)}>
+                                Cancelar
+                              </button>
+                            </div>
+                          </form>
+                        ) : (
+                          <>
+                            <span className="catalog-detail-chip">{level.label}</span>
+                            <div className="catalog-inline-actions">
+                              <button
+                                type="button"
+                                className="button small"
+                                onClick={() =>
+                                  setEditingLevel({
+                                    id: level.id,
+                                    label: level.label,
+                                  })
+                                }
+                              >
+                                Editar
+                              </button>
+                              <button
+                                type="button"
+                                className="button small danger"
+                                onClick={() => void handleDeleteLevel(level.id)}
+                                disabled={catalogBusy}
+                              >
+                                Eliminar
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </article>
 
                 {catalog.map((category) => (
                   <article key={category.slug} className="catalog-category-card">

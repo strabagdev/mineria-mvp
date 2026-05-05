@@ -21,7 +21,11 @@ function slugify(value: string) {
 export async function GET() {
   try {
     const db = getSupabaseServerClient();
-    const [{ data: types, error: typesError }, { data: details, error: detailsError }] =
+    const [
+      { data: types, error: typesError },
+      { data: details, error: detailsError },
+      { data: levels, error: levelsError },
+    ] =
       await Promise.all([
         db
           .from("planning_catalog_types")
@@ -32,6 +36,10 @@ export async function GET() {
           .from("planning_catalog_details")
           .select("id, type_id, label")
           .order("label", { ascending: true }),
+        db
+          .from("planning_levels")
+          .select("id, slug, label")
+          .order("id", { ascending: true }),
       ]);
 
     if (typesError) {
@@ -40,6 +48,10 @@ export async function GET() {
 
     if (detailsError) {
       throw detailsError;
+    }
+
+    if (levelsError) {
+      throw levelsError;
     }
 
     const groupedDetails = new Map<number, Array<{ id: number; label: string }>>();
@@ -65,7 +77,7 @@ export async function GET() {
         })),
     }));
 
-    return NextResponse.json({ categories });
+    return NextResponse.json({ categories, levels: levels ?? [] });
   } catch (error: unknown) {
     return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
@@ -75,7 +87,7 @@ export async function POST(req: Request) {
   try {
     await requireAdminUser(req);
     const body = (await req.json()) as {
-      entity?: "type" | "detail";
+      entity?: "type" | "detail" | "level";
       category?: string;
       label?: string;
       type_id?: number;
@@ -140,8 +152,40 @@ export async function POST(req: Request) {
       return NextResponse.json({ detail: data }, { status: 201 });
     }
 
+    if (body.entity === "level") {
+      const label = String(body.label ?? "").trim().toUpperCase();
+
+      if (!label) {
+        return NextResponse.json(
+          { error: "Debes indicar un nombre para el nivel." },
+          { status: 400 }
+        );
+      }
+
+      const slug = slugify(label);
+
+      if (!slug) {
+        return NextResponse.json(
+          { error: "El nombre del nivel no es valido." },
+          { status: 400 }
+        );
+      }
+
+      const { data, error } = await db
+        .from("planning_levels")
+        .insert({ slug, label })
+        .select("id, slug, label")
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      return NextResponse.json({ level: data }, { status: 201 });
+    }
+
     return NextResponse.json(
-      { error: "Entidad no soportada. Usa type o detail." },
+      { error: "Entidad no soportada. Usa type, detail o level." },
       { status: 400 }
     );
   } catch (error: unknown) {
@@ -153,7 +197,7 @@ export async function PATCH(req: Request) {
   try {
     await requireAdminUser(req);
     const body = (await req.json()) as {
-      entity?: "type" | "detail";
+      entity?: "type" | "detail" | "level";
       id?: number;
       category?: string;
       label?: string;
@@ -223,8 +267,42 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ detail: data });
     }
 
+    if (body.entity === "level") {
+      const id = Number(body.id);
+      const label = String(body.label ?? "").trim().toUpperCase();
+
+      if (!Number.isFinite(id) || id <= 0 || !label) {
+        return NextResponse.json(
+          { error: "Debes indicar un nivel valido y un nombre." },
+          { status: 400 }
+        );
+      }
+
+      const slug = slugify(label);
+
+      if (!slug) {
+        return NextResponse.json(
+          { error: "El nombre del nivel no es valido." },
+          { status: 400 }
+        );
+      }
+
+      const { data, error } = await db
+        .from("planning_levels")
+        .update({ label, slug })
+        .eq("id", id)
+        .select("id, slug, label")
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      return NextResponse.json({ level: data });
+    }
+
     return NextResponse.json(
-      { error: "Entidad no soportada. Usa type o detail." },
+      { error: "Entidad no soportada. Usa type, detail o level." },
       { status: 400 }
     );
   } catch (error: unknown) {
@@ -236,7 +314,7 @@ export async function DELETE(req: Request) {
   try {
     await requireAdminUser(req);
     const body = (await req.json()) as {
-      entity?: "type" | "detail";
+      entity?: "type" | "detail" | "level";
       id?: number;
     };
 
@@ -267,8 +345,18 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
+    if (body.entity === "level") {
+      const { error } = await db.from("planning_levels").delete().eq("id", id);
+
+      if (error) {
+        throw error;
+      }
+
+      return NextResponse.json({ ok: true });
+    }
+
     return NextResponse.json(
-      { error: "Entidad no soportada. Usa type o detail." },
+      { error: "Entidad no soportada. Usa type, detail o level." },
       { status: 400 }
     );
   } catch (error: unknown) {
