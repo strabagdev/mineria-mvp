@@ -173,7 +173,7 @@ const AUTH_SYNC_ERROR_MESSAGE =
   "Los registros siguen guardados en este equipo. No pudimos sincronizarlos todavia; se reintentara automaticamente cuando la conexion este estable.";
 const PLANNING_MUTATION_QUEUE_KEY = "mineria.pendingPlanningMutations.v1";
 const PENDING_SYNC_RETRY_INTERVAL_MS = 30_000;
-const ACTIVE_PLANNING_REFRESH_INTERVAL_MS = 10_000;
+const ACTIVE_PLANNING_REFRESH_INTERVAL_MS = 30_000;
 
 class PlanningMutationRequestError extends Error {
   status: number;
