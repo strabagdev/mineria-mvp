@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdminUser } from "@/lib/accessControl";
+import { writeAuditLog } from "@/lib/auditLog";
 import { getErrorMessage } from "@/lib/errorMessage";
 import { getSupabaseServerClient } from "@/lib/supabaseServer";
 
@@ -85,7 +86,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    await requireAdminUser(req);
+    const { user, profile } = await requireAdminUser(req);
     const body = (await req.json()) as {
       entity?: "type" | "detail" | "level";
       category?: string;
@@ -125,6 +126,14 @@ export async function POST(req: Request) {
         throw error;
       }
 
+      await writeAuditLog({
+        actor: { user, profile },
+        action: "catalog.type.created",
+        entityType: "planning_catalog_type",
+        entityId: data.id,
+        after: data,
+      });
+
       return NextResponse.json({ type: data }, { status: 201 });
     }
 
@@ -148,6 +157,14 @@ export async function POST(req: Request) {
       if (error) {
         throw error;
       }
+
+      await writeAuditLog({
+        actor: { user, profile },
+        action: "catalog.detail.created",
+        entityType: "planning_catalog_detail",
+        entityId: data.id,
+        after: data,
+      });
 
       return NextResponse.json({ detail: data }, { status: 201 });
     }
@@ -181,6 +198,14 @@ export async function POST(req: Request) {
         throw error;
       }
 
+      await writeAuditLog({
+        actor: { user, profile },
+        action: "catalog.level.created",
+        entityType: "planning_level",
+        entityId: data.id,
+        after: data,
+      });
+
       return NextResponse.json({ level: data }, { status: 201 });
     }
 
@@ -195,7 +220,7 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
-    await requireAdminUser(req);
+    const { user, profile } = await requireAdminUser(req);
     const body = (await req.json()) as {
       entity?: "type" | "detail" | "level";
       id?: number;
@@ -227,6 +252,16 @@ export async function PATCH(req: Request) {
         );
       }
 
+      const { data: beforeData, error: beforeError } = await db
+        .from("planning_catalog_types")
+        .select("id, category, slug, label")
+        .eq("id", id)
+        .maybeSingle();
+
+      if (beforeError) {
+        throw beforeError;
+      }
+
       const { data, error } = await db
         .from("planning_catalog_types")
         .update({ category, label, slug })
@@ -237,6 +272,15 @@ export async function PATCH(req: Request) {
       if (error) {
         throw error;
       }
+
+      await writeAuditLog({
+        actor: { user, profile },
+        action: "catalog.type.updated",
+        entityType: "planning_catalog_type",
+        entityId: data.id,
+        before: beforeData,
+        after: data,
+      });
 
       return NextResponse.json({ type: data });
     }
@@ -253,6 +297,16 @@ export async function PATCH(req: Request) {
         );
       }
 
+      const { data: beforeData, error: beforeError } = await db
+        .from("planning_catalog_details")
+        .select("id, type_id, label")
+        .eq("id", id)
+        .maybeSingle();
+
+      if (beforeError) {
+        throw beforeError;
+      }
+
       const { data, error } = await db
         .from("planning_catalog_details")
         .update({ type_id: typeId, label })
@@ -263,6 +317,15 @@ export async function PATCH(req: Request) {
       if (error) {
         throw error;
       }
+
+      await writeAuditLog({
+        actor: { user, profile },
+        action: "catalog.detail.updated",
+        entityType: "planning_catalog_detail",
+        entityId: data.id,
+        before: beforeData,
+        after: data,
+      });
 
       return NextResponse.json({ detail: data });
     }
@@ -287,6 +350,16 @@ export async function PATCH(req: Request) {
         );
       }
 
+      const { data: beforeData, error: beforeError } = await db
+        .from("planning_levels")
+        .select("id, slug, label")
+        .eq("id", id)
+        .maybeSingle();
+
+      if (beforeError) {
+        throw beforeError;
+      }
+
       const { data, error } = await db
         .from("planning_levels")
         .update({ label, slug })
@@ -297,6 +370,15 @@ export async function PATCH(req: Request) {
       if (error) {
         throw error;
       }
+
+      await writeAuditLog({
+        actor: { user, profile },
+        action: "catalog.level.updated",
+        entityType: "planning_level",
+        entityId: data.id,
+        before: beforeData,
+        after: data,
+      });
 
       return NextResponse.json({ level: data });
     }
@@ -312,7 +394,7 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    await requireAdminUser(req);
+    const { user, profile } = await requireAdminUser(req);
     const body = (await req.json()) as {
       entity?: "type" | "detail" | "level";
       id?: number;
@@ -326,31 +408,85 @@ export async function DELETE(req: Request) {
     const db = getSupabaseServerClient();
 
     if (body.entity === "type") {
+      const { data: beforeData, error: beforeError } = await db
+        .from("planning_catalog_types")
+        .select("id, category, slug, label")
+        .eq("id", id)
+        .maybeSingle();
+
+      if (beforeError) {
+        throw beforeError;
+      }
+
       const { error } = await db.from("planning_catalog_types").delete().eq("id", id);
 
       if (error) {
         throw error;
       }
 
+      await writeAuditLog({
+        actor: { user, profile },
+        action: "catalog.type.deleted",
+        entityType: "planning_catalog_type",
+        entityId: id,
+        before: beforeData,
+      });
+
       return NextResponse.json({ ok: true });
     }
 
     if (body.entity === "detail") {
+      const { data: beforeData, error: beforeError } = await db
+        .from("planning_catalog_details")
+        .select("id, type_id, label")
+        .eq("id", id)
+        .maybeSingle();
+
+      if (beforeError) {
+        throw beforeError;
+      }
+
       const { error } = await db.from("planning_catalog_details").delete().eq("id", id);
 
       if (error) {
         throw error;
       }
 
+      await writeAuditLog({
+        actor: { user, profile },
+        action: "catalog.detail.deleted",
+        entityType: "planning_catalog_detail",
+        entityId: id,
+        before: beforeData,
+      });
+
       return NextResponse.json({ ok: true });
     }
 
     if (body.entity === "level") {
+      const { data: beforeData, error: beforeError } = await db
+        .from("planning_levels")
+        .select("id, slug, label")
+        .eq("id", id)
+        .maybeSingle();
+
+      if (beforeError) {
+        throw beforeError;
+      }
+
       const { error } = await db.from("planning_levels").delete().eq("id", id);
 
       if (error) {
         throw error;
       }
+
+      await writeAuditLog({
+        actor: { user, profile },
+        action: "catalog.level.deleted",
+        entityType: "planning_level",
+        entityId: id,
+        before: beforeData,
+      });
 
       return NextResponse.json({ ok: true });
     }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireApprovedUser } from "@/lib/accessControl";
+import { writeAuditLog } from "@/lib/auditLog";
 import { getErrorMessage } from "@/lib/errorMessage";
 import { getSupabaseServerClient } from "@/lib/supabaseServer";
 
@@ -347,7 +348,7 @@ async function validateAndNormalizePlanningItem(
     notes?: string | null;
   }
 ) {
-  const { user } = await requireApprovedUser(req);
+  const { user, profile } = await requireApprovedUser(req);
   const db = getSupabaseServerClient();
   const payload: PlanningItemPayload = {
     activity_group_id: String(body.activity_group_id ?? "").trim() || crypto.randomUUID(),
@@ -489,7 +490,7 @@ async function validateAndNormalizePlanningItem(
     plannedItem = data;
   }
 
-  return { db, payload, user, plannedItem };
+  return { db, payload, user, profile, plannedItem };
 }
 
 export async function GET(req: Request) {
@@ -605,7 +606,7 @@ export async function POST(req: Request) {
     if ("errorResponse" in result) {
       return result.errorResponse;
     }
-    const { db, payload, user, plannedItem } = result;
+    const { db, payload, user, profile, plannedItem } = result;
 
     if (payload.tracking_type === "programado") {
       const { data, error } = await db
@@ -622,6 +623,14 @@ export async function POST(req: Request) {
       if (error) {
         throw error;
       }
+
+      await writeAuditLog({
+        actor: { user, profile },
+        action: "planning_item.created",
+        entityType: "planning_item",
+        entityId: data.id,
+        after: data,
+      });
 
       return NextResponse.json({ item: mapPlanningRow(data) }, { status: 201 });
     }
@@ -672,6 +681,18 @@ export async function POST(req: Request) {
       throw error;
     }
 
+    await writeAuditLog({
+      actor: { user, profile },
+      action: "activity_execution_segment.created",
+      entityType: "activity_execution_segment",
+      entityId: data?.[0]?.id ?? null,
+      after: data ?? [],
+      metadata: {
+        count: data?.length ?? 0,
+        activity_group_id: payload.activity_group_id,
+      },
+    });
+
     return NextResponse.json(
       {
         item: mapPlanningRow({
@@ -717,9 +738,20 @@ export async function PATCH(req: Request) {
     if ("errorResponse" in result) {
       return result.errorResponse;
     }
-    const { db, payload, plannedItem } = result;
+    const { db, payload, user, profile, plannedItem } = result;
 
     if (payload.tracking_type === "programado") {
+      const { data: beforeData, error: beforeError } = await db
+        .from("planning_items")
+        .select("id, activity_group_id, item_date, start_time, end_time, shift, level, front, category, item_type, description, notes, tracking_type")
+        .eq("id", id)
+        .eq("tracking_type", "programado")
+        .maybeSingle();
+
+      if (beforeError) {
+        throw beforeError;
+      }
+
       const { data, error } = await db
         .from("planning_items")
         .update(payload)
@@ -733,6 +765,15 @@ export async function PATCH(req: Request) {
       if (error) {
         throw error;
       }
+
+      await writeAuditLog({
+        actor: { user, profile },
+        action: "planning_item.updated",
+        entityType: "planning_item",
+        entityId: data.id,
+        before: beforeData,
+        after: data,
+      });
 
       return NextResponse.json({ item: mapPlanningRow(data) });
     }
@@ -755,6 +796,16 @@ export async function PATCH(req: Request) {
 
     if (overlapError) {
       return overlapError;
+    }
+
+    const { data: beforeData, error: beforeError } = await db
+      .from("activity_execution_segments")
+      .select("id, activity_group_id, item_date, start_time, end_time, shift, level, front, category, item_type, description, notes")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (beforeError) {
+      throw beforeError;
     }
 
     const { data, error } = await db
@@ -781,6 +832,15 @@ export async function PATCH(req: Request) {
       throw error;
     }
 
+    await writeAuditLog({
+      actor: { user, profile },
+      action: "activity_execution_segment.updated",
+      entityType: "activity_execution_segment",
+      entityId: data.id,
+      before: beforeData,
+      after: data,
+    });
+
     return NextResponse.json({
       item: mapPlanningRow({
         ...data,
@@ -794,7 +854,7 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    await requireApprovedUser(req);
+    const { user, profile } = await requireApprovedUser(req);
     const body = (await req.json()) as { id?: number; tracking_type?: string };
     const id = Number(body.id);
     const trackingType = String(body.tracking_type ?? "").trim().toLowerCase();
@@ -812,7 +872,7 @@ export async function DELETE(req: Request) {
     if (trackingType === "programado") {
       const { data: currentItem, error: currentItemError } = await db
         .from("planning_items")
-        .select("id, activity_group_id")
+        .select("id, activity_group_id, item_date, start_time, end_time, shift, level, front, category, item_type, description, notes, tracking_type")
         .eq("id", id)
         .eq("tracking_type", "programado")
         .maybeSingle();
@@ -847,12 +907,20 @@ export async function DELETE(req: Request) {
         throw error;
       }
 
+      await writeAuditLog({
+        actor: { user, profile },
+        action: "planning_item.deleted",
+        entityType: "planning_item",
+        entityId: id,
+        before: currentItem,
+      });
+
       return NextResponse.json({ ok: true });
     }
 
     const { data: currentSegment, error: currentSegmentError } = await db
       .from("activity_execution_segments")
-      .select("id")
+      .select("id, activity_group_id, item_date, start_time, end_time, shift, level, front, category, item_type, description, notes")
       .eq("id", id)
       .maybeSingle();
 
@@ -868,6 +936,14 @@ export async function DELETE(req: Request) {
     if (error) {
       throw error;
     }
+
+    await writeAuditLog({
+      actor: { user, profile },
+      action: "activity_execution_segment.deleted",
+      entityType: "activity_execution_segment",
+      entityId: id,
+      before: currentSegment,
+    });
 
     return NextResponse.json({ ok: true });
   } catch (error: unknown) {

@@ -6,6 +6,7 @@ import {
   resolveRole,
   USER_ROLES,
 } from "@/lib/accessControl";
+import { writeAuditLog } from "@/lib/auditLog";
 import { getErrorMessage } from "@/lib/errorMessage";
 import {
   getSupabaseAuthAdminClient,
@@ -45,6 +46,17 @@ function legacyUser(row: {
   };
 }
 
+type ProfileRow = {
+  user_id: string;
+  email: string;
+  full_name: string | null;
+  role: string;
+  active: boolean;
+  approval_status: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
 export async function GET(req: Request) {
   try {
     await requireAdminUser(req);
@@ -79,7 +91,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    await requireAdminUser(req);
+    const { user, profile } = await requireAdminUser(req);
     const body = (await req.json()) as {
       name?: string;
       email?: string;
@@ -161,7 +173,20 @@ export async function POST(req: Request) {
       }
     }
 
-    return NextResponse.json({ user: data }, { status: 201 });
+    const profileRow = data as unknown as ProfileRow;
+
+    await writeAuditLog({
+      actor: { user, profile },
+      action: "user.created",
+      entityType: "profile",
+      entityId: profileRow.user_id,
+      after: profileRow,
+      metadata: {
+        created_email: email,
+      },
+    });
+
+    return NextResponse.json({ user: profileRow }, { status: 201 });
   } catch (error: unknown) {
     return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
@@ -169,7 +194,7 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
-    await requireAdminUser(req);
+    const { user, profile } = await requireAdminUser(req);
     const body = (await req.json()) as {
       user_id?: string;
       action?: "update-role" | "toggle-active" | "update-approval-status" | "reset-password";
@@ -206,6 +231,16 @@ export async function PATCH(req: Request) {
         throw error;
       }
 
+      await writeAuditLog({
+        actor: { user, profile },
+        action: "user.password_reset",
+        entityType: "profile",
+        entityId: userId,
+        metadata: {
+          target_user_id: userId,
+        },
+      });
+
       return NextResponse.json({ ok: true });
     }
 
@@ -223,6 +258,16 @@ export async function PATCH(req: Request) {
       );
     } else {
       return NextResponse.json({ error: "Accion no soportada." }, { status: 400 });
+    }
+
+    const { data: beforeData, error: beforeError } = await db
+      .from("profiles")
+      .select(selectProfiles())
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (beforeError) {
+      throw beforeError;
     }
 
     const { data, error } = await db
@@ -246,7 +291,23 @@ export async function PATCH(req: Request) {
       throw error;
     }
 
-    return NextResponse.json({ user: data });
+    const profileRow = data as unknown as ProfileRow;
+
+    await writeAuditLog({
+      actor: { user, profile },
+      action:
+        body.action === "update-role"
+          ? "user.role_updated"
+          : body.action === "toggle-active"
+            ? "user.active_toggled"
+            : "user.approval_status_updated",
+      entityType: "profile",
+      entityId: profileRow.user_id,
+      before: beforeData,
+      after: profileRow,
+    });
+
+    return NextResponse.json({ user: profileRow });
   } catch (error: unknown) {
     return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }

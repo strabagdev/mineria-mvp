@@ -72,6 +72,9 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
                   <Link href="/" className="button">
                     Inicio
                   </Link>
+                  <Link href="/reports" className="button">
+                    Reportes
+                  </Link>
                   {!loading && profile?.role === "admin" ? (
                     <Link href="/admin/users" className="button">
                       Usuarios
