@@ -155,8 +155,9 @@ type PendingPlanningMutation = {
 };
 
 const AUTH_SYNC_ERROR_MESSAGE =
-  "Los registros siguen guardados en este equipo, pero no pudimos validar tu sesion para sincronizarlos. Vuelve a iniciar sesion cuando tengas conexion.";
+  "Los registros siguen guardados en este equipo. No pudimos sincronizarlos todavia; se reintentara automaticamente cuando la conexion este estable.";
 const PLANNING_MUTATION_QUEUE_KEY = "mineria.pendingPlanningMutations.v1";
+const PENDING_SYNC_RETRY_INTERVAL_MS = 30_000;
 
 function isInvalidSessionError(error: unknown) {
   return error instanceof Error && /invalid session/i.test(error.message);
@@ -964,10 +965,12 @@ export default function Home() {
 
     window.addEventListener("online", syncWhenOnline);
     window.addEventListener("focus", syncWhenOnline);
+    const retryInterval = window.setInterval(syncWhenOnline, PENDING_SYNC_RETRY_INTERVAL_MS);
 
     return () => {
       window.removeEventListener("online", syncWhenOnline);
       window.removeEventListener("focus", syncWhenOnline);
+      window.clearInterval(retryInterval);
     };
   }, []);
 
@@ -1088,7 +1091,11 @@ export default function Home() {
     setQueueSyncing(false);
 
     if (syncedCount > 0) {
-      await refreshPlanningItems().catch((error: unknown) => {
+      await refreshPlanningItems().then(() => {
+        if (remaining.length === 0) {
+          setItemsError("");
+        }
+      }).catch((error: unknown) => {
         setItemsError(getRequestErrorMessage(error, "No se pudo recargar la planificacion."));
       });
     }
