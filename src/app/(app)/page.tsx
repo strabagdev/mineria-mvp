@@ -1729,17 +1729,10 @@ export default function Home() {
   function renderShiftSection(shift: ShiftKey) {
     const groups = planningGroupsByShift[shift];
     const scale = ganttScales[shift];
-    const config = SHIFT_CONFIG[shift];
 
     return (
       <section className="gantt-section shift-section" key={shift}>
         <div className="gantt-section-header shift-section-header">
-          <div className="shift-section-copy">
-            <h3 className="shift-section-title" aria-label={config.title} title={config.title}>
-              <ShiftIcon shift={shift} />
-            </h3>
-            <p className="shift-section-description">{config.description}</p>
-          </div>
           <div className="gantt-legend" aria-label="Leyenda de barras">
             <span className="gantt-legend-chip programado">Programado</span>
             <span className="gantt-legend-chip actividad">Actividad</span>
@@ -1853,7 +1846,11 @@ export default function Home() {
                 </button>
               ))}
             </div>
-            <h2 className="hero-title">Seguimiento operativo del turno</h2>
+            <h2 className="hero-title">
+              <span>Seguimiento operativo del turno</span>
+              <span className="hero-title-separator" aria-hidden="true">-</span>
+              <span className="hero-shift-window">{SHIFT_CONFIG[activeShift].description}</span>
+            </h2>
           </div>
 
           <div className="history-controls" aria-label="Selector de fecha" ref={datePickerRef}>

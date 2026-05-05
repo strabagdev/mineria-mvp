@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabaseAuth } from "@/lib/authClient";
 import { readProfileCache, saveProfileCache } from "@/lib/localOfflineStore";
-import { isBrowserOffline } from "@/lib/networkStatus";
+import { isBrowserOffline, isNetworkRequestError } from "@/lib/networkStatus";
 
 type AuthContextValue = {
   session: Session | null;
@@ -29,6 +29,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const sessionRef = useRef<Session | null>(null);
   const profileRef = useRef<AuthContextValue["profile"]>(null);
+  const recoverSessionRef = useRef<() => void>(() => undefined);
 
   useEffect(() => {
     let mounted = true;
@@ -76,22 +77,66 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    supabaseAuth.auth.getSession().then(async ({ data }) => {
+    async function applySession(nextSession: Session | null, options?: { keepLoading?: boolean }) {
       if (!mounted) {
         return;
       }
 
-      setSession(data.session ?? null);
-      setUser(data.session?.user ?? null);
-      sessionRef.current = data.session ?? null;
-      const nextProfile = await syncProfile(data.session ?? null);
+      if (options?.keepLoading !== false) {
+        setLoading(true);
+      }
+
+      setSession(nextSession);
+      setUser(nextSession?.user ?? null);
+      sessionRef.current = nextSession;
+
+      const nextProfile = await syncProfile(nextSession);
       if (!mounted) {
         return;
       }
+
       profileRef.current = nextProfile;
       setProfile(nextProfile);
       setLoading(false);
-    });
+    }
+
+    async function recoverSession() {
+      if (isBrowserOffline()) {
+        return;
+      }
+
+      try {
+        const { data } = await supabaseAuth.auth.getSession();
+        await applySession(data.session ?? null, { keepLoading: !sessionRef.current });
+      } catch (error: unknown) {
+        if (!mounted) {
+          return;
+        }
+
+        if (!isNetworkRequestError(error)) {
+          setLoading(false);
+          return;
+        }
+
+        const cachedProfile = await readProfileCache<AuthContextValue["profile"]>().catch(() => null);
+        if (!mounted) {
+          return;
+        }
+
+        if (cachedProfile?.value) {
+          profileRef.current = cachedProfile.value;
+          setProfile(cachedProfile.value);
+        }
+
+        setLoading(false);
+      }
+    }
+
+    recoverSessionRef.current = () => {
+      void recoverSession();
+    };
+
+    void recoverSession();
 
     const { data } = supabaseAuth.auth.onAuthStateChange((_event, nextSession) => {
       const previousSession = sessionRef.current;
@@ -124,6 +169,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       mounted = false;
       data.subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    let recoverTimer: number | null = null;
+
+    function scheduleRecoverSession() {
+      if (document.visibilityState === "hidden") {
+        return;
+      }
+
+      if (recoverTimer !== null) {
+        window.clearTimeout(recoverTimer);
+      }
+
+      recoverTimer = window.setTimeout(() => {
+        recoverTimer = null;
+        recoverSessionRef.current();
+      }, 250);
+    }
+
+    window.addEventListener("online", scheduleRecoverSession);
+    window.addEventListener("focus", scheduleRecoverSession);
+    document.addEventListener("visibilitychange", scheduleRecoverSession);
+
+    return () => {
+      if (recoverTimer !== null) {
+        window.clearTimeout(recoverTimer);
+      }
+
+      window.removeEventListener("online", scheduleRecoverSession);
+      window.removeEventListener("focus", scheduleRecoverSession);
+      document.removeEventListener("visibilitychange", scheduleRecoverSession);
     };
   }, []);
 

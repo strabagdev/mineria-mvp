@@ -1,6 +1,7 @@
 "use client";
 
 import { createClient } from "@supabase/supabase-js";
+import { isNetworkRequestError } from "@/lib/networkStatus";
 
 const authUrl =
   process.env.NEXT_PUBLIC_SUPABASE_AUTH_URL ??
@@ -15,4 +16,37 @@ if (!authUrl || !authAnonKey) {
   );
 }
 
-export const supabaseAuth = createClient(authUrl, authAnonKey);
+const AUTH_FETCH_RETRY_DELAYS_MS = [300, 1000];
+
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function resilientAuthFetch(
+  input: RequestInfo | URL,
+  init?: RequestInit
+): Promise<Response> {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= AUTH_FETCH_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      return await fetch(input, init);
+    } catch (error: unknown) {
+      lastError = error;
+
+      if (!isNetworkRequestError(error) || attempt === AUTH_FETCH_RETRY_DELAYS_MS.length) {
+        throw error;
+      }
+
+      await sleep(AUTH_FETCH_RETRY_DELAYS_MS[attempt]);
+    }
+  }
+
+  throw lastError;
+}
+
+export const supabaseAuth = createClient(authUrl, authAnonKey, {
+  global: {
+    fetch: resilientAuthFetch,
+  },
+});
