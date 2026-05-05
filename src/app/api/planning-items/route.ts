@@ -44,6 +44,20 @@ type RealSegmentRangeInput = {
   shift: string;
 };
 
+const REAL_SEGMENT_OVERLAP_MESSAGE =
+  "Ese horario se solapa con otro evento real del mismo programado. Actualiza la planificacion y elige un espacio disponible.";
+
+function isDatabaseOverlapError(error: unknown) {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "object" && error && "message" in error
+        ? String((error as { message?: unknown }).message ?? "")
+        : "";
+
+  return /activity_execution_segments_no_overlap|exclusion constraint|conflicting key value/i.test(message);
+}
+
 function toMinutes(time: string) {
   const [hours, minutes] = time.slice(0, 5).split(":").map(Number);
   return hours * 60 + minutes;
@@ -337,10 +351,7 @@ async function validateRealSegmentsDoNotOverlap(
 
     if (overlappingSegment) {
       return NextResponse.json(
-        {
-          error:
-            "Ese horario se solapa con otro evento real del mismo programado. Solo puedes agregar eventos en espacios vacios.",
-        },
+        { error: REAL_SEGMENT_OVERLAP_MESSAGE },
         { status: 400 }
       );
     }
@@ -746,6 +757,11 @@ export async function POST(req: Request) {
           "Para registrar un real que cruza turnos necesitamos que la API reconozca `segment_order`. Asegura que la migracion de `activity_execution_segments` se ejecuto en este proyecto y luego refresca el schema cache con: select pg_notify('pgrst', 'reload schema');";
         return NextResponse.json({ error: message }, { status: 400 });
       }
+
+      if (isDatabaseOverlapError(error)) {
+        return NextResponse.json({ error: REAL_SEGMENT_OVERLAP_MESSAGE }, { status: 409 });
+      }
+
       throw error;
     }
 
@@ -899,6 +915,10 @@ export async function PATCH(req: Request) {
       .single();
 
     if (error) {
+      if (isDatabaseOverlapError(error)) {
+        return NextResponse.json({ error: REAL_SEGMENT_OVERLAP_MESSAGE }, { status: 409 });
+      }
+
       throw error;
     }
 

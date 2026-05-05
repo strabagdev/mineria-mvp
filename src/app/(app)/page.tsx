@@ -163,6 +163,9 @@ type PendingPlanningMutation = {
   method: "POST" | "PATCH" | "DELETE";
   payload: Record<string, unknown>;
   createdAt: string;
+  status?: "pending" | "conflict";
+  lastError?: string;
+  lastTriedAt?: string;
 };
 
 const AUTH_SYNC_ERROR_MESSAGE =
@@ -180,6 +183,10 @@ function shouldQueuePlanningMutation(error: unknown) {
     isNetworkRequestError(error) ||
     isInvalidSessionError(error)
   );
+}
+
+function isRetryablePlanningSyncError(error: unknown) {
+  return isNetworkRequestError(error) || isInvalidSessionError(error) || isBrowserOffline();
 }
 
 function getRequestErrorMessage(error: unknown, fallback: string) {
@@ -281,6 +288,10 @@ function getPendingItemId(mutation: PendingPlanningMutation) {
 }
 
 function toOptimisticPlanningItem(mutation: PendingPlanningMutation): PlanningItem | null {
+  if (mutation.status === "conflict") {
+    return null;
+  }
+
   if (mutation.method === "DELETE") {
     return null;
   }
@@ -1109,7 +1120,9 @@ export default function Home() {
   }
 
   async function syncPendingPlanningMutations() {
-    if (!session?.access_token || queueSyncing || !pendingPlanningMutations.length) {
+    const retryableMutations = pendingPlanningMutations.filter((mutation) => mutation.status !== "conflict");
+
+    if (!session?.access_token || queueSyncing || !retryableMutations.length) {
       return;
     }
 
@@ -1119,37 +1132,64 @@ export default function Home() {
 
     setQueueSyncing(true);
 
-    const remaining: PendingPlanningMutation[] = [];
+    const nextQueue: PendingPlanningMutation[] = [];
+    let syncedCount = 0;
+    let stoppedForRetryableError = false;
 
     for (let index = 0; index < pendingPlanningMutations.length; index += 1) {
       const mutation = pendingPlanningMutations[index];
 
+      if (mutation.status === "conflict") {
+        nextQueue.push(mutation);
+        continue;
+      }
+
       try {
         await sendPlanningMutation(mutation.method, mutation.payload);
+        syncedCount += 1;
       } catch (error: unknown) {
-        remaining.push(mutation);
-        remaining.push(...pendingPlanningMutations.slice(index + 1));
+        const message = getRequestErrorMessage(error, "No se pudo sincronizar un registro pendiente.");
 
-        if (!isNetworkRequestError(error)) {
-          setItemsError(getRequestErrorMessage(error, "No se pudo sincronizar un registro pendiente."));
+        if (isRetryablePlanningSyncError(error)) {
+          nextQueue.push(mutation);
+          nextQueue.push(...pendingPlanningMutations.slice(index + 1));
+          stoppedForRetryableError = true;
+
+          if (!isNetworkRequestError(error)) {
+            setItemsError(message);
+          }
+
+          break;
         }
 
-        break;
+        nextQueue.push({
+          ...mutation,
+          status: "conflict",
+          lastError: message,
+          lastTriedAt: new Date().toISOString(),
+        });
+        setItemsError(
+          "Un registro pendiente no pudo sincronizarse porque entra en conflicto con la planificacion actual. Revisa el detalle y descartalo o vuelve a crearlo con otro horario."
+        );
       }
     }
 
-    const syncedCount = pendingPlanningMutations.length - remaining.length;
-
-    if (syncedCount > 0) {
-      setPendingPlanningMutations(remaining);
-      writePendingPlanningMutations(remaining);
+    if (!stoppedForRetryableError) {
+      const processedIds = new Set(nextQueue.map((mutation) => mutation.id));
+      for (const mutation of pendingPlanningMutations) {
+        if (mutation.status === "conflict" && !processedIds.has(mutation.id)) {
+          nextQueue.push(mutation);
+        }
+      }
     }
 
+    setPendingPlanningMutations(nextQueue);
+    writePendingPlanningMutations(nextQueue);
     setQueueSyncing(false);
 
     if (syncedCount > 0) {
       await refreshPlanningItems().then(() => {
-        if (remaining.length === 0) {
+        if (nextQueue.length === 0) {
           setItemsError("");
         }
       }).catch((error: unknown) => {
@@ -1161,6 +1201,14 @@ export default function Home() {
   syncPendingPlanningMutationsRef.current = () => {
     void syncPendingPlanningMutations();
   };
+
+  function discardConflictedPlanningMutations() {
+    setPendingPlanningMutations((current) => {
+      const next = current.filter((mutation) => mutation.status !== "conflict");
+      writePendingPlanningMutations(next);
+      return next;
+    });
+  }
 
   async function refreshCatalog() {
     const nextCatalog = await fetchPlanningCatalog();
@@ -1562,6 +1610,12 @@ export default function Home() {
   const availableDescriptions = selectedType?.details ?? [];
   const detailTypesForAdmin =
     catalog.find((category) => category.slug === detailForm.category)?.types ?? [];
+  const conflictedPlanningMutations = pendingPlanningMutations.filter(
+    (mutation) => mutation.status === "conflict"
+  );
+  const retryablePlanningMutations = pendingPlanningMutations.filter(
+    (mutation) => mutation.status !== "conflict"
+  );
   const visiblePlanningItems = applyPendingPlanningMutations(
     planningItems,
     pendingPlanningMutations,
@@ -2035,17 +2089,28 @@ export default function Home() {
         <div className="gantt-status-strip" aria-live="polite">
           {itemsError ? <p className="feedback">{itemsError}</p> : null}
           {catalogError && catalogError !== itemsError ? <p className="feedback">{catalogError}</p> : null}
-          {pendingPlanningMutations.length ? (
+          {retryablePlanningMutations.length ? (
             <p className={`feedback sync-feedback ${queueSyncing ? "syncing" : ""}`}>
               {queueSyncing ? <span className="sync-spinner" aria-hidden="true" /> : null}
               <span>
                 {queueSyncing
                   ? "Sincronizando registros pendientes..."
-                  : `${pendingPlanningMutations.length} registro${
-                      pendingPlanningMutations.length === 1 ? "" : "s"
-                    } pendiente${pendingPlanningMutations.length === 1 ? "" : "s"} de sincronizacion.`}
+                  : `${retryablePlanningMutations.length} registro${
+                      retryablePlanningMutations.length === 1 ? "" : "s"
+                    } pendiente${retryablePlanningMutations.length === 1 ? "" : "s"} de sincronizacion.`}
               </span>
             </p>
+          ) : null}
+          {conflictedPlanningMutations.length ? (
+            <div className="feedback sync-feedback conflict-feedback">
+              <span>
+                {conflictedPlanningMutations.length} registro{conflictedPlanningMutations.length === 1 ? "" : "s"} pendiente
+                {conflictedPlanningMutations.length === 1 ? "" : "s"} con conflicto. Otro usuario pudo haber ocupado ese horario o la informacion ya no es valida.
+              </span>
+              <button type="button" className="button small danger" onClick={discardConflictedPlanningMutations}>
+                Descartar
+              </button>
+            </div>
           ) : null}
         </div>
       ) : null}

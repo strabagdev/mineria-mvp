@@ -2149,6 +2149,13 @@ select.field-input {
   gap: 0.65rem;
 }
 
+.conflict-feedback {
+  justify-content: space-between;
+  border-color: #fecaca;
+  background: #fff1f2;
+  color: #be123c;
+}
+
 .sync-spinner {
   width: 1rem;
   height: 1rem;
