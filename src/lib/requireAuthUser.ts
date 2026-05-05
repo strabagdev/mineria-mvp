@@ -13,6 +13,7 @@ export async function requireAuthUser(req: Request) {
     process.env.NEXT_PUBLIC_SUPABASE_URL;
   const authAnonKey =
     process.env.NEXT_PUBLIC_SUPABASE_AUTH_ANON_KEY ??
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!authUrl || !authAnonKey) {

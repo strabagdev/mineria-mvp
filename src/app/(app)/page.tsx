@@ -173,7 +173,6 @@ const AUTH_SYNC_ERROR_MESSAGE =
   "Los registros siguen guardados en este equipo. No pudimos sincronizarlos todavia; se reintentara automaticamente cuando la conexion este estable.";
 const PLANNING_MUTATION_QUEUE_KEY = "mineria.pendingPlanningMutations.v1";
 const PENDING_SYNC_RETRY_INTERVAL_MS = 30_000;
-const ACTIVE_PLANNING_REFRESH_INTERVAL_MS = 30_000;
 
 class PlanningMutationRequestError extends Error {
   status: number;
@@ -1081,21 +1080,21 @@ export default function Home() {
 
     window.addEventListener("online", refreshWhenActive);
     window.addEventListener("focus", refreshWhenActive);
-    const refreshInterval = window.setInterval(refreshWhenActive, ACTIVE_PLANNING_REFRESH_INTERVAL_MS);
 
     return () => {
       window.removeEventListener("online", refreshWhenActive);
       window.removeEventListener("focus", refreshWhenActive);
-      window.clearInterval(refreshInterval);
     };
   }, [refreshPlanningItems]);
 
   useEffect(() => {
     const realtimeClient = supabasePlanningRealtime;
 
-    if (!realtimeClient) {
+    if (!realtimeClient || !session?.access_token) {
       return;
     }
+
+    realtimeClient.realtime.setAuth(session.access_token);
 
     function scheduleRealtimeRefresh() {
       if (document.visibilityState === "hidden") {
@@ -1198,7 +1197,7 @@ export default function Home() {
       window.removeEventListener("focus", refreshDeferredRealtimeChanges);
       void realtimeClient.removeChannel(channel);
     };
-  }, [refreshPlanningItems, selectedDate]);
+  }, [refreshPlanningItems, selectedDate, session?.access_token]);
 
   useEffect(() => {
     syncPendingPlanningMutationsRef.current();

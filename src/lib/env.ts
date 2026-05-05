@@ -29,6 +29,7 @@ function requireEnv(name: string, value: string | undefined) {
 export function getServerEnv(): ServerEnv {
   const rawUrl =
     process.env.SUPABASE_DATA_URL ??
+    process.env.NEXT_PUBLIC_SUPABASE_DATA_URL ??
     process.env.NEXT_PUBLIC_SUPABASE_AUTH_URL ??
     process.env.NEXT_PUBLIC_SUPABASE_URL ??
     process.env.SUPABASE_URL;
@@ -49,7 +50,7 @@ export function getServerEnv(): ServerEnv {
   return {
     supabaseUrl: normalizeSupabaseUrl(
       requireEnv(
-        "SUPABASE_DATA_URL (or NEXT_PUBLIC_SUPABASE_AUTH_URL / NEXT_PUBLIC_SUPABASE_URL / SUPABASE_URL)",
+        "SUPABASE_DATA_URL (or NEXT_PUBLIC_SUPABASE_DATA_URL / NEXT_PUBLIC_SUPABASE_AUTH_URL / NEXT_PUBLIC_SUPABASE_URL / SUPABASE_URL)",
         rawUrl
       )
     ),

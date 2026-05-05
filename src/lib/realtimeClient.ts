@@ -7,6 +7,7 @@ const realtimeUrl =
   process.env.NEXT_PUBLIC_SUPABASE_URL;
 const realtimeAnonKey =
   process.env.NEXT_PUBLIC_SUPABASE_DATA_ANON_KEY ??
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 export const supabasePlanningRealtime =
