@@ -1,8 +1,9 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/providers/auth-provider";
+import { supabasePlanningRealtime } from "@/lib/realtimeClient";
 import {
   NETWORK_ERROR_MESSAGE,
   assertBrowserOnline,
@@ -173,8 +174,25 @@ const AUTH_SYNC_ERROR_MESSAGE =
 const PLANNING_MUTATION_QUEUE_KEY = "mineria.pendingPlanningMutations.v1";
 const PENDING_SYNC_RETRY_INTERVAL_MS = 30_000;
 
+class PlanningMutationRequestError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "PlanningMutationRequestError";
+    this.status = status;
+  }
+}
+
 function isInvalidSessionError(error: unknown) {
   return error instanceof Error && /invalid session/i.test(error.message);
+}
+
+function isPlanningConflictError(error: unknown) {
+  return (
+    error instanceof PlanningMutationRequestError &&
+    (error.status === 409 || /solapa|conflicto|conflict/i.test(error.message))
+  );
 }
 
 function shouldQueuePlanningMutation(error: unknown) {
@@ -878,6 +896,8 @@ export default function Home() {
   );
   const syncPendingPlanningMutationsRef = useRef<() => void>(() => undefined);
   const datePickerRef = useRef<HTMLDivElement | null>(null);
+  const pendingRealtimeRefreshRef = useRef(false);
+  const realtimeRefreshTimerRef = useRef<number | null>(null);
   const [queueSyncing, setQueueSyncing] = useState(false);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState("");
@@ -906,6 +926,12 @@ export default function Home() {
   const [editingType, setEditingType] = useState<EditTypeForm | null>(null);
   const [editingLevel, setEditingLevel] = useState<EditLevelForm | null>(null);
   const [editingDetail, setEditingDetail] = useState<EditDetailForm | null>(null);
+
+  const refreshPlanningItems = useCallback(async () => {
+    const nextItems = await fetchPlanningItems(selectedDate);
+    setPlanningItems(nextItems);
+    void savePlanningCache(selectedDate, nextItems);
+  }, [selectedDate]);
 
   useEffect(() => {
     let active = true;
@@ -1002,7 +1028,7 @@ export default function Home() {
     return () => {
       active = false;
     };
-  }, [selectedDate]);
+  }, [refreshPlanningItems, selectedDate]);
 
   useEffect(() => {
     if (formState.tracking_type !== "programado" || formState.category === "actividad") {
@@ -1042,6 +1068,136 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    async function refreshWhenActive() {
+      if (document.visibilityState === "hidden" || isBrowserOffline()) {
+        return;
+      }
+
+      await refreshPlanningItems().catch((error: unknown) => {
+        setItemsError(getRequestErrorMessage(error, "No se pudo actualizar la planificacion."));
+      });
+    }
+
+    window.addEventListener("online", refreshWhenActive);
+    window.addEventListener("focus", refreshWhenActive);
+
+    return () => {
+      window.removeEventListener("online", refreshWhenActive);
+      window.removeEventListener("focus", refreshWhenActive);
+    };
+  }, [refreshPlanningItems, selectedDate]);
+
+  useEffect(() => {
+    const realtimeClient = supabasePlanningRealtime;
+
+    if (!realtimeClient) {
+      return;
+    }
+
+    function scheduleRealtimeRefresh() {
+      if (document.visibilityState === "hidden") {
+        pendingRealtimeRefreshRef.current = true;
+        return;
+      }
+
+      if (realtimeRefreshTimerRef.current !== null) {
+        window.clearTimeout(realtimeRefreshTimerRef.current);
+      }
+
+      realtimeRefreshTimerRef.current = window.setTimeout(() => {
+        realtimeRefreshTimerRef.current = null;
+        void refreshPlanningItems().catch((error: unknown) => {
+          setItemsError(getRequestErrorMessage(error, "No se pudo actualizar la planificacion."));
+        });
+      }, 350);
+    }
+
+    function refreshDeferredRealtimeChanges() {
+      if (!pendingRealtimeRefreshRef.current || document.visibilityState === "hidden") {
+        return;
+      }
+
+      pendingRealtimeRefreshRef.current = false;
+      scheduleRealtimeRefresh();
+    }
+
+    const channel = realtimeClient
+      .channel(`planning-items-${selectedDate}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "planning_items",
+          filter: `item_date=eq.${selectedDate}`,
+        },
+        scheduleRealtimeRefresh
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "planning_items",
+          filter: `item_date=eq.${selectedDate}`,
+        },
+        scheduleRealtimeRefresh
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "DELETE",
+          schema: "public",
+          table: "planning_items",
+        },
+        scheduleRealtimeRefresh
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "activity_execution_segments",
+          filter: `item_date=eq.${selectedDate}`,
+        },
+        scheduleRealtimeRefresh
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "activity_execution_segments",
+          filter: `item_date=eq.${selectedDate}`,
+        },
+        scheduleRealtimeRefresh
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "DELETE",
+          schema: "public",
+          table: "activity_execution_segments",
+        },
+        scheduleRealtimeRefresh
+      )
+      .subscribe();
+
+    document.addEventListener("visibilitychange", refreshDeferredRealtimeChanges);
+    window.addEventListener("focus", refreshDeferredRealtimeChanges);
+
+    return () => {
+      if (realtimeRefreshTimerRef.current !== null) {
+        window.clearTimeout(realtimeRefreshTimerRef.current);
+      }
+
+      document.removeEventListener("visibilitychange", refreshDeferredRealtimeChanges);
+      window.removeEventListener("focus", refreshDeferredRealtimeChanges);
+      void realtimeClient.removeChannel(channel);
+    };
+  }, [refreshPlanningItems, selectedDate]);
+
+  useEffect(() => {
     syncPendingPlanningMutationsRef.current();
   }, [pendingPlanningMutations, session?.access_token]);
 
@@ -1074,12 +1230,6 @@ export default function Home() {
     setViewingPlanningItem(item);
   }
 
-  async function refreshPlanningItems() {
-    const nextItems = await fetchPlanningItems(selectedDate);
-    setPlanningItems(nextItems);
-    void savePlanningCache(selectedDate, nextItems);
-  }
-
   async function sendPlanningMutation(
     method: PendingPlanningMutation["method"],
     payload: Record<string, unknown>
@@ -1100,7 +1250,10 @@ export default function Home() {
     });
 
     if (!response.ok) {
-      throw new Error(await readApiErrorMessage(response, "No se pudo sincronizar el registro."));
+      throw new PlanningMutationRequestError(
+        await readApiErrorMessage(response, "No se pudo sincronizar el registro."),
+        response.status
+      );
     }
 
     return response.json().catch(() => ({}));
@@ -1135,6 +1288,7 @@ export default function Home() {
     const nextQueue: PendingPlanningMutation[] = [];
     let syncedCount = 0;
     let stoppedForRetryableError = false;
+    let foundConflict = false;
 
     for (let index = 0; index < pendingPlanningMutations.length; index += 1) {
       const mutation = pendingPlanningMutations[index];
@@ -1168,6 +1322,7 @@ export default function Home() {
           lastError: message,
           lastTriedAt: new Date().toISOString(),
         });
+        foundConflict = true;
         setItemsError(
           "Un registro pendiente no pudo sincronizarse porque entra en conflicto con la planificacion actual. Revisa el detalle y descartalo o vuelve a crearlo con otro horario."
         );
@@ -1187,7 +1342,7 @@ export default function Home() {
     writePendingPlanningMutations(nextQueue);
     setQueueSyncing(false);
 
-    if (syncedCount > 0) {
+    if (syncedCount > 0 || foundConflict) {
       await refreshPlanningItems().then(() => {
         if (nextQueue.length === 0) {
           setItemsError("");
@@ -1291,6 +1446,10 @@ export default function Home() {
         return;
       }
 
+      if (isPlanningConflictError(error)) {
+        await refreshPlanningItems().catch(() => undefined);
+      }
+
       setFormError(getRequestErrorMessage(error, "No se pudo crear el registro."));
     } finally {
       setFormBusy(false);
@@ -1371,6 +1530,10 @@ export default function Home() {
           setIsModalOpen(false);
         }
         return;
+      }
+
+      if (isPlanningConflictError(error)) {
+        await refreshPlanningItems().catch(() => undefined);
       }
 
       setFormError(getRequestErrorMessage(error, "No se pudo eliminar el registro."));
