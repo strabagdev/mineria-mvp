@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabaseAuth } from "@/lib/authClient";
+import { readProfileCache, saveProfileCache } from "@/lib/localOfflineStore";
 import { isBrowserOffline } from "@/lib/networkStatus";
 
 type AuthContextValue = {
@@ -38,7 +39,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (isBrowserOffline()) {
-        return profileRef.current;
+        if (profileRef.current) {
+          return profileRef.current;
+        }
+
+        const cachedProfile = await readProfileCache<AuthContextValue["profile"]>().catch(() => null);
+        return cachedProfile?.value ?? null;
       }
 
       try {
@@ -53,9 +59,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return null;
         }
 
-        return json.profile ?? null;
+        const nextProfile = json.profile ?? null;
+
+        if (nextProfile) {
+          void saveProfileCache(nextProfile);
+        }
+
+        return nextProfile;
       } catch {
-        return profileRef.current;
+        if (profileRef.current) {
+          return profileRef.current;
+        }
+
+        const cachedProfile = await readProfileCache<AuthContextValue["profile"]>().catch(() => null);
+        return cachedProfile?.value ?? null;
       }
     }
 

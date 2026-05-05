@@ -6,6 +6,7 @@ import { getSupabaseServerClient } from "@/lib/supabaseServer";
 
 type PlanningItemPayload = {
   activity_group_id: string;
+  client_mutation_id: string | null;
   item_date: string;
   start_time: string;
   end_time: string;
@@ -257,6 +258,23 @@ function mapPlanningRow(row: Omit<PlanningItemResponse, "tracking_type"> & { tra
   };
 }
 
+function toPlanningItemUpdatePayload(payload: PlanningItemPayload) {
+  return {
+    activity_group_id: payload.activity_group_id,
+    item_date: payload.item_date,
+    start_time: payload.start_time,
+    end_time: payload.end_time,
+    shift: payload.shift,
+    level: payload.level,
+    front: payload.front,
+    category: payload.category,
+    tracking_type: payload.tracking_type,
+    item_type: payload.item_type,
+    description: payload.description,
+    notes: payload.notes,
+  };
+}
+
 async function getNextSegmentOrder(
   db: ReturnType<typeof getSupabaseServerClient>,
   activityGroupId: string
@@ -346,12 +364,14 @@ async function validateAndNormalizePlanningItem(
     item_type?: string;
     description?: string;
     notes?: string | null;
+    client_mutation_id?: string | null;
   }
 ) {
   const { user, profile } = await requireApprovedUser(req);
   const db = getSupabaseServerClient();
   const payload: PlanningItemPayload = {
     activity_group_id: String(body.activity_group_id ?? "").trim() || crypto.randomUUID(),
+    client_mutation_id: String(body.client_mutation_id ?? "").trim() || null,
     item_date: String(body.item_date ?? "").trim(),
     start_time: String(body.start_time ?? "").trim(),
     end_time: String(body.end_time ?? "").trim(),
@@ -601,6 +621,7 @@ export async function POST(req: Request) {
       item_type?: string;
       description?: string;
       notes?: string | null;
+      client_mutation_id?: string | null;
     };
     const result = await validateAndNormalizePlanningItem(req, body);
     if ("errorResponse" in result) {
@@ -609,6 +630,24 @@ export async function POST(req: Request) {
     const { db, payload, user, profile, plannedItem } = result;
 
     if (payload.tracking_type === "programado") {
+      if (payload.client_mutation_id) {
+        const { data: existingItem, error: existingError } = await db
+          .from("planning_items")
+          .select(
+            "id, activity_group_id, item_date, start_time, end_time, shift, level, front, category, item_type, description, notes, tracking_type"
+          )
+          .eq("client_mutation_id", payload.client_mutation_id)
+          .maybeSingle();
+
+        if (existingError) {
+          throw existingError;
+        }
+
+        if (existingItem) {
+          return NextResponse.json({ item: mapPlanningRow(existingItem) }, { status: 200 });
+        }
+      }
+
       const { data, error } = await db
         .from("planning_items")
         .insert({
@@ -636,6 +675,34 @@ export async function POST(req: Request) {
     }
 
     const segments = buildRealSegments(payload) ?? [];
+
+    if (payload.client_mutation_id) {
+      const { data: existingSegments, error: existingError } = await db
+        .from("activity_execution_segments")
+        .select("id, activity_group_id, item_date, start_time, end_time, shift, level, front, category, item_type, description, notes")
+        .eq("client_mutation_id", payload.client_mutation_id)
+        .order("start_time", { ascending: true });
+
+      if (existingError) {
+        throw existingError;
+      }
+
+      if (existingSegments?.length) {
+        return NextResponse.json({
+          item: mapPlanningRow({
+            ...(existingSegments[0] as Omit<PlanningItemResponse, "tracking_type">),
+            tracking_type: "real",
+          }),
+          items: existingSegments.map((row) =>
+            mapPlanningRow({
+              ...row,
+              tracking_type: "real",
+            })
+          ),
+        });
+      }
+    }
+
     const overlapError = await validateRealSegmentsDoNotOverlap(db, payload.activity_group_id, segments);
 
     if (overlapError) {
@@ -661,6 +728,7 @@ export async function POST(req: Request) {
             item_type: segment.item_type,
             description: segment.description,
             notes: segment.notes,
+            client_mutation_id: payload.client_mutation_id,
             created_by: user.id,
           } as Record<string, unknown>;
 
@@ -729,6 +797,7 @@ export async function PATCH(req: Request) {
       item_type?: string;
       description?: string;
       notes?: string | null;
+      client_mutation_id?: string | null;
     };
     const id = Number(body.id);
     if (!Number.isFinite(id) || id <= 0) {
@@ -741,6 +810,7 @@ export async function PATCH(req: Request) {
     const { db, payload, user, profile, plannedItem } = result;
 
     if (payload.tracking_type === "programado") {
+      const updatePayload = toPlanningItemUpdatePayload(payload);
       const { data: beforeData, error: beforeError } = await db
         .from("planning_items")
         .select("id, activity_group_id, item_date, start_time, end_time, shift, level, front, category, item_type, description, notes, tracking_type")
@@ -754,7 +824,7 @@ export async function PATCH(req: Request) {
 
       const { data, error } = await db
         .from("planning_items")
-        .update(payload)
+        .update(updatePayload)
         .eq("id", id)
         .eq("tracking_type", "programado")
         .select(
@@ -882,7 +952,7 @@ export async function DELETE(req: Request) {
       }
 
       if (!currentItem) {
-        return NextResponse.json({ error: "No se encontro la programacion indicada." }, { status: 404 });
+        return NextResponse.json({ ok: true });
       }
 
       const { data: realSegments, error: realSegmentsError } = await db
@@ -929,7 +999,7 @@ export async function DELETE(req: Request) {
     }
 
     if (!currentSegment) {
-      return NextResponse.json({ error: "No se encontro el tramo real indicado." }, { status: 404 });
+      return NextResponse.json({ ok: true });
     }
 
     const { error } = await db.from("activity_execution_segments").delete().eq("id", id);

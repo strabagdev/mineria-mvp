@@ -9,6 +9,12 @@ import {
   isBrowserOffline,
   isNetworkRequestError,
 } from "@/lib/networkStatus";
+import {
+  readCatalogCache,
+  readPlanningCache,
+  saveCatalogCache,
+  savePlanningCache,
+} from "@/lib/localOfflineStore";
 
 type PlanningItem = {
   id: number;
@@ -85,6 +91,11 @@ type PlanningItemForm = {
   item_type: string;
   description: string;
   notes: string;
+};
+
+type PlanningItemMutationPayload = PlanningItemForm & {
+  id?: number;
+  client_mutation_id?: string;
 };
 
 type TypeAdminForm = {
@@ -235,11 +246,24 @@ function makePendingPlanningMutation(
   method: PendingPlanningMutation["method"],
   payload: Record<string, unknown>
 ): PendingPlanningMutation {
+  const id = crypto.randomUUID();
+
   return {
-    id: crypto.randomUUID(),
+    id,
     method,
-    payload,
+    payload: withClientMutationId(payload, id),
     createdAt: new Date().toISOString(),
+  };
+}
+
+function withClientMutationId(payload: Record<string, unknown>, fallbackId = crypto.randomUUID()) {
+  if (payload.client_mutation_id) {
+    return payload;
+  }
+
+  return {
+    ...payload,
+    client_mutation_id: fallbackId,
   };
 }
 
@@ -428,6 +452,15 @@ function formatDateTitle(value: string) {
     month: "2-digit",
     year: "numeric",
   }).format(new Date(`${value}T00:00:00`));
+}
+
+function formatLocalDateTime(value: string) {
+  return new Intl.DateTimeFormat("es-CL", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
 }
 
 function formatMonthTitle(date: Date) {
@@ -880,6 +913,7 @@ export default function Home() {
         setLevels(nextCatalog.levels);
         setFormState((current) => syncPlanningForm(current, nextCatalog.categories, nextCatalog.levels));
         setDetailForm((current) => syncDetailAdminForm(current, nextCatalog.categories));
+        void saveCatalogCache(nextCatalog);
       } catch (error: unknown) {
         const message = getRequestErrorMessage(
           error,
@@ -887,7 +921,19 @@ export default function Home() {
         );
 
         if (active) {
-          setCatalogError(message);
+          const cachedCatalog = await readCatalogCache<PlanningCatalog>().catch(() => null);
+
+          if (cachedCatalog) {
+            setCatalog(cachedCatalog.value.categories);
+            setLevels(cachedCatalog.value.levels);
+            setFormState((current) =>
+              syncPlanningForm(current, cachedCatalog.value.categories, cachedCatalog.value.levels)
+            );
+            setDetailForm((current) => syncDetailAdminForm(current, cachedCatalog.value.categories));
+            setCatalogError(`Usando catalogo local guardado. Ultima sincronizacion: ${formatLocalDateTime(cachedCatalog.updatedAt)}.`);
+          } else {
+            setCatalogError(message);
+          }
         }
       } finally {
         if (active) {
@@ -917,11 +963,21 @@ export default function Home() {
         }
 
         setPlanningItems(nextItems);
+        void savePlanningCache(selectedDate, nextItems);
       } catch (error: unknown) {
         const message = getRequestErrorMessage(error, "No se pudo cargar la planificacion.");
 
         if (active) {
-          setItemsError(message);
+          const cachedPlanning = await readPlanningCache<PlanningItem[]>(selectedDate).catch(() => null);
+
+          if (cachedPlanning) {
+            setPlanningItems(cachedPlanning.items);
+            setItemsError(
+              `Usando planificacion local guardada. Ultima sincronizacion: ${formatLocalDateTime(cachedPlanning.updatedAt)}.`
+            );
+          } else {
+            setItemsError(message);
+          }
         }
       } finally {
         if (active) {
@@ -1010,6 +1066,7 @@ export default function Home() {
   async function refreshPlanningItems() {
     const nextItems = await fetchPlanningItems(selectedDate);
     setPlanningItems(nextItems);
+    void savePlanningCache(selectedDate, nextItems);
   }
 
   async function sendPlanningMutation(
@@ -1109,6 +1166,7 @@ export default function Home() {
     const nextCatalog = await fetchPlanningCatalog();
     setCatalog(nextCatalog.categories);
     setLevels(nextCatalog.levels);
+    void saveCatalogCache(nextCatalog);
     setFormState((current) => syncPlanningForm(current, nextCatalog.categories, nextCatalog.levels));
     setDetailForm((current) => syncDetailAdminForm(current, nextCatalog.categories));
     setEditingDetail((current) =>
@@ -1148,7 +1206,9 @@ export default function Home() {
     setFormError("");
 
     const method = editingPlanningItem ? "PATCH" : "POST";
-    const payload = editingPlanningItem ? { id: editingPlanningItem.id, ...formState } : { ...formState };
+    const payload: PlanningItemMutationPayload = editingPlanningItem
+      ? { id: editingPlanningItem.id, ...formState }
+      : withClientMutationId({ ...formState }) as PlanningItemMutationPayload;
 
     if (!session?.access_token) {
       if (isBrowserOffline()) {
