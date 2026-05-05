@@ -3,7 +3,7 @@
 import type { CSSProperties } from "react";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/providers/auth-provider";
-import { supabasePlanningRealtime } from "@/lib/realtimeClient";
+import { supabaseAuth } from "@/lib/authClient";
 import {
   NETWORK_ERROR_MESSAGE,
   assertBrowserOnline,
@@ -1088,9 +1088,9 @@ export default function Home() {
   }, [refreshPlanningItems]);
 
   useEffect(() => {
-    const realtimeClient = supabasePlanningRealtime;
+    const realtimeClient = supabaseAuth;
 
-    if (!realtimeClient || !session?.access_token) {
+    if (!session?.access_token) {
       return;
     }
 

@@ -3,17 +3,12 @@
 import { createClient } from "@supabase/supabase-js";
 import { isNetworkRequestError } from "@/lib/networkStatus";
 
-const authUrl =
-  process.env.NEXT_PUBLIC_SUPABASE_AUTH_URL ??
-  process.env.NEXT_PUBLIC_SUPABASE_URL;
-const authAnonKey =
-  process.env.NEXT_PUBLIC_SUPABASE_AUTH_ANON_KEY ??
-  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const authUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const authAnonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
 if (!authUrl || !authAnonKey) {
   throw new Error(
-    "Missing NEXT_PUBLIC_SUPABASE_AUTH_URL/NEXT_PUBLIC_SUPABASE_AUTH_ANON_KEY or NEXT_PUBLIC_SUPABASE_URL/NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY."
+    "Missing NEXT_PUBLIC_SUPABASE_URL/NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY."
   );
 }
 

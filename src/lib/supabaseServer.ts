@@ -8,7 +8,7 @@ export function getSupabaseServerClient() {
 }
 
 export function getSupabaseAuthAdminClient() {
-  return createClient(serverEnv.supabaseAuthUrl, serverEnv.supabaseAuthServiceRoleKey, {
+  return createClient(serverEnv.supabaseUrl, serverEnv.supabaseServiceRoleKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,
