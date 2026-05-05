@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192">
+  <rect width="192" height="192" rx="42" fill="#0f766e"/>
+  <path d="M40 126h112v18H40z" fill="#d7f3ef"/>
+  <path d="M52 112 84 54h24l32 58h-22l-22-42-22 42z" fill="#f8fafc"/>
+  <text x="96" y="157" text-anchor="middle" font-family="Arial, sans-serif" font-size="24" font-weight="700" fill="#f8fafc">ZS</text>
+</svg>
