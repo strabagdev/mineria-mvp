@@ -540,7 +540,7 @@ function buildEventTitle(item: {
 
 function buildGanttBarLabel(item: PlanningItem, layer: "programado" | "real") {
   if (layer === "real") {
-    return String(item.item_type || item.description).trim();
+    return String(item.description || item.item_type).trim();
   }
 
   return buildEventTitle(item);
@@ -2004,12 +2004,18 @@ export default function Home() {
                 .map((part) => String(part ?? "").trim())
                 .filter(Boolean)
                 .join(" - ");
+              const activityName = String(group.description ?? "").trim();
 
               return (
               <article key={group.key} className="gantt-row gantt-row-dual">
                 <div className="gantt-meta">
                   <div className="gantt-meta-primary">
                     <h3 title={eventTitle}>{eventTitle}</h3>
+                    {activityName ? (
+                      <p className="gantt-meta-subtitle" title={activityName}>
+                        {activityName}
+                      </p>
+                    ) : null}
                     <div className="gantt-meta-line">
                       <div className="field-list">
                         <span className={`category-pill ${group.category === "interferencia" ? "warning" : "success"}`}>
