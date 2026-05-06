@@ -4,6 +4,8 @@ import type { CSSProperties } from "react";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/providers/auth-provider";
 import { supabaseAuth } from "@/lib/authClient";
+import { GanttLegend } from "@/components/planning/gantt-legend";
+import { GanttRowMeta } from "@/components/planning/gantt-row-meta";
 import {
   NETWORK_ERROR_MESSAGE,
   assertBrowserOnline,
@@ -1952,11 +1954,7 @@ export default function Home() {
     return (
       <section className="gantt-section shift-section" key={shift}>
         <div className="gantt-section-header shift-section-header">
-          <div className="gantt-legend" aria-label="Leyenda de barras">
-            <span className="gantt-legend-chip programado">Programado</span>
-            <span className="gantt-legend-chip actividad">Actividad</span>
-            <span className="gantt-legend-chip interferencia">Interferencia</span>
-          </div>
+          <GanttLegend />
         </div>
 
         <div className="gantt-header">
@@ -2009,23 +2007,14 @@ export default function Home() {
               return (
               <article key={group.key} className="gantt-row gantt-row-dual">
                 <div className="gantt-meta">
-                  <div className="gantt-meta-primary">
-                    <h3 title={eventTitle}>{eventTitle}</h3>
-                    {activityName ? (
-                      <p className="gantt-meta-subtitle" title={activityName}>
-                        {activityName}
-                      </p>
-                    ) : null}
-                    <div className="gantt-meta-line">
-                      <div className="field-list">
-                        <span className={`category-pill ${group.category === "interferencia" ? "warning" : "success"}`}>
-                          {toDisplayCategory(group.category)}
-                        </span>
-                        <span className="field-chip">{group.item_type}</span>
-                        {renderCreateRealButton(group)}
-                      </div>
-                    </div>
-                  </div>
+                  <GanttRowMeta
+                    title={eventTitle}
+                    subtitle={activityName}
+                    categoryLabel={toDisplayCategory(group.category)}
+                    categoryTone={group.category === "interferencia" ? "warning" : "success"}
+                    typeLabel={group.item_type}
+                    action={renderCreateRealButton(group)}
+                  />
                 </div>
 
                 <div className="gantt-track gantt-track-compare">

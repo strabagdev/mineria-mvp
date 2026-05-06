@@ -228,9 +228,9 @@ export default function AdminUsersPage() {
                     <p className="muted-inline">{account.email}</p>
                   </div>
                   <div className="admin-user-badges">
-                    <span className="header-session-pill">{account.role}</span>
-                    <span className="header-session-pill">{account.active ? "Activo" : "Inactivo"}</span>
-                    <span className="header-session-pill">{approvalLabel(account.approval_status)}</span>
+                    <span className="session-pill">{account.role}</span>
+                    <span className="session-pill">{account.active ? "Activo" : "Inactivo"}</span>
+                    <span className="session-pill">{approvalLabel(account.approval_status)}</span>
                   </div>
                 </div>
 

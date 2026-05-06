@@ -110,7 +110,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
         <nav className="app-sidebar-nav">{renderNavItems()}</nav>
 
         <div className="app-sidebar-footer">
-          <span className="header-session-pill" title={user?.email ?? "Sesion activa"}>
+          <span className="session-pill" title={user?.email ?? "Sesion activa"}>
             <User aria-hidden className="app-nav-icon" />
             <span>{user?.email ?? "Sesion activa"}</span>
           </span>
