@@ -20,14 +20,16 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 ADMIN_EMAIL=admin@empresa.com
 ```
 
-## Perfil opcional
-Si quieres mantener la sincronizacion del perfil autenticado en Supabase, ejecuta:
+## Base de datos
+Para preparar Supabase, ejecuta los SQL en este orden:
 
 ```sql
 \i supabase/sql/001_schema.sql
+\i supabase/sql/002_seed_catalog.sql
+\i supabase/sql/003_security_realtime.sql
 ```
 
-Esto crea la tabla `profiles` usada por `/api/profile/sync`.
+Esto crea el esquema actual, carga catalogos iniciales, habilita RLS y activa realtime para planificacion.
 
 ## Desarrollo
 
