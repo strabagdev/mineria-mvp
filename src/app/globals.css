@@ -1,22 +1,68 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
 :root {
   --background: #edf4f0;
   --background-soft: #f6faf8;
   --foreground: #11201c;
+  --card: #ffffff;
+  --card-foreground: #11201c;
+  --popover: #ffffff;
+  --popover-foreground: #11201c;
+  --primary: #0f766e;
+  --primary-foreground: #f8fafc;
+  --secondary: #eef5f2;
+  --secondary-foreground: #11201c;
   --muted: #5a6b64;
+  --muted-foreground: #5a6b64;
   --muted-soft: #74847d;
   --border: rgba(17, 32, 28, 0.1);
+  --input: rgba(17, 32, 28, 0.12);
+  --ring: #0f766e;
   --panel: rgba(255, 255, 255, 0.9);
   --panel-solid: #ffffff;
   --surface: rgba(255, 255, 255, 0.78);
   --accent: #0f766e;
+  --accent-foreground: #f8fafc;
   --accent-soft: #d7f3ef;
   --accent-border: rgba(15, 118, 110, 0.22);
   --accent-text: #0a5a54;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --success: #0f766e;
+  --warning: #d97706;
   --shadow-soft: 0 18px 48px rgba(15, 23, 42, 0.08);
   --shadow-header: 0 22px 60px rgba(15, 23, 42, 0.1);
+  --radius: 0.75rem;
   --radius-xl: 2rem;
   --radius-lg: 1.5rem;
   --radius-md: 1.125rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
 }
 
 * {
@@ -57,9 +103,168 @@ textarea {
   font: inherit;
 }
 
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.28) transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(100, 116, 139, 0.28);
+}
+
 .app-background {
   min-height: 100vh;
   background: transparent;
+}
+
+.app-shell-layout {
+  --app-sidebar-width: 16rem;
+  --app-sidebar-collapsed-width: 4.75rem;
+}
+
+.app-shell-main {
+  min-width: 0;
+  margin-left: var(--app-sidebar-width);
+  transition: margin-left 180ms ease;
+}
+
+.app-shell-layout.sidebar-collapsed .app-shell-main {
+  margin-left: var(--app-sidebar-collapsed-width);
+}
+
+.app-sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  width: var(--app-sidebar-width);
+  border-right: 1px solid rgba(17, 32, 28, 0.1);
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 12px 0 36px rgba(15, 23, 42, 0.06);
+  backdrop-filter: blur(18px);
+  transition: width 180ms ease;
+}
+
+.app-shell-layout.sidebar-collapsed .app-sidebar {
+  width: var(--app-sidebar-collapsed-width);
+}
+
+.app-sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 4.75rem;
+  padding: 0.82rem;
+  border-bottom: 1px solid rgba(17, 32, 28, 0.08);
+}
+
+.app-sidebar-brand-copy {
+  display: grid;
+  gap: 0.08rem;
+  min-width: 0;
+  color: var(--foreground);
+}
+
+.app-sidebar-brand-copy span {
+  color: var(--muted-soft);
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.app-sidebar-brand-copy strong {
+  overflow: hidden;
+  font-size: 0.95rem;
+  font-weight: 900;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-sidebar-toggle {
+  margin-left: auto;
+}
+
+.app-sidebar-nav {
+  display: grid;
+  gap: 0.32rem;
+  min-height: 0;
+  padding: 0.75rem;
+  overflow-y: auto;
+}
+
+.app-sidebar-nav .app-nav-item,
+.app-sidebar-footer .app-nav-item,
+.app-sidebar-footer .header-session-pill {
+  width: 100%;
+  justify-content: flex-start;
+  min-height: 2.75rem;
+  padding: 0 0.72rem;
+}
+
+.app-sidebar-nav .app-nav-item.active {
+  background: rgba(215, 243, 239, 0.95);
+}
+
+.app-sidebar-footer {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: auto;
+  padding: 0.75rem;
+  border-top: 1px solid rgba(17, 32, 28, 0.08);
+}
+
+.app-sidebar-logout {
+  background: rgba(248, 250, 252, 0.92);
+  cursor: pointer;
+}
+
+.app-nav-icon {
+  width: 1.12rem;
+  height: 1.12rem;
+}
+
+.app-shell-layout.sidebar-collapsed .app-sidebar-brand {
+  justify-content: center;
+  padding-inline: 0.55rem;
+}
+
+.app-shell-layout.sidebar-collapsed .app-sidebar-brand .app-brand-mark {
+  display: none;
+}
+
+.app-shell-layout.sidebar-collapsed .app-sidebar-brand-copy,
+.app-shell-layout.sidebar-collapsed .app-sidebar .app-nav-item span,
+.app-shell-layout.sidebar-collapsed .app-sidebar .header-session-pill span {
+  display: none;
+}
+
+.app-shell-layout.sidebar-collapsed .app-sidebar-toggle {
+  margin-left: 0;
+}
+
+.app-shell-layout.sidebar-collapsed .app-sidebar-nav .app-nav-item,
+.app-shell-layout.sidebar-collapsed .app-sidebar-footer .app-nav-item,
+.app-shell-layout.sidebar-collapsed .app-sidebar-footer .header-session-pill {
+  justify-content: center;
+  padding-inline: 0;
 }
 
 .app-header-shell {
@@ -82,7 +287,7 @@ textarea {
   width: 100%;
   max-width: 1760px;
   min-height: 100vh;
-  padding: 1rem 1.25rem 1.5rem;
+  padding: 1.25rem 1.25rem 1.5rem;
 }
 
 .app-header {
@@ -225,6 +430,10 @@ textarea {
   border: 1px solid rgba(17, 32, 28, 0.08);
   border-radius: 1rem;
   background: rgba(248, 250, 252, 0.86);
+}
+
+.app-nav-header {
+  display: none;
 }
 
 .app-nav-item,
@@ -2389,8 +2598,7 @@ select.field-input {
   .header-row {
     grid-template-columns: minmax(13rem, 1fr) auto;
     grid-template-areas:
-      "brand actions"
-      "nav nav";
+      "brand actions";
   }
 
   .header-copy-block {
@@ -2407,11 +2615,125 @@ select.field-input {
   .header-actions {
     grid-area: actions;
   }
+
+  .app-header-inner,
+  .app-frame {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  .dashboard-stack,
+  .reports-content-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ops-grid,
+  .reports-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .surface-card.hero.hero-operational {
+    padding: 0.85rem;
+  }
+
+  .hero-operational-line,
+  .hero-operational-footer {
+    align-items: flex-start;
+  }
+
+  .hero-operational-line {
+    flex-wrap: wrap;
+  }
+
+  .hero-operational-copy,
+  .hero-inline-block {
+    flex-basis: min(100%, 34rem);
+  }
+
+  .hero-date-chip {
+    min-width: 10rem;
+  }
+
+  .history-controls {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .app-nav-item,
+  .app-icon-button,
+  .header-session-pill,
+  .shift-tab,
+  .date-display-button,
+  .hero-operational .button.hero-action-button {
+    min-height: 44px;
+  }
+
+  .gantt-shell {
+    --gantt-meta-width: clamp(168px, 23vw, 220px);
+    --gantt-column-gap: 0.75rem;
+    padding: 0.9rem;
+  }
+
+  .gantt-header,
+  .gantt-row {
+    gap: 0.75rem;
+  }
+
+  .gantt-meta h3 {
+    font-size: 1.12rem;
+  }
+
+  .gantt-meta-subtitle,
+  .gantt-meta .field-chip {
+    font-size: 0.72rem;
+  }
+
+  .gantt-timeline-scroll,
+  .gantt-track {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: visible;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(100, 116, 139, 0.28) transparent;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .gantt-header-timeline,
+  .gantt-track-scale {
+    min-width: 48rem;
+  }
+
+  .gantt-track {
+    min-height: 64px;
+  }
+
+  .gantt-track-compare {
+    min-height: 68px;
+  }
+
+  .gantt-bar {
+    min-height: 1.7rem;
+    padding-inline: 0.48rem;
+  }
+
+  .gantt-bar-label {
+    font-size: 0.72rem;
+  }
 }
 
 @media (max-width: 720px) {
+  .app-shell-layout {
+    --app-sidebar-collapsed-width: 3.85rem;
+  }
+
+  .app-shell-main,
+  .app-shell-layout.sidebar-collapsed .app-shell-main {
+    margin-left: var(--app-sidebar-collapsed-width);
+  }
+
   .app-frame {
-    padding: 1rem;
+    padding: 0.85rem;
   }
 
   .surface-card.hero,
@@ -2426,6 +2748,9 @@ select.field-input {
 
   .header-row {
     grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "brand actions"
+      "nav nav";
     gap: 0.65rem;
   }
 
