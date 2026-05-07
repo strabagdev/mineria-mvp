@@ -5,25 +5,26 @@ import { GanttRowMeta } from "@/components/planning/gantt-row-meta";
 
 type ShiftKey = "Dia" | "Noche";
 
-type PlanningItem = {
+type GanttPlanningItem = {
   id: number;
   shift: string;
 };
 
-type PlanningGroup = {
+type GanttPlanningGroup<TItem extends GanttPlanningItem> = {
   key: string;
   level: string;
   front: string;
   category: "actividad" | "interferencia";
   item_type: string;
   description: string;
-  programado: PlanningItem | null;
-  realSegments: PlanningItem[];
+  programado: TItem | null;
+  realSegments: TItem[];
 };
 
 type GanttScale = {
   startMinutes: number;
   endMinutes: number;
+  slotMinutes: number;
   slotCount: number;
   endLabel: string;
   hourMarks: {
@@ -33,23 +34,29 @@ type GanttScale = {
   }[];
 };
 
-type GanttShiftSectionProps = {
+type GanttShiftSectionProps<
+  TItem extends GanttPlanningItem,
+  TGroup extends GanttPlanningGroup<TItem>,
+> = {
   shift: ShiftKey;
-  groups: PlanningGroup[];
+  groups: TGroup[];
   scale: GanttScale;
-  renderBar: (item: PlanningItem | null, layer: "programado" | "real", scale: GanttScale) => ReactNode;
-  renderCreateRealButton: (group: PlanningGroup) => ReactNode;
-  toDisplayCategory: (category: PlanningGroup["category"]) => string;
+  renderBar: (item: TItem | null, layer: "programado" | "real", scale: GanttScale) => ReactNode;
+  renderCreateRealButton: (group: TGroup) => ReactNode;
+  toDisplayCategory: (category: TGroup["category"]) => string;
 };
 
-export function GanttShiftSection({
+export function GanttShiftSection<
+  TItem extends GanttPlanningItem,
+  TGroup extends GanttPlanningGroup<TItem>,
+>({
   shift,
   groups,
   scale,
   renderBar,
   renderCreateRealButton,
   toDisplayCategory,
-}: GanttShiftSectionProps) {
+}: GanttShiftSectionProps<TItem, TGroup>) {
   return (
     <section className="gantt-section shift-section">
       <div className="gantt-section-header shift-section-header">

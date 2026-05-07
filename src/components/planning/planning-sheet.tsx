@@ -24,6 +24,7 @@ type CatalogLevel = {
 };
 
 type PlanningItemForm = {
+  activity_group_id: string;
   item_date: string;
   start_time: string;
   end_time: string;
