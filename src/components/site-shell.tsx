@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { type ComponentType, type MouseEvent, useEffect, useState } from "react";
 import { supabaseAuth } from "@/lib/authClient";
 import { useAuth } from "@/providers/auth-provider";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 type ShellIcon = ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
 type NavItem = {
@@ -130,6 +131,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
         <nav className="app-sidebar-nav">{renderNavItems()}</nav>
 
         <div className="app-sidebar-footer">
+          <ThemeToggle />
           <span className="session-pill" title={profile.email || user?.email || sessionDisplayName}>
             <User aria-hidden className="app-nav-icon" />
             <span>{sessionDisplayName}</span>
