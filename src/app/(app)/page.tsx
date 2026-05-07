@@ -542,8 +542,8 @@ function buildEventSubtitle(item: {
 function buildPlanningItemAriaLabel(item: PlanningItem, duration: string) {
   return [
     buildEventTitle(item),
-    `${toDisplayCategory(item.category)}, ${item.item_type}`,
-    `Vista ${toTrackingTypeLabel(item.tracking_type)}`,
+    `Categoria ${toDisplayCategory(item.category)}`,
+    toTrackingTypeLabel(item.tracking_type),
     `Frente ${item.front}, nivel ${item.level}`,
     `Turno ${item.shift}, ${formatDateLabel(item.item_date)}`,
     `Horario ${item.start} a ${item.end}, duracion ${duration}`,
@@ -1896,7 +1896,7 @@ export default function Home() {
     const duration = formatDuration(item.start, item.end);
     const ariaLabel = buildPlanningItemAriaLabel(item, duration);
     const barLabel = buildGanttBarLabel(item, layer);
-    const subtitle = buildEventSubtitle(item);
+    const locationLabel = buildEventSubtitle(item) || "Sin ubicacion";
 
     return (
       <button
@@ -1925,15 +1925,17 @@ export default function Home() {
           <span className="gantt-tooltip-content">
             <strong>{item.description}</strong>
             <span className="gantt-tooltip-muted">
-              {item.start} - {item.end} · {duration}
+              {item.start} - {item.end}
             </span>
             <span className="gantt-tooltip-line">
-              {subtitle || buildEventTitle(item)}
+              Ubicacion: {locationLabel}
             </span>
             <span className="gantt-tooltip-badges">
-              <span className="gantt-tooltip-badge">{toTrackingTypeLabel(item.tracking_type)}</span>
               <span className={`gantt-tooltip-badge ${item.category === "interferencia" ? "warning" : "success"}`}>
                 {toDisplayCategory(item.category)}
+              </span>
+              <span className="gantt-tooltip-badge">
+                {toTrackingTypeLabel(item.tracking_type)}
               </span>
               {item.sync_status === "pending" ? (
                 <span className="gantt-tooltip-badge pending">pendiente</span>
