@@ -1987,8 +1987,64 @@ select.field-input {
   box-shadow: 0 24px 64px rgba(15, 23, 42, 0.18);
 }
 
+.sheet-backdrop {
+  place-items: stretch end;
+  padding: 0;
+  background: rgba(15, 23, 42, 0.38);
+  backdrop-filter: blur(8px);
+}
+
+.sheet-card {
+  width: min(34rem, 100vw);
+  height: 100vh;
+  max-height: 100vh;
+  padding: 0;
+  border-top: 0;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 1px solid rgba(203, 213, 225, 0.92);
+  border-radius: 0;
+  background: #ffffff;
+  box-shadow: -18px 0 48px rgba(15, 23, 42, 0.16);
+}
+
+.sheet-card .modal-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 1rem 1.1rem;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.92);
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(12px);
+}
+
+.sheet-card > .modal-form,
+.sheet-card > .catalog-admin-grid {
+  padding: 1rem 1.1rem 1.2rem;
+  margin-top: 0;
+}
+
+.planning-sheet-card .modal-grid {
+  grid-template-columns: 1fr;
+}
+
+.planning-sheet-card .modal-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin: 0 -1.1rem -1.2rem;
+  padding: 0.9rem 1.1rem;
+  border-top: 1px solid rgba(226, 232, 240, 0.92);
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(12px);
+}
+
 .catalog-modal-card {
   width: min(1120px, 100%);
+}
+
+.catalog-sheet-card {
+  width: min(72rem, calc(100vw - var(--app-sidebar-collapsed-width)));
 }
 
 .detail-modal-card {
@@ -2078,6 +2134,7 @@ select.field-input {
 .catalog-admin-grid {
   display: grid;
   grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+  align-items: start;
   gap: 1rem;
   margin-top: 1.25rem;
 }
@@ -2087,6 +2144,7 @@ select.field-input {
 .catalog-type-list,
 .catalog-detail-list {
   display: grid;
+  align-content: start;
   gap: 1rem;
 }
 
@@ -2608,6 +2666,14 @@ select.field-input {
   .gantt-bar-label {
     font-size: 0.68rem;
   }
+
+  .catalog-sheet-card {
+    width: min(46rem, calc(100vw - var(--app-sidebar-collapsed-width)));
+  }
+
+  .catalog-sheet-card .catalog-admin-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 720px) {
@@ -2793,6 +2859,25 @@ select.field-input {
 
   .modal-card {
     padding: 1.25rem;
+  }
+
+  .sheet-card {
+    width: calc(100vw - var(--app-sidebar-collapsed-width));
+    padding: 0;
+  }
+
+  .sheet-card .modal-header {
+    padding: 0.9rem;
+  }
+
+  .sheet-card > .modal-form,
+  .sheet-card > .catalog-admin-grid {
+    padding: 0.9rem;
+  }
+
+  .planning-sheet-card .modal-actions {
+    margin: 0 -0.9rem -0.9rem;
+    padding: 0.85rem 0.9rem;
   }
 
   .button-row > *,

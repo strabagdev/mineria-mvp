@@ -2272,9 +2272,9 @@ export default function Home() {
       </section>
 
       {isModalOpen ? (
-        <div className="modal-backdrop" role="presentation" onClick={() => setIsModalOpen(false)}>
+        <div className="modal-backdrop sheet-backdrop" role="presentation" onClick={() => setIsModalOpen(false)}>
           <div
-            className="modal-card"
+            className="modal-card sheet-card planning-sheet-card"
             role="dialog"
             aria-modal="true"
             aria-labelledby="planning-modal-title"
@@ -2610,9 +2610,9 @@ export default function Home() {
       ) : null}
 
       {isCatalogModalOpen ? (
-        <div className="modal-backdrop" role="presentation" onClick={() => setIsCatalogModalOpen(false)}>
+        <div className="modal-backdrop sheet-backdrop" role="presentation" onClick={() => setIsCatalogModalOpen(false)}>
           <div
-            className="modal-card catalog-modal-card"
+            className="modal-card sheet-card catalog-modal-card catalog-sheet-card"
             role="dialog"
             aria-modal="true"
             aria-labelledby="catalog-modal-title"
