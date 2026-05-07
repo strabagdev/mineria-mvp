@@ -1,9 +1,15 @@
-const CACHE_VERSION = "mineria-shell-v1";
+const CACHE_VERSION = "mineria-shell-v2";
+const IS_LOCALHOST = self.location.hostname === "localhost";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const SHELL_URLS = ["/", "/login", "/reports", "/manifest.webmanifest", "/icons/icon-192.svg", "/icons/icon-512.svg"];
 
 self.addEventListener("install", (event) => {
+  if (IS_LOCALHOST) {
+    event.waitUntil(self.skipWaiting());
+    return;
+  }
+
   event.waitUntil(
     caches
       .open(SHELL_CACHE)
@@ -19,7 +25,11 @@ self.addEventListener("activate", (event) => {
       .then((cacheNames) =>
         Promise.all(
           cacheNames
-            .filter((cacheName) => !cacheName.startsWith(CACHE_VERSION))
+            .filter((cacheName) =>
+              IS_LOCALHOST
+                ? cacheName.startsWith("mineria-")
+                : !cacheName.startsWith(CACHE_VERSION)
+            )
             .map((cacheName) => caches.delete(cacheName))
         )
       )
@@ -80,6 +90,10 @@ async function networkFirst(request) {
 }
 
 self.addEventListener("fetch", (event) => {
+  if (IS_LOCALHOST) {
+    return;
+  }
+
   const { request } = event;
 
   if (shouldBypass(request)) {

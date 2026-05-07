@@ -882,6 +882,7 @@ async function fetchPlanningCatalog(): Promise<PlanningCatalog> {
 
 export default function Home() {
   const { session, profile } = useAuth();
+  const canManageCatalog = profile?.role === "admin";
   const todayIso = formatLocalDateIso();
   const [planningItems, setPlanningItems] = useState<PlanningItem[]>([]);
   const [catalog, setCatalog] = useState<CatalogCategory[]>([]);
@@ -925,6 +926,36 @@ export default function Home() {
     typeId: "",
     label: "",
   });
+
+  useEffect(() => {
+    function openCatalogFromNavigation() {
+      if (canManageCatalog) {
+        setIsCatalogModalOpen(true);
+      }
+    }
+
+    window.addEventListener("open-planning-catalog", openCatalogFromNavigation);
+    return () => window.removeEventListener("open-planning-catalog", openCatalogFromNavigation);
+  }, [canManageCatalog]);
+
+  useEffect(() => {
+    if (!canManageCatalog) {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+
+    if (params.get("catalog") !== "1") {
+      return;
+    }
+
+    setIsCatalogModalOpen(true);
+    params.delete("catalog");
+
+    const query = params.toString();
+    const nextUrl = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`;
+    window.history.replaceState(null, "", nextUrl);
+  }, [canManageCatalog]);
   const [editingType, setEditingType] = useState<EditTypeForm | null>(null);
   const [editingLevel, setEditingLevel] = useState<EditLevelForm | null>(null);
   const [editingDetail, setEditingDetail] = useState<EditDetailForm | null>(null);
@@ -1815,7 +1846,6 @@ export default function Home() {
   const calendarDays = getCalendarDays(calendarMonth);
   const canGoNextMonth = !isSameCalendarMonth(calendarMonth, todayDate) && calendarMonth < todayDate;
   const formContextLabel = isRealForm ? "Evento real" : "Programacion";
-  const canManageCatalog = profile?.role === "admin";
   const planningModalTitle = editingPlanningItem
     ? `Editar ${isRealForm ? "evento real" : "programacion"}`
     : `Crear ${isRealForm ? "evento real" : "programacion"}`;
@@ -2180,22 +2210,6 @@ export default function Home() {
             ) : null}
           </div>
           <div className="toolbar-actions">
-            {canManageCatalog ? (
-              <button
-                type="button"
-                className="button hero-action-button"
-                onClick={() => setIsCatalogModalOpen(true)}
-                disabled={!session || catalogLoading}
-                aria-label="Configurar catalogo"
-                title="Configurar catalogo"
-              >
-                <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
-                  <path d="M12 8.25a3.75 3.75 0 1 0 0 7.5 3.75 3.75 0 0 0 0-7.5Z" />
-                  <path d="M19.5 12a7.9 7.9 0 0 0-.08-1.08l2.08-1.63-2-3.46-2.46.99a7.58 7.58 0 0 0-1.86-1.08L14.8 3h-5.6l-.38 2.74a7.58 7.58 0 0 0-1.86 1.08L4.5 5.83l-2 3.46 2.08 1.63a7.76 7.76 0 0 0 0 2.16L2.5 14.71l2 3.46 2.46-.99a7.58 7.58 0 0 0 1.86 1.08L9.2 21h5.6l.38-2.74a7.58 7.58 0 0 0 1.86-1.08l2.46.99 2-3.46-2.08-1.63c.05-.35.08-.71.08-1.08Z" />
-                </svg>
-                <span>Catalogo</span>
-              </button>
-            ) : null}
             <button
               type="button"
               className="button primary hero-action-button"

@@ -8,6 +8,34 @@ export function PwaRegister() {
       return;
     }
 
+    if (process.env.NODE_ENV !== "production") {
+      void navigator.serviceWorker
+        .getRegistrations()
+        .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
+        .then(() => {
+          if (!("caches" in window)) {
+            return undefined;
+          }
+
+          return caches
+            .keys()
+            .then((cacheNames) =>
+              Promise.all(
+                cacheNames
+                  .filter((cacheName) => cacheName.startsWith("mineria-"))
+                  .map((cacheName) => caches.delete(cacheName))
+              )
+            );
+        })
+        .catch((error: unknown) => {
+          console.error(
+            "Service worker cleanup failed:",
+            error instanceof Error ? error.message : error
+          );
+        });
+      return;
+    }
+
     const isLocalhost = window.location.hostname === "localhost";
     const isSecureContext = window.location.protocol === "https:" || isLocalhost;
 

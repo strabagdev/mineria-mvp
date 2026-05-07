@@ -1,13 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { BarChart3, ChevronLeft, ChevronRight, Home, LogOut, User, Users } from "lucide-react";
+import { BarChart3, ChevronLeft, ChevronRight, Home, LogOut, Settings, User, Users } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
-import { type ComponentType, useEffect, useState } from "react";
+import { type ComponentType, type MouseEvent, useEffect, useState } from "react";
 import { supabaseAuth } from "@/lib/authClient";
 import { useAuth } from "@/providers/auth-provider";
 
 type ShellIcon = ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
+type NavItem = {
+  href: string;
+  label: string;
+  icon: ShellIcon;
+  onClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
+};
 
 export function SiteShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -60,13 +66,26 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
     return null;
   }
 
+  function openCatalog(event: MouseEvent<HTMLAnchorElement>) {
+    if (pathname !== "/") {
+      return;
+    }
+
+    event.preventDefault();
+    window.dispatchEvent(new CustomEvent("open-planning-catalog"));
+  }
+
   const navItems = [
     { href: "/", label: "Inicio", icon: Home },
     { href: "/reports", label: "Reportes", icon: BarChart3 },
     ...(profile.role === "admin"
-      ? [{ href: "/admin/users", label: "Usuarios", icon: Users }]
+      ? [
+          { href: "/?catalog=1", label: "Catalogo", icon: Settings, onClick: openCatalog },
+          { href: "/admin/users", label: "Usuarios", icon: Users },
+        ]
       : []),
-  ] satisfies Array<{ href: string; label: string; icon: ShellIcon }>;
+  ] satisfies NavItem[];
+  const sessionDisplayName = profile.full_name?.trim() || profile.email || user?.email || "Sesion activa";
 
   const renderNavItems = () =>
     navItems.map((item) => {
@@ -80,6 +99,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
           className={`app-nav-item ${isActive ? "active" : ""}`}
           aria-current={isActive ? "page" : undefined}
           title={item.label}
+          onClick={item.onClick}
         >
           <Icon aria-hidden className="app-nav-icon" />
           <span>{item.label}</span>
@@ -110,9 +130,9 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
         <nav className="app-sidebar-nav">{renderNavItems()}</nav>
 
         <div className="app-sidebar-footer">
-          <span className="session-pill" title={user?.email ?? "Sesion activa"}>
+          <span className="session-pill" title={profile.email || user?.email || sessionDisplayName}>
             <User aria-hidden className="app-nav-icon" />
-            <span>{user?.email ?? "Sesion activa"}</span>
+            <span>{sessionDisplayName}</span>
           </span>
           <button
             type="button"
