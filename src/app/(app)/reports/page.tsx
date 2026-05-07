@@ -1,5 +1,6 @@
 "use client";
 
+import { BarChart3, Clock3, Download, Filter, Gauge, ListChecks, TimerReset } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/providers/auth-provider";
 
@@ -316,12 +317,17 @@ export default function ReportsPage() {
   return (
     <div className="reports-stack">
       <section className="surface-card hero padded reports-hero">
-        <div>
-          <p className="eyebrow">Reportabilidad</p>
-          <h2 className="section-title">Resumen operacional</h2>
-          <p className="body-copy">
-            Vista filtrable de programacion, ejecucion real e interferencias registradas en la plataforma.
-          </p>
+        <div className="reports-hero-copy">
+          <span className="reports-hero-icon" aria-hidden="true">
+            <BarChart3 />
+          </span>
+          <div>
+            <p className="eyebrow">Reportabilidad</p>
+            <h2 className="section-title">Resumen operacional</h2>
+            <p className="body-copy">
+              Vista filtrable de programacion, ejecucion real e interferencias registradas en la plataforma.
+            </p>
+          </div>
         </div>
       </section>
 
@@ -332,6 +338,7 @@ export default function ReportsPage() {
             <h3 className="card-title">Campos disponibles</h3>
           </div>
           <button type="button" className="button" onClick={resetFilters}>
+            <Filter aria-hidden className="button-icon" />
             Limpiar
           </button>
         </div>
@@ -443,24 +450,28 @@ export default function ReportsPage() {
       {error ? <p className="feedback">{error}</p> : null}
 
       <section className="metric-grid reports-metrics">
-        <article className="metric-card">
+        <article className="metric-card reports-metric-card">
+          <span className="metric-icon" aria-hidden="true"><ListChecks /></span>
           <p className="metric-label">Registros</p>
           <p className="metric-value">{summary.total_records}</p>
           <p className="metric-detail">
             {summary.planned_records} programados / {summary.real_records} reales
           </p>
         </article>
-        <article className="metric-card">
+        <article className="metric-card reports-metric-card">
+          <span className="metric-icon" aria-hidden="true"><Clock3 /></span>
           <p className="metric-label">Horas programadas</p>
           <p className="metric-value">{formatHours(summary.planned_hours)}</p>
           <p className="metric-detail">Suma de duracion programada</p>
         </article>
-        <article className="metric-card">
+        <article className="metric-card reports-metric-card">
+          <span className="metric-icon" aria-hidden="true"><TimerReset /></span>
           <p className="metric-label">Horas reales</p>
           <p className="metric-value">{formatHours(summary.real_hours)}</p>
           <p className="metric-detail">Suma de ejecucion e interferencias</p>
         </article>
-        <article className="metric-card">
+        <article className="metric-card reports-metric-card">
+          <span className="metric-icon" aria-hidden="true"><Gauge /></span>
           <p className="metric-label">Diferencia</p>
           <p className="metric-value">{formatHours(summary.variance_hours)}</p>
           <p className="metric-detail">{summary.interference_records} interferencias filtradas</p>
@@ -501,6 +512,7 @@ export default function ReportsPage() {
             disabled={loading || !visibleRows.length}
             onClick={() => downloadFilteredRows(visibleRows, filters)}
           >
+            <Download aria-hidden className="button-icon" />
             Exportar Excel
           </button>
         </div>

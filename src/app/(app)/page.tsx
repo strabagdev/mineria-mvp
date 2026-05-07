@@ -7,6 +7,7 @@ import { useAuth } from "@/providers/auth-provider";
 import { supabaseAuth } from "@/lib/authClient";
 import { GanttLegend } from "@/components/planning/gantt-legend";
 import { GanttRowMeta } from "@/components/planning/gantt-row-meta";
+import { SheetPanel } from "@/components/ui/sheet-panel";
 import {
   NETWORK_ERROR_MESSAGE,
   assertBrowserOnline,
@@ -941,6 +942,50 @@ export default function Home() {
     const nextUrl = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`;
     window.history.replaceState(null, "", nextUrl);
   }, [canManageCatalog]);
+
+  useEffect(() => {
+    const hasOverlayOpen = isModalOpen || isCatalogModalOpen || Boolean(viewingPlanningItem) || Boolean(deleteConfirmation);
+
+    if (!hasOverlayOpen) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      if (deleteConfirmation) {
+        setDeleteConfirmation(null);
+        return;
+      }
+
+      if (viewingPlanningItem) {
+        setViewingPlanningItem(null);
+        return;
+      }
+
+      if (isCatalogModalOpen) {
+        setIsCatalogModalOpen(false);
+        return;
+      }
+
+      if (isModalOpen) {
+        setIsModalOpen(false);
+      }
+    }
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [deleteConfirmation, isCatalogModalOpen, isModalOpen, viewingPlanningItem]);
+
   const [editingType, setEditingType] = useState<EditTypeForm | null>(null);
   const [editingLevel, setEditingLevel] = useState<EditLevelForm | null>(null);
   const [editingDetail, setEditingDetail] = useState<EditDetailForm | null>(null);
@@ -2272,26 +2317,13 @@ export default function Home() {
       </section>
 
       {isModalOpen ? (
-        <div className="modal-backdrop sheet-backdrop" role="presentation" onClick={() => setIsModalOpen(false)}>
-          <div
-            className="modal-card sheet-card planning-sheet-card"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="planning-modal-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="modal-header">
-              <div>
-                <p className="eyebrow">{formContextLabel}</p>
-                <h2 id="planning-modal-title" className="card-title" style={{ marginTop: 12 }}>
-                  {planningModalTitle}
-                </h2>
-              </div>
-                <button type="button" className="button" onClick={() => setIsModalOpen(false)}>
-                  Cerrar
-                </button>
-            </div>
-
+        <SheetPanel
+          titleId="planning-modal-title"
+          eyebrow={formContextLabel}
+          title={planningModalTitle}
+          className="planning-sheet-card"
+          onClose={() => setIsModalOpen(false)}
+        >
             <form className="modal-form" onSubmit={handleCreateItem}>
               {isRealForm ? (
                 <label className="field">
@@ -2455,8 +2487,7 @@ export default function Home() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </SheetPanel>
       ) : null}
 
       {viewingPlanningItem ? (
@@ -2610,29 +2641,14 @@ export default function Home() {
       ) : null}
 
       {isCatalogModalOpen ? (
-        <div className="modal-backdrop sheet-backdrop" role="presentation" onClick={() => setIsCatalogModalOpen(false)}>
-          <div
-            className="modal-card sheet-card catalog-modal-card catalog-sheet-card"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="catalog-modal-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="modal-header">
-              <div>
-                <p className="eyebrow">Catalogo</p>
-                <h2 id="catalog-modal-title" className="card-title" style={{ marginTop: 12 }}>
-                  Configuracion jerarquica
-                </h2>
-                <p className="body-copy" style={{ marginTop: 8 }}>
-                  Aqui administras como se comporta el formulario: nivel, categoria, tipo y detalle.
-                </p>
-              </div>
-              <button type="button" className="button" onClick={() => setIsCatalogModalOpen(false)}>
-                Cerrar
-              </button>
-            </div>
-
+        <SheetPanel
+          titleId="catalog-modal-title"
+          eyebrow="Catalogo"
+          title="Configuracion jerarquica"
+          description="Aqui administras como se comporta el formulario: nivel, categoria, tipo y detalle."
+          className="catalog-modal-card catalog-sheet-card"
+          onClose={() => setIsCatalogModalOpen(false)}
+        >
             <div className="catalog-admin-grid">
               <div className="catalog-admin-column">
                 <article className="surface-card soft padded">
@@ -3052,8 +3068,7 @@ export default function Home() {
                 ))}
               </div>
             </div>
-          </div>
-        </div>
+        </SheetPanel>
       ) : null}
     </section>
   );
