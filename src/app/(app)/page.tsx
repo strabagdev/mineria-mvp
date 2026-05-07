@@ -2,6 +2,7 @@
 
 import type { CSSProperties } from "react";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { CalendarDays, Moon, Plus, RotateCcw, Sun } from "lucide-react";
 import { useAuth } from "@/providers/auth-provider";
 import { supabaseAuth } from "@/lib/authClient";
 import { GanttLegend } from "@/components/planning/gantt-legend";
@@ -428,26 +429,10 @@ const SHIFT_CONFIG: Record<
 
 function ShiftIcon({ shift }: { shift: ShiftKey }) {
   if (shift === "Dia") {
-    return (
-      <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
-        <path d="M12 4V2" />
-        <path d="M12 22v-2" />
-        <path d="m4.93 4.93 1.41 1.41" />
-        <path d="m17.66 17.66 1.41 1.41" />
-        <path d="M4 12H2" />
-        <path d="M22 12h-2" />
-        <path d="m4.93 19.07 1.41-1.41" />
-        <path d="m17.66 6.34 1.41-1.41" />
-        <path d="M12 16.25a4.25 4.25 0 1 0 0-8.5 4.25 4.25 0 0 0 0 8.5Z" />
-      </svg>
-    );
+    return <Sun aria-hidden />;
   }
 
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
-      <path d="M20.25 14.4A8.25 8.25 0 0 1 9.6 3.75 8.25 8.25 0 1 0 20.25 14.4Z" />
-    </svg>
-  );
+  return <Moon aria-hidden />;
 }
 
 function toMinutes(time: string) {
@@ -2107,12 +2092,7 @@ export default function Home() {
                 onClick={() => setIsDatePickerOpen((current) => !current)}
               >
                 <span className="history-control-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" focusable="false">
-                    <path d="M7 3v3" />
-                    <path d="M17 3v3" />
-                    <path d="M4.5 8.25h15" />
-                    <path d="M6.75 5h10.5a2.25 2.25 0 0 1 2.25 2.25v10.5A2.25 2.25 0 0 1 17.25 20H6.75a2.25 2.25 0 0 1-2.25-2.25V7.25A2.25 2.25 0 0 1 6.75 5Z" />
-                  </svg>
+                  <CalendarDays aria-hidden />
                 </span>
                 <span className="date-display-copy">
                   <span className="date-display-value">{formatDateTitle(selectedDate)}</span>
@@ -2202,10 +2182,7 @@ export default function Home() {
                 aria-label="Volver a hoy"
                 title="Volver a hoy"
               >
-                <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
-                  <path d="M12 5.25a6.75 6.75 0 1 1-6.44 4.72" />
-                  <path d="M5.25 5.25v4.5h4.5" />
-                </svg>
+                <RotateCcw aria-hidden />
               </button>
             ) : null}
           </div>
@@ -2222,14 +2199,7 @@ export default function Home() {
               aria-label="Nueva programacion"
               title={isHistoricalReadOnly ? "Habilita la edicion historica para crear registros" : "Nueva programacion"}
             >
-              <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
-                <path d="M7 3v3" />
-                <path d="M17 3v3" />
-                <path d="M4.5 8.25h15" />
-                <path d="M6.75 5h10.5a2.25 2.25 0 0 1 2.25 2.25v10.5A2.25 2.25 0 0 1 17.25 20H6.75a2.25 2.25 0 0 1-2.25-2.25V7.25A2.25 2.25 0 0 1 6.75 5Z" />
-                <path d="M12 11.25v5" />
-                <path d="M9.5 13.75h5" />
-              </svg>
+              <Plus aria-hidden />
               <span>Nueva programacion</span>
             </button>
           </div>
