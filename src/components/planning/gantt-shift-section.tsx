@@ -57,6 +57,22 @@ export function GanttShiftSection<
   renderCreateRealButton,
   toDisplayCategory,
 }: GanttShiftSectionProps<TItem, TGroup>) {
+  const groupedRows = groups.reduce<Array<{ key: string; title: string; rows: TGroup[] }>>((accumulator, group) => {
+    const level = String(group.level ?? "").trim();
+    const front = String(group.front ?? "").trim();
+    const title = [level || "Sin nivel", front || "Sin frente"].join(" - ");
+    const key = `${level.toLowerCase()}::${front.toLowerCase()}`;
+    const existingGroup = accumulator.find((entry) => entry.key === key);
+
+    if (existingGroup) {
+      existingGroup.rows.push(group);
+      return accumulator;
+    }
+
+    accumulator.push({ key, title, rows: [group] });
+    return accumulator;
+  }, []);
+
   return (
     <section className="gantt-section shift-section">
       <div className="gantt-section-header shift-section-header">
@@ -100,48 +116,57 @@ export function GanttShiftSection<
       >
         <div className="gantt-rows-timeline-bg" aria-hidden="true" />
 
-        {groups.length ? (
-          groups.map((group) => {
-            const realSegmentsForShift = group.realSegments.filter((segment) => segment.shift === shift);
-            const plannedItemForShift = group.programado?.shift === shift ? group.programado : null;
-            const eventTitle = [group.level, group.front]
-              .map((part) => String(part ?? "").trim())
-              .filter(Boolean)
-              .join(" - ");
-            const activityName = String(group.description ?? "").trim();
-
-            return (
-              <article key={group.key} className="gantt-row gantt-row-dual">
-                <div className="gantt-meta">
-                  <GanttRowMeta
-                    title={eventTitle}
-                    subtitle={activityName}
-                    categoryLabel={toDisplayCategory(group.category)}
-                    categoryTone={group.category === "interferencia" ? "warning" : "success"}
-                    typeLabel={group.item_type}
-                    action={renderCreateRealButton(group)}
-                  />
+        {groupedRows.length ? (
+          groupedRows.map((locationGroup) => (
+            <section key={locationGroup.key} className="gantt-location-group">
+              <div className="gantt-location-header">
+                <div className="gantt-location-title">
+                  <span>{locationGroup.title}</span>
+                  <small>
+                    {locationGroup.rows.length} actividad{locationGroup.rows.length === 1 ? "" : "es"}
+                  </small>
                 </div>
+                <div className="gantt-location-rule" aria-hidden="true" />
+              </div>
 
-                <div className="gantt-track gantt-track-compare">
-                  <div className="gantt-track-scale">
-                    <span className="gantt-lane-label programado" aria-hidden="true">
-                      Plan
-                    </span>
-                    <span className="gantt-lane-label real" aria-hidden="true">
-                      Eventos
-                    </span>
-                    {renderBar(plannedItemForShift, "programado", scale)}
-                    {realSegmentsForShift.map((segment) => (
-                      <Fragment key={`real-segment-${segment.id}`}>
-                        {renderBar(segment, "real", scale)}
-                      </Fragment>
-                    ))}
-                  </div>
-                </div>
-              </article>
-            );
-          })
+              {locationGroup.rows.map((group) => {
+                const realSegmentsForShift = group.realSegments.filter((segment) => segment.shift === shift);
+                const plannedItemForShift = group.programado?.shift === shift ? group.programado : null;
+                const activityName = String(group.description ?? "").trim() || group.item_type;
+
+                return (
+                  <article key={group.key} className="gantt-row gantt-row-dual">
+                    <div className="gantt-meta">
+                      <GanttRowMeta
+                        title={activityName}
+                        categoryLabel={toDisplayCategory(group.category)}
+                        categoryTone={group.category === "interferencia" ? "warning" : "success"}
+                        typeLabel={group.item_type}
+                        action={renderCreateRealButton(group)}
+                      />
+                    </div>
+
+                    <div className="gantt-track gantt-track-compare">
+                      <div className="gantt-track-scale">
+                        <span className="gantt-lane-label programado" aria-hidden="true">
+                          Plan
+                        </span>
+                        <span className="gantt-lane-label real" aria-hidden="true">
+                          Eventos
+                        </span>
+                        {renderBar(plannedItemForShift, "programado", scale)}
+                        {realSegmentsForShift.map((segment) => (
+                          <Fragment key={`real-segment-${segment.id}`}>
+                            {renderBar(segment, "real", scale)}
+                          </Fragment>
+                        ))}
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </section>
+          ))
         ) : (
           <div className="shift-empty-state">
             <p className="ops-copy">Sin actividades para este turno.</p>
