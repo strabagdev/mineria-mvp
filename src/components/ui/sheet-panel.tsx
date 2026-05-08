@@ -1,4 +1,6 @@
-import type { ReactNode } from "react";
+"use client";
+
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 type SheetPanelProps = {
   titleId: string;
@@ -19,10 +21,39 @@ export function SheetPanel({
   children,
   onClose,
 }: SheetPanelProps) {
+  const [isClosing, setIsClosing] = useState(false);
+  const closeTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current !== null) {
+        window.clearTimeout(closeTimerRef.current);
+      }
+    };
+  }, []);
+
+  function requestClose() {
+    if (isClosing) {
+      return;
+    }
+
+    setIsClosing(true);
+    closeTimerRef.current = window.setTimeout(() => {
+      closeTimerRef.current = null;
+      onClose();
+    }, 180);
+  }
+
   return (
-    <div className="modal-backdrop sheet-backdrop" role="presentation" onClick={onClose}>
+    <div
+      className="modal-backdrop sheet-backdrop"
+      data-state={isClosing ? "closed" : "open"}
+      role="presentation"
+      onClick={requestClose}
+    >
       <div
         className={`modal-card sheet-card ${className}`.trim()}
+        data-state={isClosing ? "closed" : "open"}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
@@ -40,7 +71,7 @@ export function SheetPanel({
               </p>
             ) : null}
           </div>
-          <button type="button" className="button" onClick={onClose}>
+          <button type="button" className="button" onClick={requestClose}>
             Cerrar
           </button>
         </div>

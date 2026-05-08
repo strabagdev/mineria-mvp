@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { BarChart3, ChevronLeft, ChevronRight, Home, LogOut, Settings, User, Users } from "lucide-react";
+import { BarChart3, ChevronLeft, ChevronRight, Home, LayoutDashboard, LogOut, Settings, User, Users } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { type ComponentType, type MouseEvent, useEffect, useState } from "react";
 import { supabaseAuth } from "@/lib/authClient";
@@ -78,6 +78,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
 
   const navItems = [
     { href: "/", label: "Inicio", icon: Home },
+    { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { href: "/reports", label: "Reportes", icon: BarChart3 },
     ...(profile.role === "admin"
       ? [

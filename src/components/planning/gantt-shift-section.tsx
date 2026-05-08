@@ -122,9 +122,6 @@ export function GanttShiftSection<
               <div className="gantt-location-header">
                 <div className="gantt-location-title">
                   <span>{locationGroup.title}</span>
-                  <small>
-                    {locationGroup.rows.length} actividad{locationGroup.rows.length === 1 ? "" : "es"}
-                  </small>
                 </div>
                 <div className="gantt-location-rule" aria-hidden="true" />
               </div>

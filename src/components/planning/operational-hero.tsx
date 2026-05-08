@@ -1,5 +1,5 @@
 import type { Dispatch, RefObject, SetStateAction } from "react";
-import { CalendarDays, Moon, Plus, RotateCcw, Sun } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Moon, Plus, Sun } from "lucide-react";
 
 type ShiftKey = "Dia" | "Noche";
 
@@ -66,6 +66,20 @@ export function OperationalHero({
   onSelectOperationalDate,
   onCreatePlanning,
 }: OperationalHeroProps) {
+  const selectedDateValue = new Date(`${selectedDate}T00:00:00`);
+  const isTodaySelected = selectedDate === todayIso;
+
+  function selectRelativeDay(offset: number) {
+    const nextDate = new Date(selectedDateValue);
+    nextDate.setDate(nextDate.getDate() + offset);
+
+    if (nextDate > todayDate) {
+      return;
+    }
+
+    onSelectOperationalDate(formatLocalDateIso(nextDate));
+  }
+
   return (
     <article className="surface-card hero hero-operational">
       <div className="hero-operational-line">
@@ -96,6 +110,16 @@ export function OperationalHero({
         </div>
 
         <div className="history-controls" aria-label="Selector de fecha" ref={datePickerRef}>
+          <button
+            type="button"
+            className="button icon-button date-selector-nav"
+            onClick={() => selectRelativeDay(-1)}
+            aria-label="Dia anterior"
+            title="Dia anterior"
+          >
+            <ChevronLeft aria-hidden />
+          </button>
+
           <div className="date-picker-shell">
             <button
               type="button"
@@ -185,17 +209,26 @@ export function OperationalHero({
               </div>
             ) : null}
           </div>
-          {isHistoricalView ? (
-            <button
-              type="button"
-              className="button icon-button hero-action-button"
-              onClick={() => onSelectOperationalDate(todayIso)}
-              aria-label="Volver a hoy"
-              title="Volver a hoy"
-            >
-              <RotateCcw aria-hidden />
-            </button>
-          ) : null}
+
+          <button
+            type="button"
+            className="button icon-button date-selector-nav"
+            onClick={() => selectRelativeDay(1)}
+            disabled={isTodaySelected}
+            aria-label="Dia siguiente"
+            title="Dia siguiente"
+          >
+            <ChevronRight aria-hidden />
+          </button>
+
+          <button
+            type="button"
+            className="button date-selector-today"
+            onClick={() => onSelectOperationalDate(todayIso)}
+            disabled={!isHistoricalView && isTodaySelected}
+          >
+            Hoy
+          </button>
         </div>
         <div className="toolbar-actions">
           <button

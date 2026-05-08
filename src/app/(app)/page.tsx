@@ -458,12 +458,22 @@ function formatDateLabel(value: string) {
   }).format(new Date(`${value}T00:00:00`));
 }
 
+function toTitleCaseDate(value: string) {
+  return value.replace(/\p{L}+/gu, (word) => {
+    const [firstLetter = "", ...rest] = Array.from(word);
+    return `${firstLetter.toLocaleUpperCase("es-CL")}${rest.join("").toLocaleLowerCase("es-CL")}`;
+  });
+}
+
 function formatDateTitle(value: string) {
-  return new Intl.DateTimeFormat("es-CL", {
+  const formattedDate = new Intl.DateTimeFormat("es-CL", {
+    weekday: "long",
     day: "2-digit",
-    month: "2-digit",
+    month: "long",
     year: "numeric",
   }).format(new Date(`${value}T00:00:00`));
+
+  return toTitleCaseDate(formattedDate);
 }
 
 function formatLocalDateTime(value: string) {

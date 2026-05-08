@@ -1,7 +1,7 @@
 "use client";
 
 import { createClient } from "@supabase/supabase-js";
-import { isNetworkRequestError } from "@/lib/networkStatus";
+import { NETWORK_ERROR_MESSAGE, isNetworkRequestError } from "@/lib/networkStatus";
 
 const authUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const authAnonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
@@ -31,7 +31,7 @@ async function resilientAuthFetch(
       lastError = error;
 
       if (!isNetworkRequestError(error) || attempt === AUTH_FETCH_RETRY_DELAYS_MS.length) {
-        throw error;
+        throw isNetworkRequestError(error) ? new Error(NETWORK_ERROR_MESSAGE) : error;
       }
 
       await sleep(AUTH_FETCH_RETRY_DELAYS_MS[attempt]);

@@ -1,51 +1,19 @@
 "use client";
 
-import { BarChart3, Clock3, Download, Filter, Gauge, ListChecks, TimerReset } from "lucide-react";
+import { BarChart3, Download, Filter } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/providers/auth-provider";
-
-type ReportRow = {
-  id: number;
-  source_table: "planning_items" | "activity_execution_segments";
-  activity_group_id: string;
-  item_date: string;
-  start_time: string;
-  end_time: string;
-  shift: string;
-  level: string;
-  front: string;
-  category: "actividad" | "interferencia";
-  tracking_type: "programado" | "real";
-  item_type: string;
-  description: string;
-  notes: string | null;
-  duration_minutes: number;
-};
-
-type ReportBreakdown = {
-  label: string;
-  count: number;
-  hours: number;
-};
-
-type ReportResponse = {
-  rows: ReportRow[];
-  summary: {
-    total_records: number;
-    planned_records: number;
-    real_records: number;
-    interference_records: number;
-    planned_hours: number;
-    real_hours: number;
-    variance_hours: number;
-  };
-  breakdowns: {
-    by_level: ReportBreakdown[];
-    by_shift: ReportBreakdown[];
-    by_category: ReportBreakdown[];
-    by_tracking_type: ReportBreakdown[];
-  };
-};
+import {
+  buildReportQuery,
+  formatHours,
+  formatReportDate,
+  getInitialReportFilters,
+  toDisplayCategory,
+  toTrackingLabel,
+  type ReportFilters,
+  type ReportResponse,
+  type ReportRow,
+} from "@/lib/reports";
 
 type CatalogLevel = {
   id: number;
@@ -65,64 +33,6 @@ type CatalogResponse = {
   categories: CatalogCategory[];
   levels: CatalogLevel[];
 };
-
-type ReportFilters = {
-  date_from: string;
-  date_to: string;
-  shift: string;
-  level: string;
-  front: string;
-  category: string;
-  tracking_type: string;
-  item_type: string;
-};
-
-function toLocalDateIso(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function getInitialFilters(): ReportFilters {
-  const dateTo = new Date();
-  const dateFrom = new Date();
-  dateFrom.setDate(dateTo.getDate() - 6);
-
-  return {
-    date_from: toLocalDateIso(dateFrom),
-    date_to: toLocalDateIso(dateTo),
-    shift: "",
-    level: "",
-    front: "",
-    category: "",
-    tracking_type: "",
-    item_type: "",
-  };
-}
-
-function formatHours(hours: number) {
-  return new Intl.NumberFormat("es-CL", {
-    maximumFractionDigits: 1,
-    minimumFractionDigits: 0,
-  }).format(hours);
-}
-
-function formatDate(date: string) {
-  return new Intl.DateTimeFormat("es-CL", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).format(new Date(`${date}T00:00:00`));
-}
-
-function toDisplayCategory(category: ReportRow["category"]) {
-  return category === "interferencia" ? "Interferencia" : "Actividad";
-}
-
-function toTrackingLabel(trackingType: ReportRow["tracking_type"]) {
-  return trackingType === "programado" ? "Programado" : "Real";
-}
 
 function escapeCsvValue(value: unknown) {
   const rawValue = String(value ?? "");
@@ -181,21 +91,9 @@ function downloadFilteredRows(rows: ReportRow[], filters: ReportFilters) {
   URL.revokeObjectURL(url);
 }
 
-function buildQuery(filters: ReportFilters) {
-  const params = new URLSearchParams();
-
-  for (const [key, value] of Object.entries(filters)) {
-    if (value.trim()) {
-      params.set(key, value.trim());
-    }
-  }
-
-  return params.toString();
-}
-
 export default function ReportsPage() {
   const { session } = useAuth();
-  const [filters, setFilters] = useState<ReportFilters>(() => getInitialFilters());
+  const [filters, setFilters] = useState<ReportFilters>(() => getInitialReportFilters());
   const [report, setReport] = useState<ReportResponse | null>(null);
   const [catalog, setCatalog] = useState<CatalogResponse>({ categories: [], levels: [] });
   const [loading, setLoading] = useState(true);
@@ -262,7 +160,7 @@ export default function ReportsPage() {
       setLoading(true);
       setError("");
 
-      const response = await fetch(`/api/reports?${buildQuery(filters)}`, {
+      const response = await fetch(`/api/reports?${buildReportQuery(filters)}`, {
         cache: "no-store",
         headers: {
           Authorization: `Bearer ${session?.access_token}`,
@@ -301,18 +199,8 @@ export default function ReportsPage() {
   }
 
   function resetFilters() {
-    setFilters(getInitialFilters());
+    setFilters(getInitialReportFilters());
   }
-
-  const summary = report?.summary ?? {
-    total_records: 0,
-    planned_records: 0,
-    real_records: 0,
-    interference_records: 0,
-    planned_hours: 0,
-    real_hours: 0,
-    variance_hours: 0,
-  };
 
   return (
     <div className="reports-stack">
@@ -449,35 +337,6 @@ export default function ReportsPage() {
 
       {error ? <p className="feedback">{error}</p> : null}
 
-      <section className="metric-grid reports-metrics">
-        <article className="metric-card reports-metric-card">
-          <span className="metric-icon" aria-hidden="true"><ListChecks /></span>
-          <p className="metric-label">Registros</p>
-          <p className="metric-value">{summary.total_records}</p>
-          <p className="metric-detail">
-            {summary.planned_records} programados / {summary.real_records} reales
-          </p>
-        </article>
-        <article className="metric-card reports-metric-card">
-          <span className="metric-icon" aria-hidden="true"><Clock3 /></span>
-          <p className="metric-label">Horas programadas</p>
-          <p className="metric-value">{formatHours(summary.planned_hours)}</p>
-          <p className="metric-detail">Suma de duracion programada</p>
-        </article>
-        <article className="metric-card reports-metric-card">
-          <span className="metric-icon" aria-hidden="true"><TimerReset /></span>
-          <p className="metric-label">Horas reales</p>
-          <p className="metric-value">{formatHours(summary.real_hours)}</p>
-          <p className="metric-detail">Suma de ejecucion e interferencias</p>
-        </article>
-        <article className="metric-card reports-metric-card">
-          <span className="metric-icon" aria-hidden="true"><Gauge /></span>
-          <p className="metric-label">Diferencia</p>
-          <p className="metric-value">{formatHours(summary.variance_hours)}</p>
-          <p className="metric-detail">{summary.interference_records} interferencias filtradas</p>
-        </article>
-      </section>
-
       <section className="reports-content-grid">
         <article className="surface-card padded reports-breakdowns">
           <div className="reports-section-header">
@@ -536,7 +395,7 @@ export default function ReportsPage() {
               <tbody>
                 {visibleRows.map((row) => (
                   <tr key={`${row.source_table}-${row.id}`}>
-                    <td>{formatDate(row.item_date)}</td>
+                    <td>{formatReportDate(row.item_date)}</td>
                     <td>{toTrackingLabel(row.tracking_type)}</td>
                     <td>{row.shift}</td>
                     <td>{row.level}</td>
