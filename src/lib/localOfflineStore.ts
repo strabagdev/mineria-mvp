@@ -4,6 +4,7 @@ const DB_NAME = "mineria-offline-store";
 const DB_VERSION = 1;
 const CATALOG_KEY = "planning-catalog";
 const PROFILE_KEY = "auth-profile";
+const PLANNING_MUTATION_QUEUE_KEY = "planning-mutation-queue";
 
 type StoredValue<T> = {
   key: string;
@@ -96,6 +97,24 @@ export async function saveProfileCache<T>(value: T) {
 export async function readProfileCache<T>() {
   const result = await runTransaction<StoredValue<T> | undefined>("keyval", "readonly", (store) =>
     store.get(PROFILE_KEY)
+  );
+
+  return result ?? null;
+}
+
+export async function savePendingPlanningMutations<T>(value: T) {
+  await runTransaction("keyval", "readwrite", (store) =>
+    store.put({
+      key: PLANNING_MUTATION_QUEUE_KEY,
+      value,
+      updatedAt: new Date().toISOString(),
+    } satisfies StoredValue<T>)
+  );
+}
+
+export async function readPendingPlanningMutations<T>() {
+  const result = await runTransaction<StoredValue<T> | undefined>("keyval", "readonly", (store) =>
+    store.get(PLANNING_MUTATION_QUEUE_KEY)
   );
 
   return result ?? null;

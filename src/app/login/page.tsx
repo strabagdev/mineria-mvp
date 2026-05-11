@@ -18,6 +18,12 @@ export default function LoginPage() {
   const [busy, setBusy] = React.useState(false);
 
   React.useEffect(() => {
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setMessage(
+        "Sin conexion: puedes continuar solo si ya habias iniciado sesion en este equipo. Para autenticar una cuenta nueva, vuelve a intentar cuando recuperes red."
+      );
+    }
+
     supabaseAuth.auth.getSession().then(async ({ data }) => {
       if (!data.session?.access_token) {
         return;

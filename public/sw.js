@@ -1,15 +1,19 @@
-const CACHE_VERSION = "mineria-shell-v2";
-const IS_LOCALHOST = self.location.hostname === "localhost";
+const CACHE_VERSION = "mineria-shell-v4";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
-const SHELL_URLS = ["/", "/login", "/reports", "/manifest.webmanifest", "/icons/icon-192.svg", "/icons/icon-512.svg"];
+const SHELL_URLS = [
+  "/",
+  "/login",
+  "/dashboard",
+  "/reports",
+  "/admin/users",
+  "/offline",
+  "/manifest.webmanifest",
+  "/icons/icon-192.svg",
+  "/icons/icon-512.svg",
+];
 
 self.addEventListener("install", (event) => {
-  if (IS_LOCALHOST) {
-    event.waitUntil(self.skipWaiting());
-    return;
-  }
-
   event.waitUntil(
     caches
       .open(SHELL_CACHE)
@@ -25,11 +29,7 @@ self.addEventListener("activate", (event) => {
       .then((cacheNames) =>
         Promise.all(
           cacheNames
-            .filter((cacheName) =>
-              IS_LOCALHOST
-                ? cacheName.startsWith("mineria-")
-                : !cacheName.startsWith(CACHE_VERSION)
-            )
+            .filter((cacheName) => cacheName.startsWith("mineria-") && !cacheName.startsWith(CACHE_VERSION))
             .map((cacheName) => caches.delete(cacheName))
         )
       )
@@ -79,21 +79,30 @@ async function networkFirst(request) {
 
     return response;
   } catch {
-    const cachedResponse = await caches.match(request);
+    const cachedResponse = await caches.match(request, { ignoreSearch: true });
 
     if (cachedResponse) {
       return cachedResponse;
     }
 
-    return caches.match("/login");
+    const cachedHome = await caches.match("/");
+    if (cachedHome) {
+      return cachedHome;
+    }
+
+    const cachedOffline = await caches.match("/offline");
+    if (cachedOffline) {
+      return cachedOffline;
+    }
+
+    return new Response(
+      "Sin conexion. Revisa la red e intenta nuevamente.",
+      { status: 503, headers: { "Content-Type": "text/plain; charset=utf-8" } }
+    );
   }
 }
 
 self.addEventListener("fetch", (event) => {
-  if (IS_LOCALHOST) {
-    return;
-  }
-
   const { request } = event;
 
   if (shouldBypass(request)) {

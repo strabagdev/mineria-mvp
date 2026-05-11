@@ -101,7 +101,15 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
           className={`app-nav-item ${isActive ? "active" : ""}`}
           aria-current={isActive ? "page" : undefined}
           title={item.label}
-          onClick={item.onClick}
+          onClick={(event) => {
+            if (typeof navigator !== "undefined" && !navigator.onLine && pathname !== item.href) {
+              event.preventDefault();
+              router.push("/offline");
+              return;
+            }
+
+            item.onClick?.(event);
+          }}
         >
           <Icon aria-hidden className="app-nav-icon" />
           <span>{item.label}</span>

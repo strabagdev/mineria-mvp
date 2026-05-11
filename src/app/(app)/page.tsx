@@ -19,8 +19,10 @@ import {
 } from "@/lib/networkStatus";
 import {
   readCatalogCache,
+  readPendingPlanningMutations as readPendingPlanningMutationsCache,
   readPlanningCache,
   saveCatalogCache,
+  savePendingPlanningMutations,
   savePlanningCache,
 } from "@/lib/localOfflineStore";
 
@@ -178,7 +180,7 @@ type PendingPlanningMutation = {
 
 const AUTH_SYNC_ERROR_MESSAGE =
   "Los registros siguen guardados en este equipo. No pudimos sincronizarlos todavia; se reintentara automaticamente cuando la conexion este estable.";
-const PLANNING_MUTATION_QUEUE_KEY = "mineria.pendingPlanningMutations.v1";
+const LEGACY_PLANNING_MUTATION_QUEUE_KEY = "mineria.pendingPlanningMutations.v1";
 const PENDING_SYNC_RETRY_INTERVAL_MS = 30_000;
 
 class PlanningMutationRequestError extends Error {
@@ -251,27 +253,6 @@ async function readApiErrorMessage(response: Response, fallback: string) {
   }
 
   return `${fallback} (${response.status} ${response.statusText || "HTTP error"})`;
-}
-
-function readPendingPlanningMutations() {
-  if (typeof window === "undefined") {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(PLANNING_MUTATION_QUEUE_KEY) ?? "[]");
-    return Array.isArray(parsed) ? (parsed as PendingPlanningMutation[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function writePendingPlanningMutations(mutations: PendingPlanningMutation[]) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  window.localStorage.setItem(PLANNING_MUTATION_QUEUE_KEY, JSON.stringify(mutations));
 }
 
 function makePendingPlanningMutation(
@@ -885,9 +866,7 @@ export default function Home() {
   const [activeShift, setActiveShift] = useState<ShiftKey>("Dia");
   const [itemsLoading, setItemsLoading] = useState(true);
   const [itemsError, setItemsError] = useState("");
-  const [pendingPlanningMutations, setPendingPlanningMutations] = useState<PendingPlanningMutation[]>(
-    () => readPendingPlanningMutations()
-  );
+  const [pendingPlanningMutations, setPendingPlanningMutations] = useState<PendingPlanningMutation[]>([]);
   const syncPendingPlanningMutationsRef = useRef<() => void>(() => undefined);
   const datePickerRef = useRef<HTMLDivElement | null>(null);
   const pendingRealtimeRefreshRef = useRef(false);
@@ -1120,6 +1099,55 @@ export default function Home() {
   }, [selectedDate]);
 
   useEffect(() => {
+    let active = true;
+
+    async function loadPendingMutations() {
+      const cachedMutations = await readPendingPlanningMutationsCache<PendingPlanningMutation[]>().catch(() => null);
+
+      if (cachedMutations?.value && Array.isArray(cachedMutations.value)) {
+        if (active) {
+          setPendingPlanningMutations(cachedMutations.value);
+        }
+        return;
+      }
+
+      if (typeof window === "undefined") {
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(window.localStorage.getItem(LEGACY_PLANNING_MUTATION_QUEUE_KEY) ?? "[]");
+        const legacyMutations = Array.isArray(parsed) ? (parsed as PendingPlanningMutation[]) : [];
+
+        if (!legacyMutations.length) {
+          return;
+        }
+
+        await savePendingPlanningMutations(legacyMutations);
+        window.localStorage.removeItem(LEGACY_PLANNING_MUTATION_QUEUE_KEY);
+
+        if (active) {
+          setPendingPlanningMutations(legacyMutations);
+        }
+      } catch {
+        if (active) {
+          setPendingPlanningMutations([]);
+        }
+      }
+    }
+
+    void loadPendingMutations();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    void savePendingPlanningMutations(pendingPlanningMutations);
+  }, [pendingPlanningMutations]);
+
+  useEffect(() => {
     function syncWhenOnline() {
       syncPendingPlanningMutationsRef.current();
     }
@@ -1334,11 +1362,7 @@ export default function Home() {
     payload: Record<string, unknown>
   ) {
     const pendingMutation = makePendingPlanningMutation(method, payload);
-    setPendingPlanningMutations((current) => {
-      const next = [...current, pendingMutation];
-      writePendingPlanningMutations(next);
-      return next;
-    });
+    setPendingPlanningMutations((current) => [...current, pendingMutation]);
     return pendingMutation;
   }
 
@@ -1409,7 +1433,6 @@ export default function Home() {
     }
 
     setPendingPlanningMutations(nextQueue);
-    writePendingPlanningMutations(nextQueue);
     setQueueSyncing(false);
 
     if (syncedCount > 0 || foundConflict) {
@@ -1428,11 +1451,7 @@ export default function Home() {
   };
 
   function discardConflictedPlanningMutations() {
-    setPendingPlanningMutations((current) => {
-      const next = current.filter((mutation) => mutation.status !== "conflict");
-      writePendingPlanningMutations(next);
-      return next;
-    });
+    setPendingPlanningMutations((current) => current.filter((mutation) => mutation.status !== "conflict"));
   }
 
   async function refreshCatalog() {
