@@ -1266,6 +1266,52 @@ textarea {
   margin-top: 0.25rem;
 }
 
+.dark .reports-hero,
+.dark .reports-filter-panel,
+.dark .reports-metric-card,
+.dark .reports-breakdowns,
+.dark .reports-table-card,
+.dark .reports-table-wrap,
+.dark .reports-table {
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--panel-solid) 94%, transparent);
+  color: var(--foreground);
+}
+
+.dark .reports-hero-icon,
+.dark .metric-icon {
+  border-color: var(--accent-border);
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel-solid));
+  color: var(--accent-text);
+}
+
+.dark .reports-breakdown-row {
+  border-bottom-color: var(--border);
+  color: var(--muted);
+}
+
+.dark .reports-table th,
+.dark .reports-table td {
+  border-bottom-color: var(--border);
+}
+
+.dark .reports-table th {
+  background: color-mix(in srgb, var(--secondary) 74%, var(--panel-solid));
+  color: var(--muted-foreground);
+}
+
+.dark .reports-table tbody tr:hover {
+  background: color-mix(in srgb, var(--accent) 9%, var(--panel-solid));
+}
+
+.dark .ops-highlight,
+.dark .empty-state,
+.dark .reports-empty-state {
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--secondary) 62%, var(--panel-solid));
+  color: var(--foreground);
+}
+
 .ops-highlight {
   padding: 1.125rem;
   border: 1px solid var(--border);
@@ -1318,6 +1364,49 @@ textarea {
 .gantt-status-strip {
   display: grid;
   gap: 0.55rem;
+}
+
+.dark .gantt-shell,
+.dark .gantt-date-callout,
+.dark .gantt-location-header,
+.dark .gantt-rows-timeline-bg {
+  border-color: var(--border);
+  background-color: var(--panel-solid);
+}
+
+.dark .gantt-date-callout {
+  background: color-mix(in srgb, var(--panel-solid) 94%, transparent);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+}
+
+.dark .gantt-rows-timeline-bg {
+  background-image:
+    linear-gradient(180deg, color-mix(in srgb, var(--secondary) 58%, transparent), transparent),
+    linear-gradient(to right, color-mix(in srgb, var(--muted-soft) 38%, transparent) 1px, transparent 1px),
+    linear-gradient(to right, color-mix(in srgb, var(--border) 86%, transparent) 1px, transparent 1px);
+}
+
+.dark .gantt-section-header,
+.dark .gantt-meta-card {
+  background: color-mix(in srgb, var(--secondary) 74%, transparent);
+}
+
+.dark .gantt-legend-chip.programado {
+  background: color-mix(in srgb, #2563eb 20%, var(--panel-solid));
+  color: #bfdbfe;
+  border-color: rgba(147, 197, 253, 0.48);
+}
+
+.dark .gantt-legend-chip.actividad {
+  background: color-mix(in srgb, var(--accent) 18%, var(--panel-solid));
+  color: #99f6e4;
+  border-color: var(--accent-border);
+}
+
+.dark .gantt-legend-chip.interferencia {
+  background: color-mix(in srgb, #f97316 18%, var(--panel-solid));
+  color: #fed7aa;
+  border-color: rgba(251, 146, 60, 0.42);
 }
 
 .historical-mode-strip {
@@ -1849,6 +1938,18 @@ textarea {
   border: 1px solid rgba(253, 186, 116, 0.8);
 }
 
+.dark .category-pill.success {
+  background: color-mix(in srgb, #22c55e 18%, var(--panel-solid));
+  color: #bbf7d0;
+  border-color: rgba(134, 239, 172, 0.36);
+}
+
+.dark .category-pill.warning {
+  background: color-mix(in srgb, #f97316 18%, var(--panel-solid));
+  color: #fed7aa;
+  border-color: rgba(253, 186, 116, 0.38);
+}
+
 .gantt-track {
   position: relative;
   min-height: 4.25rem;
@@ -1902,6 +2003,11 @@ textarea {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   pointer-events: none;
+}
+
+.dark .gantt-lane-label {
+  background: color-mix(in srgb, var(--secondary) 82%, transparent);
+  color: var(--muted-foreground);
 }
 
 .gantt-lane-label.programado {
@@ -2226,6 +2332,12 @@ textarea {
   font-weight: 600;
 }
 
+.dark .field-chip {
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--secondary) 76%, transparent);
+  color: var(--foreground);
+}
+
 .gantt-meta .field-chip {
   min-height: 1.24rem;
   padding: 0.12rem 0.42rem;
@@ -2250,6 +2362,19 @@ textarea {
   font-weight: 900;
   line-height: 1;
   box-shadow: none;
+}
+
+.dark .button.gantt-meta-add-real {
+  border-color: var(--accent-border);
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel-solid));
+  color: var(--accent-text);
+}
+
+.dark .button.gantt-meta-add-real:hover,
+.dark .button.gantt-meta-add-real:active {
+  border-color: color-mix(in srgb, var(--accent) 46%, var(--border));
+  background: color-mix(in srgb, var(--accent) 22%, var(--panel-solid));
+  color: var(--accent-text);
 }
 
 .button.gantt-meta-add-real:hover {
@@ -2310,6 +2435,11 @@ textarea {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: rgba(255, 255, 255, 0.74);
+}
+
+.dark .admin-user-card {
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--panel-solid) 88%, transparent);
 }
 
 .admin-user-heading {
