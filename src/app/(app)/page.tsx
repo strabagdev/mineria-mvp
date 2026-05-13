@@ -12,10 +12,10 @@ import { PlanningDetailDialog } from "@/components/planning/planning-detail-dial
 import { PlanningSheet } from "@/components/planning/planning-sheet";
 import { PlanningStatusStrip } from "@/components/planning/planning-status-strip";
 import {
-  NETWORK_ERROR_MESSAGE,
   assertBrowserOnline,
   isBrowserOffline,
   isNetworkRequestError,
+  subscribeNetworkStatus,
 } from "@/lib/networkStatus";
 import {
   readCatalogCache,
@@ -180,6 +180,8 @@ type PendingPlanningMutation = {
 
 const AUTH_SYNC_ERROR_MESSAGE =
   "Los registros siguen guardados en este equipo. No pudimos sincronizarlos todavia; se reintentara automaticamente cuando la conexion este estable.";
+const PLANNING_NETWORK_ERROR_MESSAGE =
+  "No se pudo conectar con el servidor. Si estas en interior mina, probablemente se perdio la senal; la planificacion local seguira disponible.";
 const LEGACY_PLANNING_MUTATION_QUEUE_KEY = "mineria.pendingPlanningMutations.v1";
 const PENDING_SYNC_RETRY_INTERVAL_MS = 30_000;
 
@@ -218,7 +220,7 @@ function isRetryablePlanningSyncError(error: unknown) {
 
 function getRequestErrorMessage(error: unknown, fallback: string) {
   if (isNetworkRequestError(error)) {
-    return NETWORK_ERROR_MESSAGE;
+    return PLANNING_NETWORK_ERROR_MESSAGE;
   }
 
   if (isInvalidSessionError(error)) {
@@ -226,6 +228,15 @@ function getRequestErrorMessage(error: unknown, fallback: string) {
   }
 
   return error instanceof Error ? error.message || fallback : fallback;
+}
+
+function isTransientConnectivityMessage(message: string) {
+  return (
+    message === PLANNING_NETWORK_ERROR_MESSAGE ||
+    /^Usando planificacion local guardada\./.test(message) ||
+    /^Usando catalogo local guardado\./.test(message) ||
+    /^Usando datos locales guardados\./.test(message)
+  );
 }
 
 async function readApiErrorMessage(response: Response, fallback: string) {
@@ -977,8 +988,33 @@ export default function Home() {
   const refreshPlanningItems = useCallback(async () => {
     const nextItems = await fetchPlanningItems(selectedDate);
     setPlanningItems(nextItems);
+    setItemsError((current) => (isTransientConnectivityMessage(current) ? "" : current));
     void savePlanningCache(selectedDate, nextItems);
   }, [selectedDate]);
+
+  useEffect(() => {
+    function clearRecoveredConnectivityMessages() {
+      if (isBrowserOffline()) {
+        return;
+      }
+
+      setItemsError((current) => (isTransientConnectivityMessage(current) ? "" : current));
+      setCatalogError((current) => (isTransientConnectivityMessage(current) ? "" : current));
+      void refreshPlanningItems().catch((error: unknown) => {
+        setItemsError(getRequestErrorMessage(error, "No se pudo actualizar la planificacion."));
+      });
+    }
+
+    const unsubscribeNetworkStatus = subscribeNetworkStatus(clearRecoveredConnectivityMessages);
+    window.addEventListener("online", clearRecoveredConnectivityMessages);
+    window.addEventListener("focus", clearRecoveredConnectivityMessages);
+
+    return () => {
+      unsubscribeNetworkStatus();
+      window.removeEventListener("online", clearRecoveredConnectivityMessages);
+      window.removeEventListener("focus", clearRecoveredConnectivityMessages);
+    };
+  }, [refreshPlanningItems]);
 
   useEffect(() => {
     let active = true;

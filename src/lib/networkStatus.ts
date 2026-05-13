@@ -1,5 +1,5 @@
 export const NETWORK_ERROR_MESSAGE =
-  "⚠️ No se pudo conectar con el servidor. Si estas en interior mina, probablemente se perdio la senal; vuelve a intentar cuando recuperes conexion.";
+  "Sin conexion. Usando informacion local disponible.";
 
 const NETWORK_STATUS_EVENT = "mineria-network-status";
 const NETWORK_PROBE_TIMEOUT_MS = 2500;
