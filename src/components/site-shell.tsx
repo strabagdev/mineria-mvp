@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { type ComponentType, type MouseEvent, useEffect, useState } from "react";
 import { supabaseAuth } from "@/lib/authClient";
 import { useAuth } from "@/providers/auth-provider";
-import { isBrowserOffline, subscribeNetworkStatus } from "@/lib/networkStatus";
+import { isBrowserOffline, probeNetworkRestored, subscribeNetworkStatus } from "@/lib/networkStatus";
 import { OfflineRouteContent } from "@/components/offline-route-content";
 import { ThemeToggle } from "@/components/theme-toggle";
 
@@ -58,16 +58,21 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
       }
     }
 
+    function recoverConnectivityState() {
+      void probeNetworkRestored();
+      syncConnectivityState();
+    }
+
     syncConnectivityState();
-    window.addEventListener("online", syncConnectivityState);
+    window.addEventListener("online", recoverConnectivityState);
     window.addEventListener("offline", syncConnectivityState);
-    window.addEventListener("focus", syncConnectivityState);
+    window.addEventListener("focus", recoverConnectivityState);
     const unsubscribeNetworkStatus = subscribeNetworkStatus(syncConnectivityState);
 
     return () => {
-      window.removeEventListener("online", syncConnectivityState);
+      window.removeEventListener("online", recoverConnectivityState);
       window.removeEventListener("offline", syncConnectivityState);
-      window.removeEventListener("focus", syncConnectivityState);
+      window.removeEventListener("focus", recoverConnectivityState);
       unsubscribeNetworkStatus();
     };
   }, []);

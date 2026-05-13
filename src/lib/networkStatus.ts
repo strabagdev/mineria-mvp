@@ -2,9 +2,13 @@ export const NETWORK_ERROR_MESSAGE =
   "⚠️ No se pudo conectar con el servidor. Si estas en interior mina, probablemente se perdio la senal; vuelve a intentar cuando recuperes conexion.";
 
 const NETWORK_STATUS_EVENT = "mineria-network-status";
+const NETWORK_PROBE_TIMEOUT_MS = 2500;
+const NETWORK_PROBE_RETRY_MS = 4000;
 
 let degradedNetwork = false;
 let networkListenersReady = false;
+let probeInFlight = false;
+let probeRetryTimer: number | null = null;
 
 function emitNetworkStatusChange() {
   if (typeof window === "undefined") {
@@ -24,11 +28,17 @@ function ensureNetworkListeners() {
   window.addEventListener("offline", () => {
     degradedNetwork = true;
     emitNetworkStatusChange();
+    scheduleNetworkProbeRetry();
   });
 
   window.addEventListener("online", () => {
-    degradedNetwork = false;
-    emitNetworkStatusChange();
+    void probeNetworkRestored();
+  });
+
+  window.addEventListener("focus", () => {
+    if (degradedNetwork) {
+      void probeNetworkRestored();
+    }
   });
 }
 
@@ -47,12 +57,65 @@ export function markNetworkDegraded() {
     degradedNetwork = true;
     emitNetworkStatusChange();
   }
+
+  scheduleNetworkProbeRetry();
 }
 
 export function markNetworkRestored() {
   if (degradedNetwork) {
     degradedNetwork = false;
     emitNetworkStatusChange();
+  }
+
+  if (probeRetryTimer !== null && typeof window !== "undefined") {
+    window.clearTimeout(probeRetryTimer);
+    probeRetryTimer = null;
+  }
+}
+
+function scheduleNetworkProbeRetry() {
+  if (typeof window === "undefined" || probeRetryTimer !== null) {
+    return;
+  }
+
+  probeRetryTimer = window.setTimeout(() => {
+    probeRetryTimer = null;
+    void probeNetworkRestored();
+  }, NETWORK_PROBE_RETRY_MS);
+}
+
+export async function probeNetworkRestored() {
+  ensureNetworkListeners();
+
+  if (typeof window === "undefined" || probeInFlight) {
+    return false;
+  }
+
+  probeInFlight = true;
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), NETWORK_PROBE_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`/api/health?ts=${Date.now()}`, {
+      cache: "no-store",
+      signal: controller.signal,
+    });
+
+    if (response.ok) {
+      markNetworkRestored();
+      return true;
+    }
+
+    markNetworkDegraded();
+    scheduleNetworkProbeRetry();
+    return false;
+  } catch {
+    markNetworkDegraded();
+    scheduleNetworkProbeRetry();
+    return false;
+  } finally {
+    window.clearTimeout(timeout);
+    probeInFlight = false;
   }
 }
 
