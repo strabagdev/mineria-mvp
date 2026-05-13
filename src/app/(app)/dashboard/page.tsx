@@ -27,7 +27,24 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [offlineUpdatedAt, setOfflineUpdatedAt] = useState<string | null>(null);
+  const [refreshNonce, setRefreshNonce] = useState(0);
   const summary = report?.summary ?? emptyReportSummary;
+
+  useEffect(() => {
+    function refreshWhenOnline() {
+      if (navigator.onLine) {
+        setRefreshNonce((current) => current + 1);
+      }
+    }
+
+    window.addEventListener("online", refreshWhenOnline);
+    window.addEventListener("focus", refreshWhenOnline);
+
+    return () => {
+      window.removeEventListener("online", refreshWhenOnline);
+      window.removeEventListener("focus", refreshWhenOnline);
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -116,7 +133,7 @@ export default function DashboardPage() {
     return () => {
       active = false;
     };
-  }, [filters, session?.access_token]);
+  }, [filters, refreshNonce, session?.access_token]);
 
   return (
     <div className="reports-stack">

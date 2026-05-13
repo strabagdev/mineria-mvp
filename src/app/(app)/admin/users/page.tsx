@@ -57,8 +57,25 @@ export default function AdminUsersPage() {
   const [message, setMessage] = React.useState("");
   const [offlineUpdatedAt, setOfflineUpdatedAt] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
+  const [refreshNonce, setRefreshNonce] = React.useState(0);
 
   const canAdmin = profile?.role === "admin";
+
+  React.useEffect(() => {
+    function refreshWhenOnline() {
+      if (navigator.onLine) {
+        setRefreshNonce((current) => current + 1);
+      }
+    }
+
+    window.addEventListener("online", refreshWhenOnline);
+    window.addEventListener("focus", refreshWhenOnline);
+
+    return () => {
+      window.removeEventListener("online", refreshWhenOnline);
+      window.removeEventListener("focus", refreshWhenOnline);
+    };
+  }, []);
 
   const requestUsers = React.useCallback(async () => {
     const cached = await readAdminUsersSnapshot();
@@ -127,7 +144,7 @@ export default function AdminUsersPage() {
       }
       setMessage("No se pudo cargar usuarios.");
     });
-  }, [canAdmin, loading, profile, requestUsers, router, session]);
+  }, [canAdmin, loading, profile, refreshNonce, requestUsers, router, session]);
 
   async function adminRequest(method: "POST" | "PATCH", payload: Record<string, unknown>) {
     if (!session?.access_token) {

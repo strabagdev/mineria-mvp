@@ -51,7 +51,11 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     function syncConnectivityState() {
-      setIsOffline(isBrowserOffline());
+      const nextIsOffline = isBrowserOffline();
+      setIsOffline(nextIsOffline);
+      if (!nextIsOffline) {
+        setOfflinePath(null);
+      }
     }
 
     syncConnectivityState();

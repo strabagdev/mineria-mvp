@@ -1,7 +1,6 @@
 export const NETWORK_ERROR_MESSAGE =
   "⚠️ No se pudo conectar con el servidor. Si estas en interior mina, probablemente se perdio la senal; vuelve a intentar cuando recuperes conexion.";
 
-let degradedNetwork = false;
 let networkListenersReady = false;
 
 function ensureNetworkListeners() {
@@ -10,25 +9,19 @@ function ensureNetworkListeners() {
   }
 
   networkListenersReady = true;
-  window.addEventListener("offline", () => {
-    degradedNetwork = true;
-  });
-  window.addEventListener("online", () => {
-    degradedNetwork = false;
-  });
 }
 
 export function isBrowserOffline() {
   ensureNetworkListeners();
-  return (typeof navigator !== "undefined" && !navigator.onLine) || degradedNetwork;
+  return typeof navigator !== "undefined" && !navigator.onLine;
 }
 
 export function markNetworkDegraded() {
-  degradedNetwork = true;
+  // El estado offline global debe venir del navegador; los errores de fetch se manejan por request.
 }
 
 export function markNetworkRestored() {
-  degradedNetwork = false;
+  // Mantener la API permite que los snapshots marquen exito sin reintroducir estado global persistente.
 }
 
 export function isNetworkRequestError(error: unknown) {

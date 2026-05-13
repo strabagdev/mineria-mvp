@@ -93,6 +93,23 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [offlineUpdatedAt, setOfflineUpdatedAt] = useState<string | null>(null);
+  const [refreshNonce, setRefreshNonce] = useState(0);
+
+  useEffect(() => {
+    function refreshWhenOnline() {
+      if (navigator.onLine) {
+        setRefreshNonce((current) => current + 1);
+      }
+    }
+
+    window.addEventListener("online", refreshWhenOnline);
+    window.addEventListener("focus", refreshWhenOnline);
+
+    return () => {
+      window.removeEventListener("online", refreshWhenOnline);
+      window.removeEventListener("focus", refreshWhenOnline);
+    };
+  }, []);
 
   const itemTypes = useMemo(() => {
     const values = new Set<string>();
@@ -184,7 +201,7 @@ export default function ReportsPage() {
     return () => {
       active = false;
     };
-  }, [session?.access_token]);
+  }, [refreshNonce, session?.access_token]);
 
   useEffect(() => {
     let active = true;
@@ -273,7 +290,7 @@ export default function ReportsPage() {
     return () => {
       active = false;
     };
-  }, [filters, session?.access_token]);
+  }, [filters, refreshNonce, session?.access_token]);
 
   function updateFilter(key: keyof ReportFilters, value: string) {
     setFilters((current) => ({ ...current, [key]: value }));
