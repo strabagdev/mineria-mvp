@@ -16,6 +16,30 @@ Ultima actualizacion: 2026-05-12
 - [ ] Offline navigation full-app - fase 3: reconciliacion de transiciones internas App Router + SW para evitar errores de red en cambio de ruta.
 - [ ] Offline navigation full-app - fase 4: pruebas E2E/manuales por ruta (`/`, `/dashboard`, `/reports`, `/admin/users`, `/login`, `/offline`) en hard reload y navegacion interna.
 
+## Limpieza y consistencia del repo
+- [x] Revisar archivo `.codex`.
+  - Riesgo: bajo.
+  - Hallazgo: esta trackeado por Git y existe como archivo vacio (0 bytes).
+  - Reparacion aplicada: eliminado del repo y agregado `.codex` a `.gitignore`.
+- [x] Revisar `src/lib/planning-options.ts`.
+  - Riesgo: bajo.
+  - Hallazgo: no se encontraron imports ni usos externos; solo referencias internas dentro del mismo archivo.
+  - Confirmacion: el catalogo operativo viene desde `/api/planning-catalog` y cache local (`readCatalogCache` / `saveCatalogCache`).
+  - Reparacion aplicada: eliminado por no tener uso real en la aplicacion.
+- [x] Revisar consistencia de nombres en `src/lib`.
+  - Riesgo: bajo.
+  - Hallazgo: `planning-options.ts` es el unico archivo en kebab-case dentro de `src/lib`.
+  - Reparacion aplicada: al eliminar `planning-options.ts`, ya no queda archivo kebab-case en `src/lib`.
+- [x] Revisar `components.json`.
+  - Riesgo: bajo.
+  - Hallazgo: alias `hooks` -> `@/hooks` existe.
+  - Hallazgo: `src/hooks/` no existe actualmente.
+  - Observacion: no crear carpeta si no es necesaria; mantener solo como nota para futuros componentes shadcn/hooks.
+- [x] Revisar `.gitignore` y `next-env.d.ts`.
+  - Riesgo: bajo.
+  - Hallazgo: `next-env.d.ts` esta ignorado en `.gitignore` y tambien en `eslint.config.mjs`.
+  - Observacion: es una decision de equipo, no necesariamente un error; `tsconfig.json` lo incluye como archivo esperado.
+
 ## En curso
 - [ ] Offline navigation full-app - fase 1: app shell offline para rutas internas
   - Objetivo: poder cambiar de seccion sin red sin caer en pantalla negra del navegador.
