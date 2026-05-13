@@ -524,6 +524,18 @@ textarea {
   white-space: nowrap;
 }
 
+.connectivity-pill.online {
+  border-color: color-mix(in srgb, #22c55e 34%, var(--border));
+  background: color-mix(in srgb, #22c55e 12%, var(--secondary));
+  color: color-mix(in srgb, #15803d 78%, var(--text));
+}
+
+.connectivity-pill.offline {
+  border-color: color-mix(in srgb, #f59e0b 42%, var(--border));
+  background: color-mix(in srgb, #f59e0b 16%, var(--secondary));
+  color: color-mix(in srgb, #92400e 78%, var(--text));
+}
+
 .surface-card {
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);

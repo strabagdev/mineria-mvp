@@ -137,3 +137,21 @@ export async function readPlanningCache<T>(date: string) {
 
   return result ?? null;
 }
+
+export async function saveKeyValueCache<T>(key: string, value: T) {
+  await runTransaction("keyval", "readwrite", (store) =>
+    store.put({
+      key,
+      value,
+      updatedAt: new Date().toISOString(),
+    } satisfies StoredValue<T>)
+  );
+}
+
+export async function readKeyValueCache<T>(key: string) {
+  const result = await runTransaction<StoredValue<T> | undefined>("keyval", "readonly", (store) =>
+    store.get(key)
+  );
+
+  return result ?? null;
+}

@@ -3,6 +3,14 @@
 import { BarChart3, Clock3, Gauge, ListChecks, TimerReset } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/providers/auth-provider";
+import { NETWORK_ERROR_MESSAGE } from "@/lib/networkStatus";
+import {
+  canUseOfflineSnapshot,
+  markSnapshotRefreshSucceeded,
+  readReportSnapshot,
+  saveReportSnapshot,
+  toNetworkMessage,
+} from "@/lib/reportsOfflineSnapshot";
 import {
   buildReportQuery,
   emptyReportSummary,
@@ -18,18 +26,33 @@ export default function DashboardPage() {
   const [report, setReport] = useState<ReportResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [offlineUpdatedAt, setOfflineUpdatedAt] = useState<string | null>(null);
   const summary = report?.summary ?? emptyReportSummary;
 
   useEffect(() => {
-    if (!session?.access_token) {
-      return;
-    }
-
     let active = true;
 
     async function loadDashboard() {
       setLoading(true);
       setError("");
+      const cached = await readReportSnapshot(filters);
+      if (cached?.value) {
+        setReport(cached.value);
+        setOfflineUpdatedAt(cached.updatedAt);
+      }
+
+      if (canUseOfflineSnapshot()) {
+        if (cached?.value) {
+          setError("Mostrando ultimo dashboard disponible en modo offline.");
+          return;
+        }
+        throw new Error(NETWORK_ERROR_MESSAGE);
+      }
+
+      if (!session?.access_token) {
+        setError(NETWORK_ERROR_MESSAGE);
+        return;
+      }
 
       const response = await fetch(`/api/reports?${buildReportQuery(filters)}`, {
         cache: "no-store",
@@ -44,14 +67,44 @@ export default function DashboardPage() {
       }
 
       if (active) {
-        setReport(json as ReportResponse);
+        const nextReport = json as ReportResponse;
+        setReport(nextReport);
+        setOfflineUpdatedAt(null);
+        markSnapshotRefreshSucceeded();
+        void saveReportSnapshot(filters, nextReport);
       }
     }
 
     void loadDashboard()
       .catch((dashboardError: unknown) => {
         if (active) {
-          setError(dashboardError instanceof Error ? dashboardError.message : "No se pudo cargar el dashboard.");
+          if (toNetworkMessage(dashboardError) || canUseOfflineSnapshot()) {
+            void readReportSnapshot(filters)
+              .then((cached) => {
+                if (!active) {
+                  return;
+                }
+                if (cached?.value) {
+                  setReport(cached.value);
+                  setOfflineUpdatedAt(cached.updatedAt);
+                  setError("Mostrando ultimo dashboard disponible en modo offline.");
+                  return;
+                }
+                setError(NETWORK_ERROR_MESSAGE);
+              })
+              .catch(() => {
+                if (active) {
+                  setError(NETWORK_ERROR_MESSAGE);
+                }
+              });
+            return;
+          }
+          const networkMessage = toNetworkMessage(dashboardError);
+          if (networkMessage) {
+            setError(networkMessage);
+            return;
+          }
+          setError("No se pudo cargar el dashboard.");
         }
       })
       .finally(() => {
@@ -84,6 +137,11 @@ export default function DashboardPage() {
       </section>
 
       {error ? <p className="feedback">{error}</p> : null}
+      {offlineUpdatedAt ? (
+        <p className="feedback">
+          Datos offline. Ultima sincronizacion: {new Date(offlineUpdatedAt).toLocaleString("es-CL")}
+        </p>
+      ) : null}
 
       <section className="metric-grid reports-metrics" aria-busy={loading}>
         <article className="metric-card reports-metric-card">

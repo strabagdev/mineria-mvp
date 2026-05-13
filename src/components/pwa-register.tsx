@@ -8,43 +8,70 @@ export function PwaRegister() {
       return;
     }
 
-    if (process.env.NODE_ENV !== "production") {
-      void navigator.serviceWorker
-        .getRegistrations()
-        .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
-        .then(() => {
-          if (!("caches" in window)) {
-            return undefined;
-          }
+    const isLocalhost = window.location.hostname === "localhost";
+    const isDevelopment = process.env.NODE_ENV !== "production";
+    const isSecureContext = window.location.protocol === "https:" || isLocalhost;
 
-          return caches
-            .keys()
-            .then((cacheNames) =>
-              Promise.all(
-                cacheNames
-                  .filter((cacheName) => cacheName.startsWith("mineria-"))
-                  .map((cacheName) => caches.delete(cacheName))
-              )
-            );
-        })
-        .catch((error: unknown) => {
-          console.error(
-            "Service worker cleanup failed:",
-            error instanceof Error ? error.message : error
-          );
-        });
-      return;
+    async function cleanupServiceWorkersAndCaches() {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map((registration) => registration.unregister()));
+
+      if ("caches" in window) {
+        const cacheNames = await caches.keys();
+        await Promise.all(
+          cacheNames
+            .filter((cacheName) => cacheName.startsWith("mineria-"))
+            .map((cacheName) => caches.delete(cacheName))
+        );
+      }
     }
 
-    const isLocalhost = window.location.hostname === "localhost";
-    const isSecureContext = window.location.protocol === "https:" || isLocalhost;
+    if (isDevelopment || isLocalhost) {
+      void cleanupServiceWorkersAndCaches().catch((error: unknown) => {
+        console.error(
+          "Service worker cleanup failed:",
+          error instanceof Error ? error.message : error
+        );
+      });
+      return;
+    }
 
     if (!isSecureContext) {
       return;
     }
 
+    function activateWaitingWorker(registration: ServiceWorkerRegistration) {
+      registration.waiting?.postMessage({ type: "SKIP_WAITING" });
+    }
+
+    function cacheCriticalRoutes(registration?: ServiceWorkerRegistration) {
+      if (!navigator.onLine) {
+        return;
+      }
+
+      const worker = registration?.active ?? navigator.serviceWorker.controller;
+      worker?.postMessage({
+        type: "CACHE_CRITICAL_ROUTES",
+        routes: ["/dashboard", "/reports", "/admin/users"],
+      });
+    }
+
     function registerServiceWorker() {
-      navigator.serviceWorker.register("/sw.js").catch((error: unknown) => {
+      navigator.serviceWorker.register("/sw.js").then((registration) => {
+        void registration.update();
+        activateWaitingWorker(registration);
+        cacheCriticalRoutes(registration);
+
+        registration.addEventListener("updatefound", () => {
+          const installingWorker = registration.installing;
+
+          installingWorker?.addEventListener("statechange", () => {
+            if (installingWorker.state === "installed" && navigator.serviceWorker.controller) {
+              activateWaitingWorker(registration);
+            }
+          });
+        });
+      }).catch((error: unknown) => {
         console.error(
           "Service worker registration failed:",
           error instanceof Error ? error.message : error
@@ -52,15 +79,38 @@ export function PwaRegister() {
       });
     }
 
+    function reloadOnceAfterControllerChange() {
+      const reloadKey = "mineria-sw-controller-reload-v2";
+
+      if (window.sessionStorage.getItem(reloadKey) === "1") {
+        return;
+      }
+
+      window.sessionStorage.setItem(reloadKey, "1");
+      window.location.reload();
+    }
+
+    function cacheRoutesWhenOnline() {
+      cacheCriticalRoutes();
+    }
+
+    navigator.serviceWorker.addEventListener("controllerchange", reloadOnceAfterControllerChange);
+    window.addEventListener("online", cacheRoutesWhenOnline);
+
     if (document.readyState === "complete") {
       registerServiceWorker();
-      return;
+      return () => {
+        navigator.serviceWorker.removeEventListener("controllerchange", reloadOnceAfterControllerChange);
+        window.removeEventListener("online", cacheRoutesWhenOnline);
+      };
     }
 
     window.addEventListener("load", registerServiceWorker, { once: true });
 
     return () => {
       window.removeEventListener("load", registerServiceWorker);
+      navigator.serviceWorker.removeEventListener("controllerchange", reloadOnceAfterControllerChange);
+      window.removeEventListener("online", cacheRoutesWhenOnline);
     };
   }, []);
 

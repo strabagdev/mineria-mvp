@@ -1186,14 +1186,14 @@ export default function Home() {
   useEffect(() => {
     const realtimeClient = supabaseAuth;
 
-    if (!session?.access_token) {
+    if (!session?.access_token || isBrowserOffline()) {
       return;
     }
 
     realtimeClient.realtime.setAuth(session.access_token);
 
     function scheduleRealtimeRefresh() {
-      if (document.visibilityState === "hidden") {
+      if (document.visibilityState === "hidden" || isBrowserOffline()) {
         pendingRealtimeRefreshRef.current = true;
         return;
       }
@@ -1204,6 +1204,9 @@ export default function Home() {
 
       realtimeRefreshTimerRef.current = window.setTimeout(() => {
         realtimeRefreshTimerRef.current = null;
+        if (isBrowserOffline()) {
+          return;
+        }
         void refreshPlanningItems().catch((error: unknown) => {
           setItemsError(getRequestErrorMessage(error, "No se pudo actualizar la planificacion."));
         });

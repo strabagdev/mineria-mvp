@@ -3,7 +3,14 @@
 import React from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/providers/auth-provider";
-import { assertBrowserOnline } from "@/lib/networkStatus";
+import { NETWORK_ERROR_MESSAGE } from "@/lib/networkStatus";
+import {
+  canUseOfflineSnapshot,
+  markSnapshotRefreshSucceeded,
+  readAdminUsersSnapshot,
+  saveAdminUsersSnapshot,
+  toNetworkMessage,
+} from "@/lib/reportsOfflineSnapshot";
 
 type AdminUser = {
   user_id: string;
@@ -48,16 +55,30 @@ export default function AdminUsersPage() {
   const [createForm, setCreateForm] = React.useState<CreateUserForm>(emptyCreateForm);
   const [passwordByUser, setPasswordByUser] = React.useState<Record<string, string>>({});
   const [message, setMessage] = React.useState("");
+  const [offlineUpdatedAt, setOfflineUpdatedAt] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
 
   const canAdmin = profile?.role === "admin";
 
   const requestUsers = React.useCallback(async () => {
-    if (!session?.access_token) {
-      return;
+    const cached = await readAdminUsersSnapshot();
+    if (cached?.value) {
+      setUsers(cached.value);
+      setOfflineUpdatedAt(cached.updatedAt);
     }
 
-    assertBrowserOnline();
+    if (canUseOfflineSnapshot()) {
+      if (cached?.value) {
+        setMessage("Mostrando ultimo listado de usuarios disponible en modo offline.");
+        return;
+      }
+      throw new Error(NETWORK_ERROR_MESSAGE);
+    }
+
+    if (!session?.access_token) {
+      setMessage(NETWORK_ERROR_MESSAGE);
+      return;
+    }
 
     const response = await fetch("/api/users", {
       headers: { Authorization: `Bearer ${session.access_token}` },
@@ -68,7 +89,11 @@ export default function AdminUsersPage() {
       throw new Error(String(json.error ?? "No se pudo cargar usuarios."));
     }
 
-    setUsers(json.users ?? []);
+    const nextUsers = json.users ?? [];
+    setUsers(nextUsers);
+    setOfflineUpdatedAt(null);
+    markSnapshotRefreshSucceeded();
+    void saveAdminUsersSnapshot(nextUsers);
   }, [session?.access_token]);
 
   React.useEffect(() => {
@@ -76,7 +101,7 @@ export default function AdminUsersPage() {
       return;
     }
 
-    if (!session) {
+    if (!session && !profile) {
       router.replace("/login");
       return;
     }
@@ -87,9 +112,22 @@ export default function AdminUsersPage() {
     }
 
     requestUsers().catch((error: unknown) => {
-      setMessage(error instanceof Error ? error.message : "No se pudo cargar usuarios.");
+      const networkMessage = toNetworkMessage(error);
+      if (networkMessage || canUseOfflineSnapshot()) {
+        void readAdminUsersSnapshot().then((cached) => {
+          if (cached?.value) {
+            setUsers(cached.value);
+            setOfflineUpdatedAt(cached.updatedAt);
+            setMessage("Mostrando ultimo listado de usuarios disponible en modo offline.");
+            return;
+          }
+          setMessage(NETWORK_ERROR_MESSAGE);
+        });
+        return;
+      }
+      setMessage("No se pudo cargar usuarios.");
     });
-  }, [canAdmin, loading, requestUsers, router, session]);
+  }, [canAdmin, loading, profile, requestUsers, router, session]);
 
   async function adminRequest(method: "POST" | "PATCH", payload: Record<string, unknown>) {
     if (!session?.access_token) {
@@ -100,7 +138,9 @@ export default function AdminUsersPage() {
     setMessage("");
 
     try {
-      assertBrowserOnline();
+      if (canUseOfflineSnapshot()) {
+        throw new Error(NETWORK_ERROR_MESSAGE);
+      }
 
       const response = await fetch("/api/users", {
         method,
@@ -130,7 +170,7 @@ export default function AdminUsersPage() {
       await adminRequest("POST", createForm);
       setCreateForm(emptyCreateForm);
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "No se pudo crear usuario.");
+      setMessage(toNetworkMessage(error) || "No se pudo crear usuario.");
     }
   }
 
@@ -138,7 +178,7 @@ export default function AdminUsersPage() {
     try {
       await adminRequest("PATCH", payload);
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "No se pudo actualizar usuario.");
+      setMessage(toNetworkMessage(error) || "No se pudo actualizar usuario.");
     }
   }
 
@@ -218,6 +258,11 @@ export default function AdminUsersPage() {
           <h3 className="section-title">Usuarios del sistema</h3>
 
           {message ? <p className="feedback">{message}</p> : null}
+          {offlineUpdatedAt ? (
+            <p className="feedback">
+              Datos offline. Ultima sincronizacion: {new Date(offlineUpdatedAt).toLocaleString("es-CL")}
+            </p>
+          ) : null}
 
           <div className="admin-user-list">
             {users.map((account) => (

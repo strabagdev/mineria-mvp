@@ -30,22 +30,50 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const sessionRef = useRef<Session | null>(null);
   const profileRef = useRef<AuthContextValue["profile"]>(null);
   const recoverSessionRef = useRef<() => void>(() => undefined);
+  const authNetworkDegradedRef = useRef(false);
 
   useEffect(() => {
     let mounted = true;
+    const loadingGuardTimer = window.setTimeout(() => {
+      if (!mounted) {
+        return;
+      }
+
+      void readProfileCache<AuthContextValue["profile"]>().then((cachedProfile) => {
+        if (!mounted) {
+          return;
+        }
+
+        if (cachedProfile?.value && !profileRef.current) {
+          profileRef.current = cachedProfile.value;
+          setProfile(cachedProfile.value);
+        }
+
+        setLoading(false);
+      }).catch(() => {
+        if (mounted) {
+          setLoading(false);
+        }
+      });
+    }, 1800);
 
     async function syncProfile(nextSession: Session | null): Promise<AuthContextValue["profile"]> {
       if (!nextSession?.access_token) {
         return null;
       }
 
-      if (isBrowserOffline()) {
-        if (profileRef.current) {
-          return profileRef.current;
-        }
+      // Preferimos cache local para evitar intentos de sync agresivos en redes inestables.
+      if (profileRef.current) {
+        return profileRef.current;
+      }
 
-        const cachedProfile = await readProfileCache<AuthContextValue["profile"]>().catch(() => null);
-        return cachedProfile?.value ?? null;
+      const cachedProfile = await readProfileCache<AuthContextValue["profile"]>().catch(() => null);
+      if (cachedProfile?.value) {
+        return cachedProfile.value;
+      }
+
+      if (isBrowserOffline() || authNetworkDegradedRef.current) {
+        return null;
       }
 
       try {
@@ -67,13 +95,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         return nextProfile;
-      } catch {
-        if (profileRef.current) {
-          return profileRef.current;
+      } catch (error: unknown) {
+        if (isNetworkRequestError(error)) {
+          authNetworkDegradedRef.current = true;
         }
-
-        const cachedProfile = await readProfileCache<AuthContextValue["profile"]>().catch(() => null);
-        return cachedProfile?.value ?? null;
+        return null;
       }
     }
 
@@ -101,12 +127,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     async function recoverSession() {
-      if (isBrowserOffline()) {
-        return;
-      }
-
       try {
-        const { data } = await supabaseAuth.auth.getSession();
+        const cachedProfile = await readProfileCache<AuthContextValue["profile"]>().catch(() => null);
+        if (cachedProfile?.value && mounted) {
+          profileRef.current = cachedProfile.value;
+          setProfile(cachedProfile.value);
+        }
+
+        const sessionPromise = supabaseAuth.auth.getSession();
+        const timeoutPromise = new Promise<null>((resolve) => {
+          window.setTimeout(() => resolve(null), 1200);
+        });
+        const result = await Promise.race([sessionPromise, timeoutPromise]);
+
+        if (result === null) {
+          setLoading(false);
+          return;
+        }
+
+        const { data } = result;
         await applySession(data.session ?? null, { keepLoading: !sessionRef.current });
       } catch (error: unknown) {
         if (!mounted) {
@@ -117,6 +156,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setLoading(false);
           return;
         }
+        authNetworkDegradedRef.current = true;
 
         const cachedProfile = await readProfileCache<AuthContextValue["profile"]>().catch(() => null);
         if (!mounted) {
@@ -168,6 +208,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       mounted = false;
+      window.clearTimeout(loadingGuardTimer);
       data.subscription.unsubscribe();
     };
   }, []);
@@ -176,6 +217,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let recoverTimer: number | null = null;
 
     function scheduleRecoverSession() {
+      if (!isBrowserOffline()) {
+        authNetworkDegradedRef.current = false;
+      }
       if (document.visibilityState === "hidden") {
         return;
       }

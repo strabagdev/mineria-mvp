@@ -3,6 +3,17 @@
 import { BarChart3, Download, Filter } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/providers/auth-provider";
+import { NETWORK_ERROR_MESSAGE } from "@/lib/networkStatus";
+import {
+  canUseOfflineSnapshot,
+  markSnapshotRefreshSucceeded,
+  readCatalogSnapshot,
+  readReportSnapshot,
+  saveCatalogSnapshot,
+  saveReportSnapshot,
+  toNetworkMessage,
+  type ReportsCatalog,
+} from "@/lib/reportsOfflineSnapshot";
 import {
   buildReportQuery,
   formatHours,
@@ -15,24 +26,7 @@ import {
   type ReportRow,
 } from "@/lib/reports";
 
-type CatalogLevel = {
-  id: number;
-  label: string;
-};
-
-type CatalogCategory = {
-  slug: "actividad" | "interferencia";
-  label: string;
-  types: Array<{
-    id: number;
-    label: string;
-  }>;
-};
-
-type CatalogResponse = {
-  categories: CatalogCategory[];
-  levels: CatalogLevel[];
-};
+type CatalogResponse = ReportsCatalog;
 
 function escapeCsvValue(value: unknown) {
   const rawValue = String(value ?? "");
@@ -98,6 +92,7 @@ export default function ReportsPage() {
   const [catalog, setCatalog] = useState<CatalogResponse>({ categories: [], levels: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [offlineUpdatedAt, setOfflineUpdatedAt] = useState<string | null>(null);
 
   const itemTypes = useMemo(() => {
     const values = new Set<string>();
@@ -114,13 +109,26 @@ export default function ReportsPage() {
   const visibleRows = report?.rows ?? [];
 
   useEffect(() => {
-    if (!session?.access_token) {
-      return;
-    }
-
     let active = true;
 
     async function loadCatalog() {
+      const cachedCatalog = await readCatalogSnapshot();
+      if (cachedCatalog?.value) {
+        setCatalog(cachedCatalog.value);
+        setOfflineUpdatedAt(cachedCatalog.updatedAt);
+      }
+
+      if (canUseOfflineSnapshot()) {
+        if (cachedCatalog?.value) {
+          return;
+        }
+        throw new Error(NETWORK_ERROR_MESSAGE);
+      }
+
+      if (!session?.access_token) {
+        return;
+      }
+
       const response = await fetch("/api/planning-catalog", {
         cache: "no-store",
       });
@@ -131,16 +139,45 @@ export default function ReportsPage() {
       }
 
       if (active) {
-        setCatalog({
+        const nextCatalog = {
           categories: Array.isArray(json.categories) ? json.categories : [],
           levels: Array.isArray(json.levels) ? json.levels : [],
-        });
+        };
+        setCatalog(nextCatalog);
+        setOfflineUpdatedAt(null);
+        markSnapshotRefreshSucceeded();
+        void saveCatalogSnapshot(nextCatalog);
       }
     }
 
     void loadCatalog().catch((catalogError: unknown) => {
       if (active) {
-        setError(catalogError instanceof Error ? catalogError.message : "No se pudo cargar el catalogo.");
+        if (toNetworkMessage(catalogError) || canUseOfflineSnapshot()) {
+          void readCatalogSnapshot()
+            .then((cachedCatalog) => {
+              if (!active) {
+                return;
+              }
+              if (cachedCatalog?.value) {
+                setCatalog(cachedCatalog.value);
+                setOfflineUpdatedAt(cachedCatalog.updatedAt);
+                return;
+              }
+              setError(NETWORK_ERROR_MESSAGE);
+            })
+            .catch(() => {
+              if (active) {
+                setError(NETWORK_ERROR_MESSAGE);
+              }
+            });
+          return;
+        }
+        const networkMessage = toNetworkMessage(catalogError);
+        if (networkMessage) {
+          setError(networkMessage);
+          return;
+        }
+        setError("No se pudo cargar el catalogo.");
       }
     });
 
@@ -150,15 +187,29 @@ export default function ReportsPage() {
   }, [session?.access_token]);
 
   useEffect(() => {
-    if (!session?.access_token) {
-      return;
-    }
-
     let active = true;
 
     async function loadReport() {
       setLoading(true);
       setError("");
+      const cachedReport = await readReportSnapshot(filters);
+      if (cachedReport?.value) {
+        setReport(cachedReport.value);
+        setOfflineUpdatedAt(cachedReport.updatedAt);
+      }
+
+      if (canUseOfflineSnapshot()) {
+        if (cachedReport?.value) {
+          setError("Mostrando ultimo reporte disponible en modo offline.");
+          return;
+        }
+        throw new Error(NETWORK_ERROR_MESSAGE);
+      }
+
+      if (!session?.access_token) {
+        setError(NETWORK_ERROR_MESSAGE);
+        return;
+      }
 
       const response = await fetch(`/api/reports?${buildReportQuery(filters)}`, {
         cache: "no-store",
@@ -173,14 +224,44 @@ export default function ReportsPage() {
       }
 
       if (active) {
-        setReport(json as ReportResponse);
+        const nextReport = json as ReportResponse;
+        setReport(nextReport);
+        setOfflineUpdatedAt(null);
+        markSnapshotRefreshSucceeded();
+        void saveReportSnapshot(filters, nextReport);
       }
     }
 
     void loadReport()
       .catch((reportError: unknown) => {
         if (active) {
-          setError(reportError instanceof Error ? reportError.message : "No se pudo cargar el reporte.");
+          if (toNetworkMessage(reportError) || canUseOfflineSnapshot()) {
+            void readReportSnapshot(filters)
+              .then((cachedReport) => {
+                if (!active) {
+                  return;
+                }
+                if (cachedReport?.value) {
+                  setReport(cachedReport.value);
+                  setOfflineUpdatedAt(cachedReport.updatedAt);
+                  setError("Mostrando ultimo reporte disponible en modo offline.");
+                  return;
+                }
+                setError(NETWORK_ERROR_MESSAGE);
+              })
+              .catch(() => {
+                if (active) {
+                  setError(NETWORK_ERROR_MESSAGE);
+                }
+              });
+            return;
+          }
+          const networkMessage = toNetworkMessage(reportError);
+          if (networkMessage) {
+            setError(networkMessage);
+            return;
+          }
+          setError("No se pudo cargar el reporte.");
         }
       })
       .finally(() => {
@@ -336,6 +417,11 @@ export default function ReportsPage() {
       </section>
 
       {error ? <p className="feedback">{error}</p> : null}
+      {offlineUpdatedAt ? (
+        <p className="feedback">
+          Datos offline. Ultima sincronizacion: {new Date(offlineUpdatedAt).toLocaleString("es-CL")}
+        </p>
+      ) : null}
 
       <section className="reports-content-grid">
         <article className="surface-card padded reports-breakdowns">

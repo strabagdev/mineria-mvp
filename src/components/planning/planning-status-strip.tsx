@@ -20,9 +20,17 @@ export function PlanningStatusStrip({
   queueSyncing,
   onDiscardConflicts,
 }: PlanningStatusStripProps) {
+  const isLocalPlanningMessage = /^Usando planificacion local guardada\./.test(itemsError);
+  const isLocalCatalogMessage = /^Usando catalogo local guardado\./.test(catalogError);
+  const unifiedLocalMessage =
+    isLocalPlanningMessage && isLocalCatalogMessage
+      ? itemsError.replace("Usando planificacion local guardada.", "Usando datos locales guardados.")
+      : "";
+  const visibleItemsError = unifiedLocalMessage || itemsError;
+  const visibleCatalogError = unifiedLocalMessage ? "" : catalogError;
   const hasVisibleStatus =
-    Boolean(itemsError) ||
-    Boolean(catalogError && catalogError !== itemsError) ||
+    Boolean(visibleItemsError) ||
+    Boolean(visibleCatalogError && visibleCatalogError !== visibleItemsError) ||
     Boolean(retryablePlanningMutations.length) ||
     Boolean(conflictedPlanningMutations.length);
 
@@ -32,8 +40,8 @@ export function PlanningStatusStrip({
 
   return (
     <div className="gantt-status-strip" aria-live="polite">
-      {itemsError ? <p className="feedback">{itemsError}</p> : null}
-      {catalogError && catalogError !== itemsError ? <p className="feedback">{catalogError}</p> : null}
+      {visibleItemsError ? <p className="feedback">{visibleItemsError}</p> : null}
+      {visibleCatalogError && visibleCatalogError !== visibleItemsError ? <p className="feedback">{visibleCatalogError}</p> : null}
       {retryablePlanningMutations.length ? (
         <p className={`feedback sync-feedback ${queueSyncing ? "syncing" : ""}`}>
           {queueSyncing ? <span className="sync-spinner" aria-hidden="true" /> : null}
