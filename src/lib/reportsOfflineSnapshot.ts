@@ -1,7 +1,7 @@
 "use client";
 
 import { readKeyValueCache, saveKeyValueCache } from "@/lib/localOfflineStore";
-import { NETWORK_ERROR_MESSAGE, isBrowserOffline, isNetworkRequestError, markNetworkRestored } from "@/lib/networkStatus";
+import { NETWORK_ERROR_MESSAGE, isBrowserDisconnected, isNetworkRequestError, markNetworkRestored } from "@/lib/networkStatus";
 import { buildReportQuery, type ReportFilters, type ReportResponse } from "@/lib/reports";
 
 export type ReportsCatalog = {
@@ -51,7 +51,7 @@ export async function readReportSnapshot(filters: ReportFilters) {
 }
 
 export function canUseOfflineSnapshot() {
-  return isBrowserOffline();
+  return isBrowserDisconnected();
 }
 
 export function markSnapshotRefreshSucceeded() {

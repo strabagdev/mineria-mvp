@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { type ComponentType, type MouseEvent, useEffect, useState } from "react";
 import { supabaseAuth } from "@/lib/authClient";
 import { useAuth } from "@/providers/auth-provider";
-import { isBrowserOffline } from "@/lib/networkStatus";
+import { isBrowserOffline, subscribeNetworkStatus } from "@/lib/networkStatus";
 import { OfflineRouteContent } from "@/components/offline-route-content";
 import { ThemeToggle } from "@/components/theme-toggle";
 
@@ -62,11 +62,13 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
     window.addEventListener("online", syncConnectivityState);
     window.addEventListener("offline", syncConnectivityState);
     window.addEventListener("focus", syncConnectivityState);
+    const unsubscribeNetworkStatus = subscribeNetworkStatus(syncConnectivityState);
 
     return () => {
       window.removeEventListener("online", syncConnectivityState);
       window.removeEventListener("offline", syncConnectivityState);
       window.removeEventListener("focus", syncConnectivityState);
+      unsubscribeNetworkStatus();
     };
   }, []);
 
