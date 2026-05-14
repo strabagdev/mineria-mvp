@@ -1006,13 +1006,9 @@ export default function Home() {
     }
 
     const unsubscribeNetworkStatus = subscribeNetworkStatus(clearRecoveredConnectivityMessages);
-    window.addEventListener("online", clearRecoveredConnectivityMessages);
-    window.addEventListener("focus", clearRecoveredConnectivityMessages);
 
     return () => {
       unsubscribeNetworkStatus();
-      window.removeEventListener("online", clearRecoveredConnectivityMessages);
-      window.removeEventListener("focus", clearRecoveredConnectivityMessages);
     };
   }, [refreshPlanningItems]);
 
@@ -1188,13 +1184,11 @@ export default function Home() {
       syncPendingPlanningMutationsRef.current();
     }
 
-    window.addEventListener("online", syncWhenOnline);
-    window.addEventListener("focus", syncWhenOnline);
+    const unsubscribeNetworkStatus = subscribeNetworkStatus(syncWhenOnline);
     const retryInterval = window.setInterval(syncWhenOnline, PENDING_SYNC_RETRY_INTERVAL_MS);
 
     return () => {
-      window.removeEventListener("online", syncWhenOnline);
-      window.removeEventListener("focus", syncWhenOnline);
+      unsubscribeNetworkStatus();
       window.clearInterval(retryInterval);
     };
   }, []);
@@ -1210,12 +1204,10 @@ export default function Home() {
       });
     }
 
-    window.addEventListener("online", refreshWhenActive);
-    window.addEventListener("focus", refreshWhenActive);
+    const unsubscribeNetworkStatus = subscribeNetworkStatus(refreshWhenActive);
 
     return () => {
-      window.removeEventListener("online", refreshWhenActive);
-      window.removeEventListener("focus", refreshWhenActive);
+      unsubscribeNetworkStatus();
     };
   }, [refreshPlanningItems]);
 

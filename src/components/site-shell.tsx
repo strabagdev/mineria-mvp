@@ -3,18 +3,20 @@
 import Link from "next/link";
 import { BarChart3, ChevronLeft, ChevronRight, Home, LayoutDashboard, LogOut, Settings, User, Users, Wifi, WifiOff } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
-import { type ComponentType, type MouseEvent, useEffect, useState } from "react";
+import { type ComponentType, type MouseEvent, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { supabaseAuth } from "@/lib/authClient";
 import { useAuth } from "@/providers/auth-provider";
-import { isBrowserOffline, probeNetworkRestored, subscribeNetworkStatus } from "@/lib/networkStatus";
+import { getNetworkStatusSnapshot, isBrowserOffline, subscribeNetworkStatus } from "@/lib/networkStatus";
 import { OfflineRouteContent } from "@/components/offline-route-content";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 type ShellIcon = ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
+type OfflineView = null | "home" | "dashboard" | "reports" | "users";
 type NavItem = {
   href: string;
   label: string;
   icon: ShellIcon;
+  offlineView: Exclude<OfflineView, null>;
   onClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
 };
 
@@ -24,8 +26,14 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
   const { loading, session, user, profile } = useAuth();
   const hasOfflineProfile = Boolean(profile && !session);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [offlinePath, setOfflinePath] = useState<string | null>(null);
-  const [isOffline, setIsOffline] = useState(() => isBrowserOffline());
+  const [offlineView, setOfflineView] = useState<OfflineView>(null);
+  const operationalStatus = useSyncExternalStore(
+    subscribeNetworkStatus,
+    getNetworkStatusSnapshot,
+    () => "offline"
+  );
+  const isOffline = operationalStatus === "offline";
+  const previousOperationalStatusRef = useRef(operationalStatus);
 
   useEffect(() => {
     if (!loading && !session && !profile) {
@@ -44,36 +52,36 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!isBrowserOffline()) {
-      setOfflinePath(null);
+    if (operationalStatus === "online") {
+      setOfflineView(null);
     }
-  }, [pathname]);
+  }, [operationalStatus, pathname]);
 
   useEffect(() => {
-    function syncConnectivityState() {
-      const nextIsOffline = isBrowserOffline();
-      setIsOffline(nextIsOffline);
-      if (!nextIsOffline) {
-        setOfflinePath(null);
-      }
+    if (previousOperationalStatusRef.current === operationalStatus) {
+      return;
     }
 
-    function recoverConnectivityState() {
-      void probeNetworkRestored();
-      syncConnectivityState();
+    if (process.env.NODE_ENV !== "production") {
+      console.info("[SiteShell connectivity-pill]", {
+        previousStatus: previousOperationalStatusRef.current,
+        nextStatus: operationalStatus,
+        component: "SiteShell",
+      });
     }
 
-    syncConnectivityState();
-    window.addEventListener("online", recoverConnectivityState);
-    window.addEventListener("offline", syncConnectivityState);
-    window.addEventListener("focus", recoverConnectivityState);
-    const unsubscribeNetworkStatus = subscribeNetworkStatus(syncConnectivityState);
+    previousOperationalStatusRef.current = operationalStatus;
+  }, [operationalStatus]);
+
+  useEffect(() => {
+    function handleHistoryNavigation() {
+      setOfflineView(null);
+    }
+
+    window.addEventListener("popstate", handleHistoryNavigation);
 
     return () => {
-      window.removeEventListener("online", recoverConnectivityState);
-      window.removeEventListener("offline", syncConnectivityState);
-      window.removeEventListener("focus", recoverConnectivityState);
-      unsubscribeNetworkStatus();
+      window.removeEventListener("popstate", handleHistoryNavigation);
     };
   }, []);
 
@@ -116,6 +124,14 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
   };
 
   function openCatalog(event: MouseEvent<HTMLAnchorElement>) {
+    if (isBrowserOffline()) {
+      event.preventDefault();
+      if (pathname === "/") {
+        window.dispatchEvent(new CustomEvent("open-planning-catalog"));
+      }
+      return;
+    }
+
     if (pathname !== "/") {
       return;
     }
@@ -124,17 +140,20 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
     window.dispatchEvent(new CustomEvent("open-planning-catalog"));
   }
 
-  const navItems = [
-    { href: "/", label: "Inicio", icon: Home },
-    { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { href: "/reports", label: "Reportes", icon: BarChart3 },
-    ...(effectiveProfile.role === "admin"
+  const adminNavItems: NavItem[] =
+    effectiveProfile.role === "admin"
       ? [
-          { href: "/?catalog=1", label: "Catalogo", icon: Settings, onClick: openCatalog },
-          { href: "/admin/users", label: "Usuarios", icon: Users },
+          { href: "/?catalog=1", label: "Catalogo", icon: Settings, offlineView: "home", onClick: openCatalog },
+          { href: "/admin/users", label: "Usuarios", icon: Users, offlineView: "users" },
         ]
-      : []),
-  ] satisfies NavItem[];
+      : [];
+
+  const navItems: NavItem[] = [
+    { href: "/", label: "Inicio", icon: Home, offlineView: "home" },
+    { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, offlineView: "dashboard" },
+    { href: "/reports", label: "Reportes", icon: BarChart3, offlineView: "reports" },
+    ...adminNavItems,
+  ];
   const sessionDisplayName = effectiveProfile.full_name?.trim() || effectiveProfile.email || user?.email || "Sesion activa";
 
   const renderNavItems = () =>
@@ -151,11 +170,12 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
           title={item.label}
           onClick={(event) => {
             if (isBrowserOffline()) {
-              const nextPath = item.href.split("?")[0] || "/";
               event.preventDefault();
-              setOfflinePath(nextPath);
-              window.history.pushState(null, "", item.href);
-              item.onClick?.(event);
+              if (item.onClick) {
+                item.onClick(event);
+                return;
+              }
+              setOfflineView(item.offlineView);
               return;
             }
 
@@ -223,7 +243,13 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
 
       <div className="app-shell-main">
         <div className="app-frame">
-          <main>{offlinePath && offlinePath !== "/" ? <OfflineRouteContent path={offlinePath} /> : children}</main>
+          <main>
+            {offlineView && (offlineView !== "home" || pathname !== "/") ? (
+              <OfflineRouteContent view={offlineView} />
+            ) : (
+              children
+            )}
+          </main>
         </div>
       </div>
     </div>

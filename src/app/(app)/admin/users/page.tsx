@@ -3,7 +3,7 @@
 import React from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/providers/auth-provider";
-import { NETWORK_ERROR_MESSAGE } from "@/lib/networkStatus";
+import { NETWORK_ERROR_MESSAGE, isBrowserOffline, subscribeNetworkStatus } from "@/lib/networkStatus";
 import {
   canUseOfflineSnapshot,
   markSnapshotRefreshSucceeded,
@@ -63,17 +63,15 @@ export default function AdminUsersPage() {
 
   React.useEffect(() => {
     function refreshWhenOnline() {
-      if (navigator.onLine) {
+      if (!isBrowserOffline()) {
         setRefreshNonce((current) => current + 1);
       }
     }
 
-    window.addEventListener("online", refreshWhenOnline);
-    window.addEventListener("focus", refreshWhenOnline);
+    const unsubscribeNetworkStatus = subscribeNetworkStatus(refreshWhenOnline);
 
     return () => {
-      window.removeEventListener("online", refreshWhenOnline);
-      window.removeEventListener("focus", refreshWhenOnline);
+      unsubscribeNetworkStatus();
     };
   }, []);
 

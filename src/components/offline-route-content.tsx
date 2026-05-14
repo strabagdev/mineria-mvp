@@ -14,7 +14,7 @@ import {
 } from "@/lib/reports";
 
 type OfflineRouteContentProps = {
-  path: string;
+  view: "home" | "dashboard" | "reports" | "users";
 };
 
 function OfflineNotice({ updatedAt }: { updatedAt: string | null }) {
@@ -269,26 +269,31 @@ function OfflineUsers() {
   );
 }
 
-export function OfflineRouteContent({ path }: OfflineRouteContentProps) {
-  if (path === "/dashboard") {
+export function OfflineRouteContent({ view }: OfflineRouteContentProps) {
+  if (view === "home") {
+    return (
+      <div className="dashboard-stack">
+        <section className="surface-card hero padded">
+          <p className="eyebrow">Inicio offline</p>
+          <h2 className="section-title">Planificacion local</h2>
+          <p className="body-copy">
+            La vista de inicio mantiene sus datos locales cuando ya estas en Inicio. Para conservar la URL alineada,
+            vuelve a esta seccion con conexion disponible.
+          </p>
+        </section>
+      </div>
+    );
+  }
+
+  if (view === "dashboard") {
     return <OfflineDashboard />;
   }
 
-  if (path === "/reports") {
+  if (view === "reports") {
     return <OfflineReports />;
   }
 
-  if (path === "/admin/users") {
+  if (view === "users") {
     return <OfflineUsers />;
   }
-
-  return (
-    <div className="dashboard-stack">
-      <section className="surface-card hero padded">
-        <p className="eyebrow">Modo offline</p>
-        <h2 className="section-title">Vista local no disponible</h2>
-        <p className="body-copy">Esta seccion aun no tiene una vista local preparada.</p>
-      </section>
-    </div>
-  );
 }

@@ -1,7 +1,13 @@
-const CACHE_VERSION = "mineria-shell-v13";
+const CACHE_VERSION = "mineria-shell-v14";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const ROUTE_PATH_HEADER = "x-mineria-route-path";
+
+// Estrategia offline deliberadamente acotada:
+// - /api/ nunca se cachea; IndexedDB/snapshots son la fuente local de datos.
+// - /_next/static/ usa network-first para mantener assets actualizados y caer a cache si no hay red.
+// - fuentes/imagenes usan cache-first.
+// - navegaciones usan network-first solo para rutas shell ya visitadas; no se cachea todo el arbol App Router.
 const SHELL_URLS = [
   "/",
   "/login",
@@ -47,7 +53,11 @@ function shouldBypass(request) {
     return true;
   }
 
-  return url.pathname.startsWith("/api/") || url.pathname.startsWith("/_next/");
+  if (url.pathname.startsWith("/api/")) {
+    return true;
+  }
+
+  return url.pathname.startsWith("/_next/") && !url.pathname.startsWith("/_next/static/");
 }
 
 async function cacheFirst(request) {

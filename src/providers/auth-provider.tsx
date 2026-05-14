@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabaseAuth } from "@/lib/authClient";
 import { readProfileCache, saveProfileCache } from "@/lib/localOfflineStore";
-import { isBrowserOffline, isNetworkRequestError } from "@/lib/networkStatus";
+import { isBrowserOffline, isNetworkRequestError, subscribeNetworkStatus } from "@/lib/networkStatus";
 
 type AuthContextValue = {
   session: Session | null;
@@ -30,7 +30,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const sessionRef = useRef<Session | null>(null);
   const profileRef = useRef<AuthContextValue["profile"]>(null);
   const recoverSessionRef = useRef<() => void>(() => undefined);
-  const authNetworkDegradedRef = useRef(false);
 
   useEffect(() => {
     let mounted = true;
@@ -72,7 +71,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return cachedProfile.value;
       }
 
-      if (isBrowserOffline() || authNetworkDegradedRef.current) {
+      if (isBrowserOffline()) {
         return null;
       }
 
@@ -96,9 +95,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         return nextProfile;
       } catch (error: unknown) {
-        if (isNetworkRequestError(error)) {
-          authNetworkDegradedRef.current = true;
-        }
+        isNetworkRequestError(error);
         return null;
       }
     }
@@ -156,8 +153,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setLoading(false);
           return;
         }
-        authNetworkDegradedRef.current = true;
-
         const cachedProfile = await readProfileCache<AuthContextValue["profile"]>().catch(() => null);
         if (!mounted) {
           return;
@@ -217,10 +212,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let recoverTimer: number | null = null;
 
     function scheduleRecoverSession() {
-      if (!isBrowserOffline()) {
-        authNetworkDegradedRef.current = false;
-      }
-      if (document.visibilityState === "hidden") {
+      if (document.visibilityState === "hidden" || isBrowserOffline()) {
         return;
       }
 
@@ -234,18 +226,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }, 250);
     }
 
-    window.addEventListener("online", scheduleRecoverSession);
-    window.addEventListener("focus", scheduleRecoverSession);
-    document.addEventListener("visibilitychange", scheduleRecoverSession);
+    const unsubscribeNetworkStatus = subscribeNetworkStatus(scheduleRecoverSession);
 
     return () => {
       if (recoverTimer !== null) {
         window.clearTimeout(recoverTimer);
       }
 
-      window.removeEventListener("online", scheduleRecoverSession);
-      window.removeEventListener("focus", scheduleRecoverSession);
-      document.removeEventListener("visibilitychange", scheduleRecoverSession);
+      unsubscribeNetworkStatus();
     };
   }, []);
 
