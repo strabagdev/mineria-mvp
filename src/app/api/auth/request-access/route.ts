@@ -1,21 +1,6 @@
 import { NextResponse } from "next/server";
-import { APPROVAL_STATUS, USER_ROLES } from "@/lib/accessControl";
 import { getErrorMessage } from "@/lib/errorMessage";
-import {
-  getSupabaseAuthAdminClient,
-  getSupabaseServerClient,
-} from "@/lib/supabaseServer";
-
-function isMissingAccessColumns(error: unknown) {
-  const message = getErrorMessage(error);
-
-  return (
-    message.includes("role") ||
-    message.includes("active") ||
-    message.includes("approval_status") ||
-    message.includes("schema cache")
-  );
-}
+import { requestAccess } from "@/server/services/profile.service";
 
 export async function POST(req: Request) {
   try {
@@ -49,68 +34,22 @@ export async function POST(req: Request) {
       );
     }
 
-    const db = getSupabaseServerClient();
-    const { data: existingProfile, error: existingProfileError } = await db
-      .from("profiles")
-      .select("approval_status")
-      .eq("email", email)
-      .maybeSingle();
-
-    if (existingProfileError) {
-      throw existingProfileError;
-    }
-
-    if (existingProfile) {
-      const message =
-        existingProfile.approval_status === APPROVAL_STATUS.PENDING
-          ? "Ya existe una solicitud pendiente para este correo."
-          : "Este correo ya existe en el sistema. Intenta ingresar o pide revision a un administrador.";
-      return NextResponse.json({ error: message }, { status: 409 });
-    }
-
-    const authAdmin = getSupabaseAuthAdminClient();
-    const { data: createdAuthUser, error: authError } = await authAdmin.auth.admin.createUser({
+    const result = await requestAccess({
+      name,
       email,
       password,
-      email_confirm: true,
-      user_metadata: {
-        name,
-        full_name: name,
-      },
+      isBootstrapAdmin,
     });
 
-    if (authError || !createdAuthUser.user) {
+    if (result.status === "conflict") {
+      return NextResponse.json({ error: result.message }, { status: 409 });
+    }
+
+    if (result.status === "auth-error") {
       return NextResponse.json(
         { error: "No se pudo crear la cuenta en Supabase. Revisa si el correo ya existe." },
         { status: 400 }
       );
-    }
-
-    const { error: profileError } = await db.from("profiles").insert({
-      user_id: createdAuthUser.user.id,
-      email,
-      full_name: name,
-      role: isBootstrapAdmin ? USER_ROLES.ADMIN : USER_ROLES.VIEWER,
-      active: true,
-      approval_status: isBootstrapAdmin ? APPROVAL_STATUS.APPROVED : APPROVAL_STATUS.PENDING,
-    });
-
-    if (profileError) {
-      if (isMissingAccessColumns(profileError)) {
-        const { error: legacyProfileError } = await db.from("profiles").insert({
-          user_id: createdAuthUser.user.id,
-          email,
-          full_name: name,
-        });
-
-        if (legacyProfileError) {
-          await authAdmin.auth.admin.deleteUser(createdAuthUser.user.id).catch(() => undefined);
-          throw legacyProfileError;
-        }
-      } else {
-        await authAdmin.auth.admin.deleteUser(createdAuthUser.user.id).catch(() => undefined);
-        throw profileError;
-      }
     }
 
     return NextResponse.json({

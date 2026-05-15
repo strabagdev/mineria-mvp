@@ -1,89 +1,21 @@
 import { NextResponse } from "next/server";
 import {
-  APPROVAL_STATUS,
   requireAdminUser,
-  resolveApprovalStatus,
   resolveRole,
   USER_ROLES,
 } from "@/lib/accessControl";
-import { writeAuditLog } from "@/lib/auditLog";
 import { getErrorMessage } from "@/lib/errorMessage";
 import {
-  getSupabaseAuthAdminClient,
-  getSupabaseServerClient,
-} from "@/lib/supabaseServer";
-
-function selectProfiles() {
-  return "user_id, email, full_name, role, active, approval_status, created_at, updated_at";
-}
-
-function isMissingAccessColumns(error: unknown) {
-  const message = getErrorMessage(error);
-
-  return (
-    message.includes("role") ||
-    message.includes("active") ||
-    message.includes("approval_status") ||
-    message.includes("schema cache")
-  );
-}
-
-function legacyUser(row: {
-  user_id: string;
-  email: string;
-  full_name: string | null;
-  created_at?: string;
-  updated_at?: string;
-}) {
-  const bootstrapAdminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
-  const isBootstrapAdmin = row.email.trim().toLowerCase() === bootstrapAdminEmail;
-
-  return {
-    ...row,
-    role: isBootstrapAdmin ? USER_ROLES.ADMIN : USER_ROLES.VIEWER,
-    active: true,
-    approval_status: isBootstrapAdmin ? APPROVAL_STATUS.APPROVED : APPROVAL_STATUS.PENDING,
-  };
-}
-
-type ProfileRow = {
-  user_id: string;
-  email: string;
-  full_name: string | null;
-  role: string;
-  active: boolean;
-  approval_status: string;
-  created_at?: string;
-  updated_at?: string;
-};
+  createUser,
+  listUsers,
+  resetUserPassword,
+  updateUserAccess,
+} from "@/server/services/users.service";
 
 export async function GET(req: Request) {
   try {
     await requireAdminUser(req);
-    const db = getSupabaseServerClient();
-    const { data, error } = await db
-      .from("profiles")
-      .select(selectProfiles())
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      if (isMissingAccessColumns(error)) {
-        const { data: legacyProfiles, error: legacyError } = await db
-          .from("profiles")
-          .select("user_id, email, full_name, created_at, updated_at")
-          .order("created_at", { ascending: false });
-
-        if (legacyError) {
-          throw legacyError;
-        }
-
-        return NextResponse.json({ users: (legacyProfiles ?? []).map(legacyUser) });
-      }
-
-      throw error;
-    }
-
-    return NextResponse.json({ users: data ?? [] });
+    return NextResponse.json(await listUsers());
   } catch (error: unknown) {
     return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
@@ -117,76 +49,22 @@ export async function POST(req: Request) {
       );
     }
 
-    const db = getSupabaseServerClient();
-    const authAdmin = getSupabaseAuthAdminClient();
-    const { data: createdAuthUser, error: authError } = await authAdmin.auth.admin.createUser({
+    const result = await createUser({
+      actor: { user, profile },
+      name,
       email,
       password,
-      email_confirm: true,
-      user_metadata: {
-        name,
-        full_name: name,
-      },
+      role,
     });
 
-    if (authError || !createdAuthUser.user) {
+    if (result.status === "auth-error") {
       return NextResponse.json(
         { error: "No se pudo crear el usuario en Supabase. Revisa si el correo ya existe." },
         { status: 400 }
       );
     }
 
-    const { data, error } = await db
-      .from("profiles")
-      .insert({
-        user_id: createdAuthUser.user.id,
-        email,
-        full_name: name,
-        role,
-        active: true,
-        approval_status: APPROVAL_STATUS.APPROVED,
-      })
-      .select(selectProfiles())
-      .single();
-
-    if (error) {
-      if (isMissingAccessColumns(error)) {
-        const { data: legacyProfile, error: legacyError } = await db
-          .from("profiles")
-          .insert({
-            user_id: createdAuthUser.user.id,
-            email,
-            full_name: name,
-          })
-          .select("user_id, email, full_name, created_at, updated_at")
-          .single();
-
-        if (legacyError) {
-          await authAdmin.auth.admin.deleteUser(createdAuthUser.user.id).catch(() => undefined);
-          throw legacyError;
-        }
-
-        return NextResponse.json({ user: legacyUser(legacyProfile) }, { status: 201 });
-      } else {
-        await authAdmin.auth.admin.deleteUser(createdAuthUser.user.id).catch(() => undefined);
-        throw error;
-      }
-    }
-
-    const profileRow = data as unknown as ProfileRow;
-
-    await writeAuditLog({
-      actor: { user, profile },
-      action: "user.created",
-      entityType: "profile",
-      entityId: profileRow.user_id,
-      after: profileRow,
-      metadata: {
-        created_email: email,
-      },
-    });
-
-    return NextResponse.json({ user: profileRow }, { status: 201 });
+    return NextResponse.json({ user: result.user }, { status: 201 });
   } catch (error: unknown) {
     return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
@@ -209,8 +87,6 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "Usuario no valido para la operacion." }, { status: 400 });
     }
 
-    const db = getSupabaseServerClient();
-
     if (body.action === "reset-password") {
       const password = String(body.password ?? "");
 
@@ -221,93 +97,43 @@ export async function PATCH(req: Request) {
         );
       }
 
-      const authAdmin = getSupabaseAuthAdminClient();
-      const { error } = await authAdmin.auth.admin.updateUserById(userId, {
-        password,
-        email_confirm: true,
-      });
-
-      if (error) {
-        throw error;
-      }
-
-      await writeAuditLog({
+      await resetUserPassword({
         actor: { user, profile },
-        action: "user.password_reset",
-        entityType: "profile",
-        entityId: userId,
-        metadata: {
-          target_user_id: userId,
-        },
+        userId,
+        password,
       });
 
       return NextResponse.json({ ok: true });
     }
 
-    const updates: Record<string, unknown> = {
-      updated_at: new Date().toISOString(),
-    };
-
-    if (body.action === "update-role") {
-      updates.role = resolveRole(String(body.role ?? USER_ROLES.VIEWER));
-    } else if (body.action === "toggle-active") {
-      updates.active = Boolean(body.active);
-    } else if (body.action === "update-approval-status") {
-      updates.approval_status = resolveApprovalStatus(
-        String(body.approval_status ?? APPROVAL_STATUS.PENDING)
-      );
-    } else {
+    if (
+      body.action !== "update-role" &&
+      body.action !== "toggle-active" &&
+      body.action !== "update-approval-status"
+    ) {
       return NextResponse.json({ error: "Accion no soportada." }, { status: 400 });
     }
 
-    const { data: beforeData, error: beforeError } = await db
-      .from("profiles")
-      .select(selectProfiles())
-      .eq("user_id", userId)
-      .maybeSingle();
-
-    if (beforeError) {
-      throw beforeError;
-    }
-
-    const { data, error } = await db
-      .from("profiles")
-      .update(updates)
-      .eq("user_id", userId)
-      .select(selectProfiles())
-      .single();
-
-    if (error) {
-      if (isMissingAccessColumns(error)) {
-        return NextResponse.json(
-          {
-            error:
-              "La tabla profiles aun no tiene columnas de permisos. Ejecuta la migracion de supabase/sql/001_schema.sql para aprobar usuarios y cambiar roles.",
-          },
-          { status: 400 }
-        );
-      }
-
-      throw error;
-    }
-
-    const profileRow = data as unknown as ProfileRow;
-
-    await writeAuditLog({
+    const result = await updateUserAccess({
       actor: { user, profile },
-      action:
-        body.action === "update-role"
-          ? "user.role_updated"
-          : body.action === "toggle-active"
-            ? "user.active_toggled"
-            : "user.approval_status_updated",
-      entityType: "profile",
-      entityId: profileRow.user_id,
-      before: beforeData,
-      after: profileRow,
+      userId,
+      action: body.action,
+      role: body.role,
+      active: body.active,
+      approvalStatus: body.approval_status,
     });
 
-    return NextResponse.json({ user: profileRow });
+    if (result.status === "missing-access-columns") {
+      return NextResponse.json(
+        {
+          error:
+            "La tabla profiles aun no tiene columnas de permisos. Ejecuta la migracion de supabase/sql/001_schema.sql para aprobar usuarios y cambiar roles.",
+        },
+        { status: 400 }
+      );
+    }
+
+    return NextResponse.json({ user: result.user });
   } catch (error: unknown) {
     return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }

@@ -1,8 +1,15 @@
 import { NextResponse } from "next/server";
 import { requireApprovedUser } from "@/lib/accessControl";
-import { writeAuditLog } from "@/lib/auditLog";
 import { getErrorMessage } from "@/lib/errorMessage";
 import { getSupabaseServerClient } from "@/lib/supabaseServer";
+import {
+  createPlannedPlanningItem,
+  createRealPlanningSegments,
+  deletePlanningItem,
+  listPlanningItems,
+  updatePlannedPlanningItem,
+  updateRealPlanningSegment,
+} from "@/server/services/planning-items.service";
 
 type PlanningItemPayload = {
   activity_group_id: string;
@@ -15,22 +22,6 @@ type PlanningItemPayload = {
   front: string;
   category: string;
   tracking_type: string;
-  item_type: string;
-  description: string;
-  notes: string | null;
-};
-
-type PlanningItemResponse = {
-  id: number;
-  activity_group_id: string;
-  item_date: string;
-  start_time: string;
-  end_time: string;
-  shift: string;
-  level: string;
-  front: string;
-  category: "actividad" | "interferencia";
-  tracking_type: "programado" | "real";
   item_type: string;
   description: string;
   notes: string | null;
@@ -254,24 +245,6 @@ async function validateCatalogSelection(db: ReturnType<typeof getSupabaseServerC
   return null;
 }
 
-function mapPlanningRow(row: Omit<PlanningItemResponse, "tracking_type"> & { tracking_type?: "programado" | "real" }): PlanningItemResponse {
-  return {
-    id: row.id,
-    activity_group_id: row.activity_group_id,
-    item_date: row.item_date,
-    start_time: row.start_time,
-    end_time: row.end_time,
-    shift: row.shift,
-    level: row.level,
-    front: row.front,
-    category: row.category,
-    tracking_type: row.tracking_type ?? "programado",
-    item_type: row.item_type,
-    description: row.description,
-    notes: row.notes ?? null,
-  };
-}
-
 function toPlanningItemUpdatePayload(payload: PlanningItemPayload) {
   return {
     activity_group_id: payload.activity_group_id,
@@ -287,25 +260,6 @@ function toPlanningItemUpdatePayload(payload: PlanningItemPayload) {
     description: payload.description,
     notes: payload.notes,
   };
-}
-
-async function getNextSegmentOrder(
-  db: ReturnType<typeof getSupabaseServerClient>,
-  activityGroupId: string
-) {
-  const { data, error } = await db
-    .from("activity_execution_segments")
-    .select("segment_order")
-    .eq("activity_group_id", activityGroupId)
-    .order("segment_order", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    throw error;
-  }
-
-  return Number(data?.segment_order ?? 0) + 1;
 }
 
 async function validateRealSegmentsDoNotOverlap(
@@ -526,92 +480,10 @@ async function validateAndNormalizePlanningItem(
 
 export async function GET(req: Request) {
   try {
-    const db = getSupabaseServerClient();
     const { searchParams } = new URL(req.url);
     const date = searchParams.get("date")?.trim() ?? "";
 
-    let executionQuery = db
-      .from("activity_execution_segments")
-      .select("id, activity_group_id, item_date, start_time, end_time, shift, level, front, category, item_type, description, notes")
-      .order("item_date", { ascending: true })
-      .order("start_time", { ascending: true });
-
-    if (date) {
-      executionQuery = executionQuery.eq("item_date", date);
-    }
-
-    const { data: executionSegments, error: executionError } = await executionQuery;
-
-    if (executionError) {
-      throw executionError;
-    }
-
-    const executionGroupIds = Array.from(
-      new Set((executionSegments ?? []).map((segment) => segment.activity_group_id).filter(Boolean))
-    );
-
-    let planningByDateQuery = db
-      .from("planning_items")
-      .select(
-        "id, activity_group_id, item_date, start_time, end_time, shift, level, front, category, item_type, description, notes, tracking_type"
-      )
-      .eq("tracking_type", "programado")
-      .order("item_date", { ascending: true })
-      .order("start_time", { ascending: true });
-
-    if (date) {
-      planningByDateQuery = planningByDateQuery.eq("item_date", date);
-    }
-
-    const { data: planningByDate, error: planningByDateError } = await planningByDateQuery;
-
-    if (planningByDateError) {
-      throw planningByDateError;
-    }
-
-    let relatedPlanning: typeof planningByDate = [];
-
-    if (executionGroupIds.length) {
-      const { data, error } = await db
-        .from("planning_items")
-        .select(
-          "id, activity_group_id, item_date, start_time, end_time, shift, level, front, category, item_type, description, notes, tracking_type"
-        )
-        .eq("tracking_type", "programado")
-        .in("activity_group_id", executionGroupIds)
-        .order("item_date", { ascending: true })
-        .order("start_time", { ascending: true });
-
-      if (error) {
-        throw error;
-      }
-
-      relatedPlanning = data ?? [];
-    }
-
-    const planningMap = new Map<number, NonNullable<typeof planningByDate>[number]>();
-
-    for (const row of planningByDate ?? []) {
-      planningMap.set(row.id, row);
-    }
-
-    for (const row of relatedPlanning ?? []) {
-      planningMap.set(row.id, row);
-    }
-
-    const planningItems = Array.from(planningMap.values());
-
-    const items = [
-      ...(planningItems ?? []).map((row) => mapPlanningRow(row)),
-      ...((executionSegments ?? []).map((row) =>
-        mapPlanningRow({
-          ...row,
-          tracking_type: "real",
-        })
-      ) as PlanningItemResponse[]),
-    ].sort((left, right) => `${left.item_date}-${left.start_time}`.localeCompare(`${right.item_date}-${right.start_time}`));
-
-    return NextResponse.json({ items });
+    return NextResponse.json(await listPlanningItems(date));
   } catch (error: unknown) {
     return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
@@ -641,156 +513,51 @@ export async function POST(req: Request) {
     const { db, payload, user, profile, plannedItem } = result;
 
     if (payload.tracking_type === "programado") {
-      if (payload.client_mutation_id) {
-        const { data: existingItem, error: existingError } = await db
-          .from("planning_items")
-          .select(
-            "id, activity_group_id, item_date, start_time, end_time, shift, level, front, category, item_type, description, notes, tracking_type"
-          )
-          .eq("client_mutation_id", payload.client_mutation_id)
-          .maybeSingle();
-
-        if (existingError) {
-          throw existingError;
-        }
-
-        if (existingItem) {
-          return NextResponse.json({ item: mapPlanningRow(existingItem) }, { status: 200 });
-        }
-      }
-
-      const { data, error } = await db
-        .from("planning_items")
-        .insert({
-          created_by: user.id,
-          ...payload,
-        })
-        .select(
-          "id, activity_group_id, item_date, start_time, end_time, shift, level, front, category, item_type, description, notes, tracking_type"
-        )
-        .single();
-
-      if (error) {
-        throw error;
-      }
-
-      await writeAuditLog({
+      const plannedResult = await createPlannedPlanningItem({
         actor: { user, profile },
-        action: "planning_item.created",
-        entityType: "planning_item",
-        entityId: data.id,
-        after: data,
+        userId: user.id,
+        payload,
       });
 
-      return NextResponse.json({ item: mapPlanningRow(data) }, { status: 201 });
+      return NextResponse.json(
+        { item: plannedResult.item },
+        { status: plannedResult.status === "existing" ? 200 : 201 }
+      );
     }
 
     const segments = buildRealSegments(payload) ?? [];
 
-    if (payload.client_mutation_id) {
-      const { data: existingSegments, error: existingError } = await db
-        .from("activity_execution_segments")
-        .select("id, activity_group_id, item_date, start_time, end_time, shift, level, front, category, item_type, description, notes")
-        .eq("client_mutation_id", payload.client_mutation_id)
-        .order("start_time", { ascending: true });
+    const realResult = await createRealPlanningSegments({
+      actor: { user, profile },
+      userId: user.id,
+      payload,
+      plannedItem,
+      segments,
+      validateOverlap: () =>
+        validateRealSegmentsDoNotOverlap(db, payload.activity_group_id, segments),
+    });
 
-      if (existingError) {
-        throw existingError;
-      }
-
-      if (existingSegments?.length) {
-        return NextResponse.json({
-          item: mapPlanningRow({
-            ...(existingSegments[0] as Omit<PlanningItemResponse, "tracking_type">),
-            tracking_type: "real",
-          }),
-          items: existingSegments.map((row) =>
-            mapPlanningRow({
-              ...row,
-              tracking_type: "real",
-            })
-          ),
-        });
-      }
+    if (realResult.status === "overlap") {
+      return realResult.response;
     }
 
-    const overlapError = await validateRealSegmentsDoNotOverlap(db, payload.activity_group_id, segments);
-
-    if (overlapError) {
-      return overlapError;
-    }
-
-    const baseSegmentOrder = await getNextSegmentOrder(db, payload.activity_group_id);
-
-    const { data, error } = await db
-      .from("activity_execution_segments")
-      .insert(
-        segments.map((segment, index) => {
-          const base = {
-            planning_item_id: plannedItem?.id,
-            activity_group_id: segment.activity_group_id,
-            item_date: segment.item_date,
-            start_time: segment.start_time,
-            end_time: segment.end_time,
-            shift: segment.shift,
-            level: segment.level,
-            front: segment.front,
-            category: segment.category,
-            item_type: segment.item_type,
-            description: segment.description,
-            notes: segment.notes,
-            client_mutation_id: payload.client_mutation_id,
-            created_by: user.id,
-          } as Record<string, unknown>;
-
-          base.segment_order = baseSegmentOrder + index;
-
-          return base;
-        })
-      )
-      .select("id, activity_group_id, item_date, start_time, end_time, shift, level, front, category, item_type, description, notes")
-      .order("start_time", { ascending: true });
-
-    if (error) {
-      if (segments.length > 1 && /segment_order|column/i.test(error.message ?? "")) {
+    if (realResult.status === "insert-error") {
+      if (segments.length > 1 && /segment_order|column/i.test(realResult.error.message ?? "")) {
         const message =
           "Para registrar un real que cruza turnos necesitamos que la API reconozca `segment_order`. Asegura que la migracion de `activity_execution_segments` se ejecuto en este proyecto y luego refresca el schema cache con: select pg_notify('pgrst', 'reload schema');";
         return NextResponse.json({ error: message }, { status: 400 });
       }
 
-      if (isDatabaseOverlapError(error)) {
+      if (isDatabaseOverlapError(realResult.error)) {
         return NextResponse.json({ error: REAL_SEGMENT_OVERLAP_MESSAGE }, { status: 409 });
       }
 
-      throw error;
+      throw realResult.error;
     }
 
-    await writeAuditLog({
-      actor: { user, profile },
-      action: "activity_execution_segment.created",
-      entityType: "activity_execution_segment",
-      entityId: data?.[0]?.id ?? null,
-      after: data ?? [],
-      metadata: {
-        count: data?.length ?? 0,
-        activity_group_id: payload.activity_group_id,
-      },
-    });
-
     return NextResponse.json(
-      {
-        item: mapPlanningRow({
-          ...(data?.[0] as Omit<PlanningItemResponse, "tracking_type">),
-          tracking_type: "real",
-        }),
-        items: (data ?? []).map((row) =>
-          mapPlanningRow({
-            ...row,
-            tracking_type: "real",
-          })
-        ),
-      },
-      { status: 201 }
+      { item: realResult.item, items: realResult.items },
+      { status: realResult.status === "existing" ? 200 : 201 }
     );
   } catch (error: unknown) {
     return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
@@ -827,41 +594,13 @@ export async function PATCH(req: Request) {
 
     if (payload.tracking_type === "programado") {
       const updatePayload = toPlanningItemUpdatePayload(payload);
-      const { data: beforeData, error: beforeError } = await db
-        .from("planning_items")
-        .select("id, activity_group_id, item_date, start_time, end_time, shift, level, front, category, item_type, description, notes, tracking_type")
-        .eq("id", id)
-        .eq("tracking_type", "programado")
-        .maybeSingle();
-
-      if (beforeError) {
-        throw beforeError;
-      }
-
-      const { data, error } = await db
-        .from("planning_items")
-        .update(updatePayload)
-        .eq("id", id)
-        .eq("tracking_type", "programado")
-        .select(
-          "id, activity_group_id, item_date, start_time, end_time, shift, level, front, category, item_type, description, notes, tracking_type"
-        )
-        .single();
-
-      if (error) {
-        throw error;
-      }
-
-      await writeAuditLog({
+      const { item } = await updatePlannedPlanningItem({
         actor: { user, profile },
-        action: "planning_item.updated",
-        entityType: "planning_item",
-        entityId: data.id,
-        before: beforeData,
-        after: data,
+        id,
+        updatePayload,
       });
 
-      return NextResponse.json({ item: mapPlanningRow(data) });
+      return NextResponse.json({ item });
     }
 
     const realSegments = buildRealSegments(payload) ?? [];
@@ -884,19 +623,10 @@ export async function PATCH(req: Request) {
       return overlapError;
     }
 
-    const { data: beforeData, error: beforeError } = await db
-      .from("activity_execution_segments")
-      .select("id, activity_group_id, item_date, start_time, end_time, shift, level, front, category, item_type, description, notes")
-      .eq("id", id)
-      .maybeSingle();
-
-    if (beforeError) {
-      throw beforeError;
-    }
-
-    const { data, error } = await db
-      .from("activity_execution_segments")
-      .update({
+    const realResult = await updateRealPlanningSegment({
+      actor: { user, profile },
+      id,
+      updatePayload: {
         planning_item_id: plannedItem?.id,
         activity_group_id: payload.activity_group_id,
         item_date: payload.item_date,
@@ -909,34 +639,18 @@ export async function PATCH(req: Request) {
         item_type: payload.item_type,
         description: payload.description,
         notes: payload.notes,
-      })
-      .eq("id", id)
-      .select("id, activity_group_id, item_date, start_time, end_time, shift, level, front, category, item_type, description, notes")
-      .single();
+      },
+    });
 
-    if (error) {
-      if (isDatabaseOverlapError(error)) {
+    if (realResult.status === "update-error") {
+      if (isDatabaseOverlapError(realResult.error)) {
         return NextResponse.json({ error: REAL_SEGMENT_OVERLAP_MESSAGE }, { status: 409 });
       }
 
-      throw error;
+      throw realResult.error;
     }
 
-    await writeAuditLog({
-      actor: { user, profile },
-      action: "activity_execution_segment.updated",
-      entityType: "activity_execution_segment",
-      entityId: data.id,
-      before: beforeData,
-      after: data,
-    });
-
-    return NextResponse.json({
-      item: mapPlanningRow({
-        ...data,
-        tracking_type: "real",
-      }),
-    });
+    return NextResponse.json({ item: realResult.item });
   } catch (error: unknown) {
     return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
@@ -957,83 +671,18 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "Debes indicar si eliminas programado o real." }, { status: 400 });
     }
 
-    const db = getSupabaseServerClient();
-
-    if (trackingType === "programado") {
-      const { data: currentItem, error: currentItemError } = await db
-        .from("planning_items")
-        .select("id, activity_group_id, item_date, start_time, end_time, shift, level, front, category, item_type, description, notes, tracking_type")
-        .eq("id", id)
-        .eq("tracking_type", "programado")
-        .maybeSingle();
-
-      if (currentItemError) {
-        throw currentItemError;
-      }
-
-      if (!currentItem) {
-        return NextResponse.json({ ok: true });
-      }
-
-      const { data: realSegments, error: realSegmentsError } = await db
-        .from("activity_execution_segments")
-        .select("id")
-        .eq("planning_item_id", currentItem.id)
-        .limit(1);
-
-      if (realSegmentsError) {
-        throw realSegmentsError;
-      }
-
-      if (realSegments?.length) {
-        return NextResponse.json(
-          { error: "No puedes eliminar la programacion mientras exista un real asociado a esa actividad." },
-          { status: 409 }
-        );
-      }
-
-      const { error } = await db.from("planning_items").delete().eq("id", id).eq("tracking_type", "programado");
-      if (error) {
-        throw error;
-      }
-
-      await writeAuditLog({
-        actor: { user, profile },
-        action: "planning_item.deleted",
-        entityType: "planning_item",
-        entityId: id,
-        before: currentItem,
-      });
-
-      return NextResponse.json({ ok: true });
-    }
-
-    const { data: currentSegment, error: currentSegmentError } = await db
-      .from("activity_execution_segments")
-      .select("id, activity_group_id, item_date, start_time, end_time, shift, level, front, category, item_type, description, notes")
-      .eq("id", id)
-      .maybeSingle();
-
-    if (currentSegmentError) {
-      throw currentSegmentError;
-    }
-
-    if (!currentSegment) {
-      return NextResponse.json({ ok: true });
-    }
-
-    const { error } = await db.from("activity_execution_segments").delete().eq("id", id);
-    if (error) {
-      throw error;
-    }
-
-    await writeAuditLog({
+    const result = await deletePlanningItem({
       actor: { user, profile },
-      action: "activity_execution_segment.deleted",
-      entityType: "activity_execution_segment",
-      entityId: id,
-      before: currentSegment,
+      id,
+      trackingType,
     });
+
+    if (result.status === "blocked-by-real") {
+      return NextResponse.json(
+        { error: "No puedes eliminar la programacion mientras exista un real asociado a esa actividad." },
+        { status: 409 }
+      );
+    }
 
     return NextResponse.json({ ok: true });
   } catch (error: unknown) {
