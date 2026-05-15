@@ -2,7 +2,7 @@ import "server-only";
 
 import type { User } from "@supabase/supabase-js";
 import type { AppProfile } from "@/lib/accessControl";
-import { getSupabaseServerClient } from "@/lib/supabaseServer";
+import { getSupabaseServerClient } from "@/server/db/supabase";
 
 type AuditActor = {
   user?: Pick<User, "id" | "email"> | null;
