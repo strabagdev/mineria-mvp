@@ -7,7 +7,7 @@ const NETWORK_STATUS_EVENT = "mineria-network-status";
 const NETWORK_HEALTH_TIMEOUT_MS = 2000;
 const NETWORK_HEARTBEAT_INTERVAL_MS = 5000;
 
-let backendOnline = false;
+let backendOnline: boolean | null = null;
 let networkListenersReady = false;
 let heartbeatInFlight = false;
 let heartbeatTimer: number | null = null;
@@ -23,7 +23,7 @@ type NetworkStatusChangeDetail = {
 };
 
 function getCurrentOperationalStatus(): OperationalStatus {
-  return backendOnline ? "online" : "offline";
+  return backendOnline === true ? "online" : "offline";
 }
 
 function logNetworkStatusChange(detail: NetworkStatusChangeDetail) {
@@ -93,7 +93,7 @@ export function isBrowserOffline() {
     return true;
   }
 
-  return !backendOnline;
+  return backendOnline !== true;
 }
 
 export function getNetworkStatusSnapshot(): OperationalStatus {
@@ -255,7 +255,14 @@ export function isNetworkRequestError(error: unknown) {
 }
 
 export function assertBrowserOnline() {
-  if (isBrowserOffline()) {
+  ensureNetworkListeners();
+
+  if (!hasBrowserConnectivity()) {
+    enterOfflineFromNavigator("navigator-offline-assert");
+    throw new Error(NETWORK_ERROR_MESSAGE);
+  }
+
+  if (backendOnline === false) {
     throw new Error(NETWORK_ERROR_MESSAGE);
   }
 }
