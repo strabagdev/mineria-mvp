@@ -1740,6 +1740,25 @@ textarea {
   padding: 0.9rem 1rem;
 }
 
+.gantt-footer {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: var(--gantt-meta-width) minmax(0, 1fr);
+  gap: var(--gantt-column-gap);
+  align-items: center;
+  min-height: 3rem;
+  padding-block: 0.58rem;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel-solid) 82%, transparent);
+}
+
+.gantt-footer .gantt-legend {
+  grid-column: 2;
+  justify-content: flex-end;
+  padding-inline: 0.78rem;
+}
+
 .gantt-rows-timeline-bg {
   position: absolute;
   top: 0;
@@ -2259,6 +2278,18 @@ textarea {
   border-color: var(--border);
   background: color-mix(in srgb, var(--secondary) 84%, transparent);
   color: var(--muted);
+}
+
+.dark .gantt-tooltip-badge.success {
+  border-color: color-mix(in srgb, #2dd4bf 42%, transparent);
+  background: color-mix(in srgb, #0f766e 24%, var(--secondary));
+  color: #5eead4;
+}
+
+.dark .gantt-tooltip-badge.warning {
+  border-color: color-mix(in srgb, #fb923c 46%, transparent);
+  background: color-mix(in srgb, #9a3412 26%, var(--secondary));
+  color: #fdba74;
 }
 
 .dark .gantt-tooltip-badge.pending {
@@ -3418,6 +3449,15 @@ select.field-input {
 
   .gantt-section-header {
     align-items: flex-start;
+  }
+
+  .gantt-footer {
+    grid-template-columns: 1fr;
+  }
+
+  .gantt-footer .gantt-legend {
+    grid-column: 1;
+    justify-content: flex-start;
   }
 
   .gantt-header {

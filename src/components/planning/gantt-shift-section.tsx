@@ -75,10 +75,6 @@ export function GanttShiftSection<
 
   return (
     <section className="gantt-section shift-section">
-      <div className="gantt-section-header shift-section-header">
-        <GanttLegend />
-      </div>
-
       <div className="gantt-header">
         <div className="gantt-header-meta">Evento</div>
         <div className="gantt-timeline-scroll">
@@ -169,6 +165,10 @@ export function GanttShiftSection<
             <p className="ops-copy">Sin actividades para este turno.</p>
           </div>
         )}
+
+        <div className="gantt-footer">
+          <GanttLegend />
+        </div>
       </div>
     </section>
   );
