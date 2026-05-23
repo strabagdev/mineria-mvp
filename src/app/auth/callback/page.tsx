@@ -2,9 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { EmailOtpType } from "@supabase/supabase-js";
-import { supabaseAuth } from "@/lib/authClient";
 import { NETWORK_ERROR_MESSAGE, assertBrowserOnline } from "@/lib/networkStatus";
+import {
+  exchangeCodeForSession,
+  getCurrentAuthSession,
+  verifyEmailOtp,
+} from "@/modules/auth/application/auth-client";
+import type { AppEmailOtpType } from "@/modules/auth/application/auth-types";
 
 export default function AuthCallbackPage() {
   const router = useRouter();
@@ -15,16 +19,16 @@ export default function AuthCallbackPage() {
       const params = new URLSearchParams(window.location.search);
       const code = params.get("code");
       const tokenHash = params.get("token_hash");
-      const type = params.get("type") as EmailOtpType | null;
+      const type = params.get("type") as AppEmailOtpType | null;
 
       if (code) {
-        const { error } = await supabaseAuth.auth.exchangeCodeForSession(code);
+        const { error } = await exchangeCodeForSession(code);
         if (error) {
           setMessage(error.message);
           return;
         }
       } else if (tokenHash && type) {
-        const { error } = await supabaseAuth.auth.verifyOtp({
+        const { error } = await verifyEmailOtp({
           token_hash: tokenHash,
           type,
         });
@@ -34,8 +38,8 @@ export default function AuthCallbackPage() {
         }
       }
 
-      const { data } = await supabaseAuth.auth.getSession();
-      const token = data.session?.access_token;
+      const session = await getCurrentAuthSession();
+      const token = session?.access_token;
 
       if (!token) {
         router.replace("/login");

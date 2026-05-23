@@ -1,6 +1,6 @@
 # mineria-mvp - Task Board
 
-Ultima actualizacion: 2026-05-12
+Ultima actualizacion: 2026-05-13
 
 ## Como usar este archivo
 - Mantener tareas chicas (max 1-2 horas).
@@ -13,8 +13,7 @@ Ultima actualizacion: 2026-05-12
 - [ ] Agregar pruebas minimas de humo para login y flujo base autenticado.
 - [ ] Documentar permisos/roles actuales y matriz de acceso por pantalla.
 - [ ] Diseñar e implementar un Centro de Mensajes global para la app (reemplazar/elevar las barras simples bajo el header por una bandeja robusta de notificaciones de sistema, sync, conflictos y errores).
-- [ ] Offline navigation full-app - fase 3: reconciliacion de transiciones internas App Router + SW para evitar errores de red en cambio de ruta.
-- [ ] Offline navigation full-app - fase 4: pruebas E2E/manuales por ruta (`/`, `/dashboard`, `/reports`, `/admin/users`, `/login`, `/offline`) en hard reload y navegacion interna.
+- [ ] Offline navigation: reconciliar App Router + SW (evitar errores en cambio de ruta); pruebas manuales por ruta. Contexto y gaps: `docs/OFFLINE.md`.
 
 ## Limpieza y consistencia del repo
 - [x] Revisar archivo `.codex`.
@@ -41,28 +40,13 @@ Ultima actualizacion: 2026-05-12
   - Observacion: es una decision de equipo, no necesariamente un error; `tsconfig.json` lo incluye como archivo esperado.
 
 ## En curso
-- [ ] Offline navigation full-app - fase 1: app shell offline para rutas internas
-  - Objetivo: poder cambiar de seccion sin red sin caer en pantalla negra del navegador.
-  - Alcance:
-    - `public/sw.js`
-    - `src/components/site-shell.tsx`
-    - rutas fallback (`/offline`)
-  - Rutas soportadas (fase 1):
-    - `/`
-    - `/dashboard`
-    - `/reports`
-    - `/admin/users`
-    - `/offline`
-  - Sub-hitos:
-    - [~] Hito A: navegacion interna offline (App Router + shell) estable. Avance: removido desvio forzado a `/offline` en `src/components/site-shell.tsx` y habilitado registro de SW en local (`src/components/pwa-register.tsx`, antes se desregistraba en dev); falta validacion manual sin red.
-    - [x] Hito A.1: snapshots offline para Dashboard/Reportes/Admin. Implementado con lectura local primero, refresh online posterior, estado de red degradada centralizado y sello de ultima sincronizacion.
-    - [ ] Hito B: hard reload offline con fallback controlado por ruta.
-  - Entregables:
-    - [ ] Navegacion offline entre secciones sin `ERR_INTERNET_DISCONNECTED`. Validacion: prueba manual con DevTools en `Offline` + navegacion interna en rutas soportadas.
-    - [ ] Hard reload offline con fallback de app shell por ruta. Validacion: prueba manual con `Offline` + hard reload en cada ruta soportada.
-    - [ ] Mensajeria clara de estado offline (sin bloquear continuidad). Validacion: smoke E2E/manual verificando banner/estado visible y continuidad de uso.
-  - Criterio de exito:
-    - Desde una sesion ya iniciada, usuario navega sin red a rutas soportadas y siempre recibe UI controlada.
+- [ ] Offline navigation (shell + SW + alineacion con App Router)
+  - Objetivo: cambiar de seccion sin red sin pantalla negra; UI controlada con sesion ya iniciada.
+  - Alcance principal: `public/sw.js`, `src/components/site-shell.tsx`, `/offline`.
+  - Rutas objetivo: `/`, `/dashboard`, `/reports`, `/admin/users`, `/offline`, `/login`.
+  - Progreso y criterios detallados: `docs/OFFLINE.md` (secciones 5, 6 y 7).
+  - Pendiente destacado: validacion manual sin red; hard reload por ruta; mensajeria coherente en todas las vistas.
+
 ## Hecho
 - [x] Auditoria offline/online + plan full offline-first (2026-05-10)
   - Objetivo: mapear exactamente el comportamiento sin conectividad y definir/ejecutar una estrategia para operar 100% offline con sincronizacion confiable al recuperar red.
@@ -70,17 +54,11 @@ Ultima actualizacion: 2026-05-12
     - Mensaje de red: `src/lib/networkStatus.ts`
     - Flujos auth: `src/app/login/page.tsx`, `src/app/auth/callback/page.tsx`, `src/providers/auth-provider.tsx`, `src/lib/authClient.ts`
     - Flujos planificacion offline: `src/app/(app)/page.tsx`, `src/lib/localOfflineStore.ts`, endpoints `src/app/api/planning-*/route.ts`
-  - Casos detectados donde aparece hoy el mensaje:
-    - Login y solicitud de acceso cuando `assertBrowserOnline()` detecta `navigator.onLine = false`.
-    - Callback de autenticacion al intentar sincronizar perfil sin red.
-    - Errores de red en llamadas auth de Supabase via `resilientAuthFetch` (`failed to fetch`, `fetch failed`, etc.).
-    - Errores de red al resolver sesion inicial en login (`getSession`) y en operaciones de planificacion que usen `getRequestErrorMessage`.
+  - Casos y mensajes de red: ver `docs/OFFLINE.md` y `src/lib/networkStatus.ts` (lista detallada ya no se duplica aqui).
   - Entregables:
-    - [x] Matriz offline por flujo (auth, catalogos, planificacion, reportes, admin). Ver `OFFLINE_AUDIT.md`.
-    - [x] Definicion de contrato de datos offline (cache local, cola de mutaciones, conflictos, reintentos). Ver `OFFLINE_CONTRACT.md`.
-    - [x] Plan tecnico por fases (P0 estabilidad, P1 offline escritura/lectura, P2 sync robusta, P3 observabilidad). Ver `OFFLINE_PHASE_PLAN.md`.
-    - [~] Implementacion fase prioritaria acordada. Avance: cola de mutaciones migrada de `localStorage` a `IndexedDB` con migracion automatica legacy.
-    - [x] Pruebas E2E/manuales en escenarios sin red, red intermitente y reconexion. Evidencia en `OFFLINE_TEST_REPORT.md` (incluye gap conocido en hard reload offline sin SW fallback).
+    - [x] Documentacion offline unificada: matriz por flujo, almacenamiento local, contrato planning, fases, pruebas y gaps. Ver `docs/OFFLINE.md`.
+    - [x] Cola de mutaciones planning en IndexedDB con migracion legacy desde `localStorage`.
+    - [x] Pruebas manuales iniciales (login offline, planning pendiente, reconexion). Resultados y gaps: `docs/OFFLINE.md` seccion 6.
     - [x] Definir alcance UX/tecnico del Centro de Mensajes (prioridades, severidad, persistencia, descartes, historial y accionables). Ver `MESSAGE_CENTER_SCOPE.md`.
   - Criterio de exito:
     - Usuario puede seguir operando planificacion sin red.
@@ -98,6 +76,6 @@ Ultima actualizacion: 2026-05-12
 ```
 
 ## Mini handoff (ultima sesion)
-- Se crearon documentos base de arquitectura y tablero de trabajo.
-- El objetivo es arrancar chats nuevos con contexto corto y consistente.
-- Siguiente paso sugerido: tomar una tarea del backlog y ejecutarla en un solo bloque.
+- Documentacion offline consolidada en un solo archivo `docs/OFFLINE.md` (eliminados `OFFLINE_AUDIT`, `OFFLINE_CONTRACT`, `OFFLINE_PHASE_PLAN`, `OFFLINE_TEST_REPORT`).
+- `TASKS.md` y `docs/README.md` apuntan a `OFFLINE.md` para evitar duplicar matriz, contrato y pruebas.
+- Siguiente paso sugerido: cerrar tareas abiertas de navegacion shell/SW usando `OFFLINE.md` como checklist.

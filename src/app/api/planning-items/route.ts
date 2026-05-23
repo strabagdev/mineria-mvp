@@ -1,7 +1,23 @@
 import { NextResponse } from "next/server";
 import { requireApprovedUser } from "@/lib/accessControl";
 import { getErrorMessage } from "@/lib/errorMessage";
-import { getSupabaseServerClient } from "@/lib/supabaseServer";
+import {
+  isPlanningCategoryDto,
+  isPlanningShiftDto,
+  isPlanningTrackingTypeDto,
+  normalizePlanningItemMutationPayload,
+  type NormalizedPlanningItemPayloadDto,
+  type PlanningItemDeleteRequestDto,
+  type PlanningItemMutationPayloadDto,
+  type RealSegmentRangeInputDto,
+} from "@/modules/planning/contracts/planning-items";
+import {
+  findPlanningCatalogDetailByTypeAndLabel,
+  findPlanningCatalogTypeByCategoryAndLabel,
+  findPlanningLevelByLabel,
+} from "@/server/repositories/planning-catalog.repository";
+import { findPlannedItemSummaryByActivityGroupId } from "@/server/repositories/planning-items.repository";
+import { listSegmentsForOverlap } from "@/server/repositories/planning-segments.repository";
 import {
   createPlannedPlanningItem,
   createRealPlanningSegments,
@@ -10,30 +26,6 @@ import {
   updatePlannedPlanningItem,
   updateRealPlanningSegment,
 } from "@/server/services/planning-items.service";
-
-type PlanningItemPayload = {
-  activity_group_id: string;
-  client_mutation_id: string | null;
-  item_date: string;
-  start_time: string;
-  end_time: string;
-  shift: string;
-  level: string;
-  front: string;
-  category: string;
-  tracking_type: string;
-  item_type: string;
-  description: string;
-  notes: string | null;
-};
-
-type RealSegmentRangeInput = {
-  id?: number;
-  item_date: string;
-  start_time: string;
-  end_time: string;
-  shift: string;
-};
 
 const REAL_SEGMENT_OVERLAP_MESSAGE =
   "Ese horario se solapa con otro evento real del mismo programado. Actualiza la planificacion y elige un espacio disponible.";
@@ -95,7 +87,7 @@ function toDateBaseMinutes(dateString: string) {
   return Math.floor(new Date(`${dateString}T00:00:00Z`).getTime() / 60000);
 }
 
-function toTimelineRange(segment: RealSegmentRangeInput) {
+function toTimelineRange(segment: RealSegmentRangeInputDto) {
   const baseMinutes = toDateBaseMinutes(segment.item_date);
   const start = baseMinutes + toOperationalOffsetMinutes(segment.start_time, segment.shift);
   let end = baseMinutes + toOperationalOffsetMinutes(segment.end_time, segment.shift);
@@ -108,8 +100,8 @@ function toTimelineRange(segment: RealSegmentRangeInput) {
 }
 
 function rangesOverlap(
-  left: RealSegmentRangeInput,
-  right: RealSegmentRangeInput
+  left: RealSegmentRangeInputDto,
+  right: RealSegmentRangeInputDto
 ) {
   const leftRange = toTimelineRange(left);
   const rightRange = toTimelineRange(right);
@@ -117,7 +109,7 @@ function rangesOverlap(
   return leftRange.start < rightRange.end && leftRange.end > rightRange.start;
 }
 
-function buildRealSegments(payload: PlanningItemPayload) {
+function buildRealSegments(payload: NormalizedPlanningItemPayloadDto) {
   const startOffset = toOperationalOffsetMinutes(payload.start_time, payload.shift);
   const endOffset = toOperationalOffsetMinutes(payload.end_time, payload.shift);
 
@@ -188,16 +180,8 @@ function buildRealSegments(payload: PlanningItemPayload) {
   return null;
 }
 
-async function validateCatalogSelection(db: ReturnType<typeof getSupabaseServerClient>, payload: PlanningItemPayload) {
-  const { data: selectedLevel, error: levelError } = await db
-    .from("planning_levels")
-    .select("id")
-    .eq("label", payload.level)
-    .maybeSingle();
-
-  if (levelError) {
-    throw levelError;
-  }
+async function validateCatalogSelection(payload: NormalizedPlanningItemPayloadDto) {
+  const selectedLevel = await findPlanningLevelByLabel(payload.level);
 
   if (!selectedLevel) {
     return NextResponse.json(
@@ -206,16 +190,10 @@ async function validateCatalogSelection(db: ReturnType<typeof getSupabaseServerC
     );
   }
 
-  const { data: selectedType, error: typeError } = await db
-    .from("planning_catalog_types")
-    .select("id")
-    .eq("category", payload.category)
-    .eq("label", payload.item_type)
-    .maybeSingle();
-
-  if (typeError) {
-    throw typeError;
-  }
+  const selectedType = await findPlanningCatalogTypeByCategoryAndLabel(
+    payload.category,
+    payload.item_type
+  );
 
   if (!selectedType) {
     return NextResponse.json(
@@ -224,16 +202,10 @@ async function validateCatalogSelection(db: ReturnType<typeof getSupabaseServerC
     );
   }
 
-  const { data: selectedDetail, error: detailError } = await db
-    .from("planning_catalog_details")
-    .select("id")
-    .eq("type_id", selectedType.id)
-    .eq("label", payload.description)
-    .maybeSingle();
-
-  if (detailError) {
-    throw detailError;
-  }
+  const selectedDetail = await findPlanningCatalogDetailByTypeAndLabel(
+    selectedType.id,
+    payload.description
+  );
 
   if (!selectedDetail) {
     return NextResponse.json(
@@ -245,7 +217,7 @@ async function validateCatalogSelection(db: ReturnType<typeof getSupabaseServerC
   return null;
 }
 
-function toPlanningItemUpdatePayload(payload: PlanningItemPayload) {
+function toPlanningItemUpdatePayload(payload: NormalizedPlanningItemPayloadDto) {
   return {
     activity_group_id: payload.activity_group_id,
     item_date: payload.item_date,
@@ -263,20 +235,11 @@ function toPlanningItemUpdatePayload(payload: PlanningItemPayload) {
 }
 
 async function validateRealSegmentsDoNotOverlap(
-  db: ReturnType<typeof getSupabaseServerClient>,
   activityGroupId: string,
-  segments: RealSegmentRangeInput[],
+  segments: RealSegmentRangeInputDto[],
   excludedSegmentId?: number
 ) {
-  const { data: existingSegments, error } = await db
-    .from("activity_execution_segments")
-    .select("id, item_date, start_time, end_time, shift")
-    .eq("activity_group_id", activityGroupId);
-
-  if (error) {
-    throw error;
-  }
-
+  const existingSegments = await listSegmentsForOverlap(activityGroupId);
   const comparableExistingSegments = (existingSegments ?? []).filter(
     (segment) => Number(segment.id) !== excludedSegmentId
   );
@@ -316,39 +279,10 @@ async function validateRealSegmentsDoNotOverlap(
 
 async function validateAndNormalizePlanningItem(
   req: Request,
-  body: {
-    activity_group_id?: string;
-    item_date?: string;
-    start_time?: string;
-    end_time?: string;
-    shift?: string;
-    level?: string;
-    front?: string;
-    category?: string;
-    tracking_type?: string;
-    item_type?: string;
-    description?: string;
-    notes?: string | null;
-    client_mutation_id?: string | null;
-  }
+  body: PlanningItemMutationPayloadDto
 ) {
   const { user, profile } = await requireApprovedUser(req);
-  const db = getSupabaseServerClient();
-  const payload: PlanningItemPayload = {
-    activity_group_id: String(body.activity_group_id ?? "").trim() || crypto.randomUUID(),
-    client_mutation_id: String(body.client_mutation_id ?? "").trim() || null,
-    item_date: String(body.item_date ?? "").trim(),
-    start_time: String(body.start_time ?? "").trim(),
-    end_time: String(body.end_time ?? "").trim(),
-    shift: String(body.shift ?? "").trim(),
-    level: String(body.level ?? "").trim(),
-    front: String(body.front ?? "").trim(),
-    category: String(body.category ?? "").trim().toLowerCase(),
-    tracking_type: String(body.tracking_type ?? "").trim().toLowerCase(),
-    item_type: String(body.item_type ?? "").trim().toLowerCase(),
-    description: String(body.description ?? "").trim(),
-    notes: String(body.notes ?? "").trim() || null,
-  };
+  const payload = normalizePlanningItemMutationPayload(body);
 
   if (
     !payload.item_date ||
@@ -370,7 +304,7 @@ async function validateAndNormalizePlanningItem(
     };
   }
 
-  if (!["actividad", "interferencia"].includes(payload.category)) {
+  if (!isPlanningCategoryDto(payload.category)) {
     return {
       errorResponse: NextResponse.json(
         { error: "La categoria debe ser actividad o interferencia." },
@@ -379,7 +313,7 @@ async function validateAndNormalizePlanningItem(
     };
   }
 
-  if (!["programado", "real"].includes(payload.tracking_type)) {
+  if (!isPlanningTrackingTypeDto(payload.tracking_type)) {
     return {
       errorResponse: NextResponse.json(
         { error: "La vista debe ser programado o real." },
@@ -397,7 +331,7 @@ async function validateAndNormalizePlanningItem(
     };
   }
 
-  if (!["Dia", "Noche"].includes(payload.shift)) {
+  if (!isPlanningShiftDto(payload.shift)) {
     return {
       errorResponse: NextResponse.json(
         { error: "El turno debe ser Dia o Noche." },
@@ -444,7 +378,7 @@ async function validateAndNormalizePlanningItem(
     };
   }
 
-  const catalogError = await validateCatalogSelection(db, payload);
+  const catalogError = await validateCatalogSelection(payload);
   if (catalogError) {
     return { errorResponse: catalogError };
   }
@@ -452,16 +386,7 @@ async function validateAndNormalizePlanningItem(
   let plannedItem: { id: number; activity_group_id: string } | null = null;
 
   if (payload.tracking_type === "real") {
-    const { data, error } = await db
-      .from("planning_items")
-      .select("id, activity_group_id")
-      .eq("activity_group_id", payload.activity_group_id)
-      .eq("tracking_type", "programado")
-      .maybeSingle();
-
-    if (error) {
-      throw error;
-    }
+    const data = await findPlannedItemSummaryByActivityGroupId(payload.activity_group_id);
 
     if (!data) {
       return {
@@ -475,11 +400,13 @@ async function validateAndNormalizePlanningItem(
     plannedItem = data;
   }
 
-  return { db, payload, user, profile, plannedItem };
+  return { payload, user, profile, plannedItem };
 }
 
 export async function GET(req: Request) {
   try {
+    await requireApprovedUser(req);
+
     const { searchParams } = new URL(req.url);
     const date = searchParams.get("date")?.trim() ?? "";
 
@@ -491,26 +418,12 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as {
-      activity_group_id?: string;
-      item_date?: string;
-      start_time?: string;
-      end_time?: string;
-      shift?: string;
-      level?: string;
-      front?: string;
-      category?: string;
-      tracking_type?: string;
-      item_type?: string;
-      description?: string;
-      notes?: string | null;
-      client_mutation_id?: string | null;
-    };
+    const body = (await req.json()) as PlanningItemMutationPayloadDto;
     const result = await validateAndNormalizePlanningItem(req, body);
     if ("errorResponse" in result) {
       return result.errorResponse;
     }
-    const { db, payload, user, profile, plannedItem } = result;
+    const { payload, user, profile, plannedItem } = result;
 
     if (payload.tracking_type === "programado") {
       const plannedResult = await createPlannedPlanningItem({
@@ -534,7 +447,7 @@ export async function POST(req: Request) {
       plannedItem,
       segments,
       validateOverlap: () =>
-        validateRealSegmentsDoNotOverlap(db, payload.activity_group_id, segments),
+        validateRealSegmentsDoNotOverlap(payload.activity_group_id, segments),
     });
 
     if (realResult.status === "overlap") {
@@ -566,22 +479,7 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
-    const body = (await req.json()) as {
-      id?: number;
-      activity_group_id?: string;
-      item_date?: string;
-      start_time?: string;
-      end_time?: string;
-      shift?: string;
-      level?: string;
-      front?: string;
-      category?: string;
-      tracking_type?: string;
-      item_type?: string;
-      description?: string;
-      notes?: string | null;
-      client_mutation_id?: string | null;
-    };
+    const body = (await req.json()) as PlanningItemMutationPayloadDto;
     const id = Number(body.id);
     if (!Number.isFinite(id) || id <= 0) {
       return NextResponse.json({ error: "Debes indicar un id valido." }, { status: 400 });
@@ -590,7 +488,7 @@ export async function PATCH(req: Request) {
     if ("errorResponse" in result) {
       return result.errorResponse;
     }
-    const { db, payload, user, profile, plannedItem } = result;
+    const { payload, user, profile, plannedItem } = result;
 
     if (payload.tracking_type === "programado") {
       const updatePayload = toPlanningItemUpdatePayload(payload);
@@ -613,7 +511,6 @@ export async function PATCH(req: Request) {
     }
 
     const overlapError = await validateRealSegmentsDoNotOverlap(
-      db,
       payload.activity_group_id,
       realSegments,
       id
@@ -659,7 +556,7 @@ export async function PATCH(req: Request) {
 export async function DELETE(req: Request) {
   try {
     const { user, profile } = await requireApprovedUser(req);
-    const body = (await req.json()) as { id?: number; tracking_type?: string };
+    const body = (await req.json()) as PlanningItemDeleteRequestDto;
     const id = Number(body.id);
     const trackingType = String(body.tracking_type ?? "").trim().toLowerCase();
 

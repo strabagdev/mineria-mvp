@@ -29,7 +29,7 @@ MVP web para operacion minera con autenticacion, planificacion operacional y rep
 - Auth centralizado con Supabase.
 - Seguridad por RLS en base de datos.
 - Catalogos de planificacion pre-sembrados via SQL.
-- Soporte PWA basico (`public/sw.js`, iconos, manifest).
+- Soporte PWA basico (`public/sw.js`, iconos, manifest); detalle offline y caché local en `docs/OFFLINE.md`.
 
 ## Convenciones de trabajo (token-friendly)
 - Cambios pequenos por modulo/archivo.

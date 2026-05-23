@@ -140,6 +140,22 @@ export async function findPlannedItemById(id: number) {
   return data as PlanningItemReadRow | null;
 }
 
+export async function findPlannedItemSummaryByActivityGroupId(activityGroupId: string) {
+  const db = getSupabaseServerClient();
+  const { data, error } = await db
+    .from("planning_items")
+    .select("id, activity_group_id")
+    .eq("activity_group_id", activityGroupId)
+    .eq("tracking_type", "programado")
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data as { id: number; activity_group_id: string } | null;
+}
+
 export async function updatePlannedItemById(
   id: number,
   input: PlanningItemUpdateInput

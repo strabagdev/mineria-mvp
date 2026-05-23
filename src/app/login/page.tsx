@@ -2,8 +2,12 @@
 
 import React from "react";
 import { useRouter } from "next/navigation";
-import { supabaseAuth } from "@/lib/authClient";
 import { NETWORK_ERROR_MESSAGE, assertBrowserOnline } from "@/lib/networkStatus";
+import {
+  getCurrentAuthSession,
+  signInWithPassword,
+  signOut,
+} from "@/modules/auth/application/auth-client";
 
 type AuthMode = "signin" | "request";
 
@@ -24,12 +28,12 @@ export default function LoginPage() {
       );
     }
 
-    supabaseAuth.auth.getSession().then(async ({ data }) => {
-      if (!data.session?.access_token) {
+    getCurrentAuthSession().then(async (session) => {
+      if (!session?.access_token) {
         return;
       }
 
-      const synced = await syncProfile(data.session.access_token).catch(() => false);
+      const synced = await syncProfile(session.access_token).catch(() => false);
       if (synced) {
         router.replace("/");
       }
@@ -48,7 +52,7 @@ export default function LoginPage() {
     const json = await res.json().catch(() => ({}));
 
     if (!res.ok) {
-      await supabaseAuth.auth.signOut();
+      await signOut();
       throw new Error(String(json.error ?? "No se pudo validar tu acceso."));
     }
 
@@ -71,16 +75,20 @@ export default function LoginPage() {
     try {
       assertBrowserOnline();
 
-      const { data, error } = await supabaseAuth.auth.signInWithPassword({
+      const { session, error } = await signInWithPassword({
         email: normalizedEmail,
         password,
       });
 
-      if (error || !data.session?.access_token) {
-        throw error ?? new Error("No se pudo iniciar sesion.");
+      if (error) {
+        throw new Error(error.message);
       }
 
-      await syncProfile(data.session.access_token);
+      if (!session?.access_token) {
+        throw new Error("No se pudo iniciar sesion.");
+      }
+
+      await syncProfile(session.access_token);
       router.replace("/");
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : "No se pudo iniciar sesion.");

@@ -86,6 +86,59 @@ export async function createPlanningCatalogType(input: {
   return data as PlanningCatalogTypeRow;
 }
 
+export async function findPlanningLevelByLabel(label: string) {
+  const db = getSupabaseServerClient();
+  const { data, error } = await db
+    .from("planning_levels")
+    .select("id")
+    .eq("label", label)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data as { id: number } | null;
+}
+
+export async function findPlanningCatalogTypeByCategoryAndLabel(
+  category: string,
+  label: string
+) {
+  const db = getSupabaseServerClient();
+  const { data, error } = await db
+    .from("planning_catalog_types")
+    .select("id")
+    .eq("category", category)
+    .eq("label", label)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data as { id: number } | null;
+}
+
+export async function findPlanningCatalogDetailByTypeAndLabel(
+  typeId: number,
+  label: string
+) {
+  const db = getSupabaseServerClient();
+  const { data, error } = await db
+    .from("planning_catalog_details")
+    .select("id")
+    .eq("type_id", typeId)
+    .eq("label", label)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data as { id: number } | null;
+}
+
 export async function createPlanningCatalogDetail(input: {
   type_id: number;
   label: string;
@@ -247,4 +300,3 @@ export async function deletePlanningLevel(id: number) {
     throw error;
   }
 }
-

@@ -4,11 +4,11 @@ import Link from "next/link";
 import { BarChart3, ChevronLeft, ChevronRight, Home, LayoutDashboard, LogOut, Settings, User, Users, Wifi, WifiOff } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { type ComponentType, type MouseEvent, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { supabaseAuth } from "@/lib/authClient";
 import { useAuth } from "@/providers/auth-provider";
 import { getNetworkStatusSnapshot, isBrowserOffline, subscribeNetworkStatus } from "@/lib/networkStatus";
 import { OfflineRouteContent } from "@/components/offline-route-content";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { signOut as signOutAuthSession } from "@/modules/auth/application/auth-client";
 
 type ShellIcon = ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
 type OfflineView = null | "home" | "dashboard" | "reports" | "users";
@@ -86,7 +86,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   async function signOut() {
-    await supabaseAuth.auth.signOut();
+    await signOutAuthSession();
 
     if (typeof window !== "undefined") {
       window.location.assign(`${window.location.origin}/login`);

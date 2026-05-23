@@ -2694,7 +2694,9 @@ select.field-input {
 }
 
 .detail-modal-card {
-  width: min(760px, 100%);
+  width: min(560px, 100%);
+  padding: 0;
+  overflow: hidden;
 }
 
 .confirm-modal-card {
@@ -2735,46 +2737,223 @@ select.field-input {
   flex-wrap: wrap;
 }
 
-.detail-modal-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.9rem;
-  margin-top: 1.25rem;
+.detail-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.2rem 1.2rem 1.05rem;
+  border-bottom: 1px solid var(--border);
 }
 
-.detail-card,
-.detail-notes-card {
-  padding: 1rem 1.05rem;
+.detail-modal-heading {
+  min-width: 0;
+}
+
+.detail-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 0.48rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.82rem;
+}
+
+.detail-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.5rem;
+  padding: 0.16rem 0.52rem;
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--panel-solid) 92%, transparent);
+  border-radius: 0.45rem;
+  background: color-mix(in srgb, var(--secondary) 80%, transparent);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.detail-badge.category-actividad {
+  border-color: color-mix(in srgb, var(--success) 34%, var(--border));
+  background: color-mix(in srgb, var(--success) 14%, var(--panel-solid));
+  color: color-mix(in srgb, var(--success) 76%, var(--foreground));
+}
+
+.detail-badge.category-interferencia {
+  border-color: color-mix(in srgb, var(--warning) 38%, var(--border));
+  background: color-mix(in srgb, var(--warning) 14%, var(--panel-solid));
+  color: color-mix(in srgb, var(--warning) 78%, var(--foreground));
+}
+
+.card-title.detail-modal-title {
+  color: var(--foreground);
+  font-size: 1.5rem;
+  font-weight: 800;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.detail-close-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 0.62rem;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.detail-close-button:hover {
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--secondary) 84%, transparent);
+  color: var(--foreground);
+}
+
+.detail-close-button svg {
+  width: 1.12rem;
+  height: 1.12rem;
+}
+
+.detail-modal-body {
+  display: grid;
+  gap: 0.9rem;
+  padding: 1.05rem 1.2rem;
+}
+
+.detail-primary-grid,
+.detail-highlight-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.detail-compact-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.58rem;
+}
+
+.detail-primary-card,
+.detail-card,
+.detail-highlight-card,
+.detail-notes-card {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 0.72rem;
+  background: color-mix(in srgb, var(--panel-solid) 88%, var(--secondary));
+}
+
+.detail-primary-card {
+  display: flex;
+  align-items: center;
+  gap: 0.78rem;
+  min-height: 4.4rem;
+  padding: 0.82rem 0.88rem;
+}
+
+.detail-primary-card svg {
+  width: 1.05rem;
+  height: 1.05rem;
+  flex: 0 0 auto;
+  color: var(--accent-text);
+}
+
+.detail-card {
+  padding: 0.78rem 0.72rem;
+}
+
+.detail-card.compact {
+  text-align: center;
 }
 
 .detail-label {
   margin: 0;
   font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-weight: 800;
+  letter-spacing: 0;
   color: var(--muted-soft);
 }
 
 .detail-value {
-  margin: 0.45rem 0 0;
-  font-size: 1rem;
+  margin: 0.28rem 0 0;
+  font-size: 0.94rem;
   font-weight: 700;
+  line-height: 1.35;
   color: var(--foreground);
+  overflow-wrap: anywhere;
+}
+
+.detail-highlight-card {
+  padding: 0.88rem 0.92rem;
+}
+
+.detail-highlight-card.level {
+  border-color: var(--accent-border);
+  background: color-mix(in srgb, var(--accent-soft) 72%, var(--panel-solid));
+}
+
+.detail-highlight-label,
+.detail-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.48rem;
+}
+
+.detail-highlight-label svg,
+.detail-section-heading svg {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.detail-highlight-card.level .detail-highlight-label svg,
+.detail-highlight-card.level .detail-label,
+.detail-highlight-card.level .detail-highlight-value {
+  color: var(--accent-text);
+}
+
+.detail-highlight-value {
+  margin: 0.42rem 0 0;
+  color: var(--foreground);
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
 }
 
 .detail-notes-card {
-  margin-top: 0.9rem;
+  padding: 0.92rem;
 }
 
 .detail-notes-copy {
-  margin: 0.55rem 0 0;
+  margin: 0.52rem 0 0;
   font-size: 0.92rem;
   line-height: 1.6;
   color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.detail-modal-actions {
+  padding: 0.95rem 1.2rem 1.2rem;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel-solid) 90%, var(--background-soft));
+}
+
+.detail-modal-actions .button:not(.primary) {
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--surface) 82%, var(--secondary));
+  color: var(--foreground);
+}
+
+.detail-modal-actions .button:not(.primary):hover {
+  border-color: color-mix(in srgb, var(--foreground) 18%, var(--border));
+  background: color-mix(in srgb, var(--secondary) 78%, var(--panel-solid));
 }
 
 .catalog-admin-grid {
@@ -3186,9 +3365,28 @@ select.field-input {
   }
 
   .modal-form,
-  .detail-modal-grid,
+  .detail-modal-body,
   .catalog-admin-grid {
     gap: 0.78rem;
+  }
+
+  .detail-modal-header,
+  .detail-modal-body,
+  .detail-modal-actions {
+    padding-left: 0.92rem;
+    padding-right: 0.92rem;
+  }
+
+  .detail-primary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-highlight-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .detail-compact-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .field {

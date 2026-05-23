@@ -1,33 +1,34 @@
 "use client";
 
 import { createContext, useContext, useEffect, useRef, useState } from "react";
-import type { Session, User } from "@supabase/supabase-js";
-import { supabaseAuth } from "@/lib/authClient";
 import { readProfileCache, saveProfileCache } from "@/lib/localOfflineStore";
 import { isBrowserOffline, isNetworkRequestError, subscribeNetworkStatus } from "@/lib/networkStatus";
+import {
+  getCurrentAuthSession,
+  onAuthSessionChange,
+  signOut,
+} from "@/modules/auth/application/auth-client";
+import type {
+  AppAuthProfile,
+  AppSession,
+  AppUser,
+} from "@/modules/auth/application/auth-types";
 
 type AuthContextValue = {
-  session: Session | null;
-  user: User | null;
-  profile: {
-    user_id: string;
-    email: string;
-    full_name: string | null;
-    role: "admin" | "viewer";
-    active: boolean;
-    approval_status: "pending" | "approved" | "rejected";
-  } | null;
+  session: AppSession | null;
+  user: AppUser | null;
+  profile: AppAuthProfile | null;
   loading: boolean;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
-  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<AppSession | null>(null);
+  const [user, setUser] = useState<AppUser | null>(null);
   const [profile, setProfile] = useState<AuthContextValue["profile"]>(null);
   const [loading, setLoading] = useState(true);
-  const sessionRef = useRef<Session | null>(null);
+  const sessionRef = useRef<AppSession | null>(null);
   const profileRef = useRef<AuthContextValue["profile"]>(null);
   const recoverSessionRef = useRef<() => void>(() => undefined);
 
@@ -56,7 +57,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
     }, 1800);
 
-    async function syncProfile(nextSession: Session | null): Promise<AuthContextValue["profile"]> {
+    async function syncProfile(nextSession: AppSession | null): Promise<AuthContextValue["profile"]> {
       if (!nextSession?.access_token) {
         return null;
       }
@@ -83,7 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const json = await response.json().catch(() => ({}));
 
         if (!response.ok) {
-          await supabaseAuth.auth.signOut();
+          await signOut();
           return null;
         }
 
@@ -100,7 +101,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    async function applySession(nextSession: Session | null, options?: { keepLoading?: boolean }) {
+    async function applySession(nextSession: AppSession | null, options?: { keepLoading?: boolean }) {
       if (!mounted) {
         return;
       }
@@ -131,19 +132,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setProfile(cachedProfile.value);
         }
 
-        const sessionPromise = supabaseAuth.auth.getSession();
-        const timeoutPromise = new Promise<null>((resolve) => {
-          window.setTimeout(() => resolve(null), 1200);
+        const sessionTimeout = Symbol("session-timeout");
+        const sessionPromise = getCurrentAuthSession();
+        const timeoutPromise = new Promise<typeof sessionTimeout>((resolve) => {
+          window.setTimeout(() => resolve(sessionTimeout), 1200);
         });
         const result = await Promise.race([sessionPromise, timeoutPromise]);
 
-        if (result === null) {
+        if (result === sessionTimeout) {
           setLoading(false);
           return;
         }
 
-        const { data } = result;
-        await applySession(data.session ?? null, { keepLoading: !sessionRef.current });
+        await applySession(result, { keepLoading: !sessionRef.current });
       } catch (error: unknown) {
         if (!mounted) {
           return;
@@ -173,7 +174,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     void recoverSession();
 
-    const { data } = supabaseAuth.auth.onAuthStateChange((_event, nextSession) => {
+    const unsubscribeAuthSessionChange = onAuthSessionChange((nextSession) => {
       const previousSession = sessionRef.current;
       const hasResolvedSession = Boolean(sessionRef.current && profileRef.current);
 
@@ -204,7 +205,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       mounted = false;
       window.clearTimeout(loadingGuardTimer);
-      data.subscription.unsubscribe();
+      unsubscribeAuthSessionChange();
     };
   }, []);
 

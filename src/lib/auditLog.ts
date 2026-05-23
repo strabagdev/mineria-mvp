@@ -1,11 +1,11 @@
 import "server-only";
 
-import type { User } from "@supabase/supabase-js";
 import type { AppProfile } from "@/lib/accessControl";
-import { getSupabaseServerClient } from "@/server/db/supabase";
+import type { AppUser } from "@/modules/auth/application/auth-types";
+import { insertAuditLog } from "@/server/repositories/audit.repository";
 
 type AuditActor = {
-  user?: Pick<User, "id" | "email"> | null;
+  user?: Pick<AppUser, "id" | "email"> | null;
   profile?: Pick<AppProfile, "user_id" | "email"> | null;
 };
 
@@ -36,8 +36,7 @@ export async function writeAuditLog({
   const actorEmail = actor?.profile?.email ?? actor?.user?.email ?? null;
 
   try {
-    const db = getSupabaseServerClient();
-    const { error } = await db.from("audit_logs").insert({
+    const { error } = await insertAuditLog({
       actor_user_id: actorUserId,
       actor_email: actorEmail,
       action,

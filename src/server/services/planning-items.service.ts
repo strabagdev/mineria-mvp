@@ -1,5 +1,9 @@
 import "server-only";
 
+import type {
+  NormalizedPlanningItemPayloadDto,
+  PlanningItemDto,
+} from "@/modules/planning/contracts/planning-items";
 import {
   deletePlannedItemById,
   findPlannedItemById,
@@ -25,37 +29,8 @@ import {
   type PlanningSegmentUpdateRow,
 } from "@/server/repositories/planning-segments.repository";
 
-type PlanningItemResponse = {
-  id: number;
-  activity_group_id: string;
-  item_date: string;
-  start_time: string;
-  end_time: string;
-  shift: string;
-  level: string;
-  front: string;
-  category: "actividad" | "interferencia";
-  tracking_type: "programado" | "real";
-  item_type: string;
-  description: string;
-  notes: string | null;
-};
-
-type PlanningItemPayload = {
-  activity_group_id: string;
-  client_mutation_id: string | null;
-  item_date: string;
-  start_time: string;
-  end_time: string;
-  shift: string;
-  level: string;
-  front: string;
-  category: string;
-  tracking_type: string;
-  item_type: string;
-  description: string;
-  notes: string | null;
-};
+type PlanningItemResponse = PlanningItemDto;
+type PlanningItemPayload = NormalizedPlanningItemPayloadDto;
 
 type AuditActor = Parameters<typeof writeAuditLog>[0]["actor"];
 

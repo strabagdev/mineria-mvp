@@ -146,6 +146,9 @@ export default function ReportsPage() {
 
       const response = await fetch("/api/planning-catalog", {
         cache: "no-store",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
       });
       const json = await response.json().catch(() => ({}));
 

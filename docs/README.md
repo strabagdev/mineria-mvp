@@ -1,6 +1,6 @@
 # Auth Base
 
-Ultima actualizacion: 2026-05-12
+Ultima actualizacion: 2026-05-13
 
 Base minima en Next.js + Supabase Auth para arrancar un producto desde una autenticacion ya operativa.
 
@@ -12,10 +12,7 @@ Base minima en Next.js + Supabase Auth para arrancar un producto desde una auten
 - `README.md` (este archivo): vision rapida del proyecto.
 - `ARCHITECTURE.md`: arquitectura y decisiones de alto nivel.
 - `TASKS.md`: backlog, trabajo en curso, hecho y mini handoff.
-- `OFFLINE_AUDIT.md`: auditoria de comportamiento offline/online.
-- `OFFLINE_CONTRACT.md`: contrato de datos y sincronizacion offline.
-- `OFFLINE_PHASE_PLAN.md`: plan de implementacion por fases.
-- `OFFLINE_TEST_REPORT.md`: evidencia de pruebas en escenarios de red.
+- `OFFLINE.md`: documentacion unica de offline/conectividad (almacenamiento, matriz por flujo, contrato planning, fases, pruebas, gaps, archivos clave).
 - `MESSAGE_CENTER_SCOPE.md`: alcance UX/tecnico del centro de mensajes.
 
 ## Incluye

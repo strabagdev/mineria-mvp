@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
-import { requireAdminUser } from "@/lib/accessControl";
+import { requireAdminUser, requireApprovedUser } from "@/lib/accessControl";
 import { getErrorMessage } from "@/lib/errorMessage";
+import type {
+  PlanningCatalogCreateRequestDto,
+  PlanningCatalogDeleteRequestDto,
+  PlanningCatalogUpdateRequestDto,
+} from "@/modules/planning/contracts/planning-catalog";
 import {
   createCatalogDetail,
   createCatalogLevel,
@@ -15,8 +20,10 @@ import {
   updateCatalogType,
 } from "@/server/services/planning-catalog.service";
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
+    await requireApprovedUser(req);
+
     return NextResponse.json(await getPlanningCatalog());
   } catch (error: unknown) {
     return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
@@ -26,12 +33,7 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const { user, profile } = await requireAdminUser(req);
-    const body = (await req.json()) as {
-      entity?: "type" | "detail" | "level";
-      category?: string;
-      label?: string;
-      type_id?: number;
-    };
+    const body = (await req.json()) as PlanningCatalogCreateRequestDto;
 
     if (body.entity === "type") {
       const category = String(body.category ?? "").trim().toLowerCase();
@@ -123,13 +125,7 @@ export async function POST(req: Request) {
 export async function PATCH(req: Request) {
   try {
     const { user, profile } = await requireAdminUser(req);
-    const body = (await req.json()) as {
-      entity?: "type" | "detail" | "level";
-      id?: number;
-      category?: string;
-      label?: string;
-      type_id?: number;
-    };
+    const body = (await req.json()) as PlanningCatalogUpdateRequestDto;
 
     if (body.entity === "type") {
       const id = Number(body.id);
@@ -227,10 +223,7 @@ export async function PATCH(req: Request) {
 export async function DELETE(req: Request) {
   try {
     const { user, profile } = await requireAdminUser(req);
-    const body = (await req.json()) as {
-      entity?: "type" | "detail" | "level";
-      id?: number;
-    };
+    const body = (await req.json()) as PlanningCatalogDeleteRequestDto;
 
     const id = Number(body.id);
     if (!Number.isFinite(id) || id <= 0) {
