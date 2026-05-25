@@ -1,7 +1,10 @@
+import type { OperationalStatus } from "@/lib/operationalState";
+import { recordOperationalEvent } from "./observability/logger";
+
 export const NETWORK_ERROR_MESSAGE =
   "Sin conexion. Usando informacion local disponible.";
 
-export type OperationalStatus = "online" | "offline";
+export type { OperationalStatus };
 
 const NETWORK_STATUS_EVENT = "mineria-network-status";
 const NETWORK_HEALTH_TIMEOUT_MS = 2000;
@@ -27,6 +30,19 @@ function getCurrentOperationalStatus(): OperationalStatus {
 }
 
 function logNetworkStatusChange(detail: NetworkStatusChangeDetail) {
+  recordOperationalEvent({
+    level: detail.nextStatus === "online" ? "info" : "warn",
+    name: "network.status_changed",
+    source: "networkStatus",
+    metadata: {
+      previousStatus: detail.previousStatus,
+      nextStatus: detail.nextStatus,
+      reason: detail.reason,
+      healthOk: detail.healthOk,
+      healthStatus: detail.healthStatus,
+    },
+  });
+
   if (process.env.NODE_ENV === "production") {
     return;
   }
@@ -35,6 +51,18 @@ function logNetworkStatusChange(detail: NetworkStatusChangeDetail) {
 }
 
 function logHeartbeat(detail: { event: "start" | "end" | "timeout" | "success" | "failure" | "cancel"; reason: string; healthStatus?: number }) {
+  recordOperationalEvent({
+    level: detail.event === "failure" || detail.event === "timeout" ? "warn" : "info",
+    name: "network.heartbeat",
+    source: "networkStatus",
+    metadata: {
+      event: detail.event,
+      reason: detail.reason,
+      currentStatus: getCurrentOperationalStatus(),
+      healthStatus: detail.healthStatus,
+    },
+  });
+
   if (process.env.NODE_ENV === "production") {
     return;
   }
@@ -245,6 +273,12 @@ export function isNetworkRequestError(error: unknown) {
     error instanceof Error && /failed to fetch|fetch failed|load failed|networkerror/i.test(error.message);
 
   if (isNetworkError) {
+    recordOperationalEvent({
+      level: "warn",
+      name: "network.request_failed",
+      source: "networkStatus",
+      metadata: { reason: "network-request-error" },
+    });
     setBackendOnline(false, { reason: "network-request-error" });
     if (hasBrowserConnectivity()) {
       startHeartbeat("network-request-error");

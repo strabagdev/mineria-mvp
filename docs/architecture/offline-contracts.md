@@ -4,6 +4,10 @@ Ultima actualizacion: 2026-05-23
 
 Este documento formaliza el comportamiento offline actual por modulo. No define una reescritura del sistema offline; documenta el contrato operativo vigente y marca las evoluciones necesarias para una plataforma industrial mas robusta.
 
+Inventario detallado de IndexedDB, LocalStorage legacy, riesgos y roadmap: `docs/architecture/indexeddb-local-store.md`.
+Modelo de estados operacionales enriquecidos: `docs/architecture/operational-states.md`.
+Base de observabilidad interna: `docs/architecture/observability.md`.
+
 ## Principios
 
 - La fuente de verdad operacional es el backend.
@@ -45,6 +49,7 @@ Base IndexedDB:
 - Nombre: `mineria-offline-store`
 - Version: `1`
 - Stores: `keyval`, `planningByDate`
+- Constantes fuente: `OFFLINE_DB_NAME`, `OFFLINE_DB_VERSION`, `OFFLINE_STORES`, `OFFLINE_KEYS` en `src/lib/localOfflineStore.ts`
 
 | Store | Clave | Contenido | Escritor principal | Expiracion actual |
 | --- | --- | --- | --- | --- |
@@ -56,7 +61,7 @@ Base IndexedDB:
 | `keyval` | `reports-data-v1-*` | Snapshot de reportes por query | Reports/Dashboard tras GET exitoso | Sin TTL |
 | `keyval` | `admin-users-v1` | Snapshot de usuarios admin | Admin users tras GET exitoso | Sin TTL |
 
-No existe hoy expiracion automatica, limpieza por version de schema local, compactacion de cola ni namespacing por tenant/faena. La frescura se comunica con `updatedAt` cuando la pantalla lo muestra.
+No existe hoy expiracion automatica, limpieza por version de schema local ni compactacion de cola. Desde ID 13, la generacion de claves IndexedDB esta centralizada en `src/lib/localOfflineStore.ts` y preparada para recibir `userId`, `organizationId` y `siteId`. Mientras esos scopes reales no existan, las pantallas siguen usando las claves legacy actuales. Cuando se entregue un scope futuro, las claves se guardaran con prefijo `v2:user:{userId}:org:{organizationId}:site:{siteId}:...` y las lecturas intentaran fallback a la clave legacy para transicion controlada.
 
 ## Contrato: Planning
 
@@ -251,7 +256,7 @@ No garantizado hoy:
 - Reintentos por prioridad.
 - Locks cross-tab.
 - Versionado de payloads.
-- Namespacing por tenant/faena.
+- Namespacing por tenant/faena en cada mutacion activa; la infraestructura de claves ya esta preparada, pero la app aun no entrega `organizationId/siteId` reales.
 - Resolucion guiada de conflictos.
 - Observabilidad durable de intentos.
 
@@ -376,4 +381,3 @@ Online-only:
 - Mutaciones de usuarios/admin.
 - Realtime.
 - Cualquier lectura sin snapshot/cache local previo.
-

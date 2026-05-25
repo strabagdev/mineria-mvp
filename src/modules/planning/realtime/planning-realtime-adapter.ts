@@ -1,6 +1,7 @@
 "use client";
 
 import { supabaseAuth } from "@/lib/authClient";
+import { recordOperationalEvent } from "../../../lib/observability/logger";
 
 export type PlanningRealtimeSubscription = {
   unsubscribe: () => void;
@@ -20,6 +21,11 @@ export function subscribePlanningRealtimeChanges({
   const realtimeClient = supabaseAuth;
 
   realtimeClient.realtime.setAuth(accessToken);
+  recordOperationalEvent({
+    name: "realtime.subscription_started",
+    source: "planningRealtime",
+    metadata: { selectedDate },
+  });
 
   const channel = realtimeClient
     .channel(`planning-items-${selectedDate}`)
@@ -81,10 +87,22 @@ export function subscribePlanningRealtimeChanges({
       },
       onChange
     )
-    .subscribe();
+    .subscribe((status) => {
+      recordOperationalEvent({
+        level: status === "SUBSCRIBED" ? "info" : "warn",
+        name: "realtime.subscription_status",
+        source: "planningRealtime",
+        metadata: { selectedDate, status },
+      });
+    });
 
   return {
     unsubscribe: () => {
+      recordOperationalEvent({
+        name: "realtime.subscription_stopped",
+        source: "planningRealtime",
+        metadata: { selectedDate },
+      });
       void realtimeClient.removeChannel(channel);
     },
   };

@@ -1,12 +1,9 @@
 import "server-only";
 
 import { getSupabaseAuthAdminClient } from "@/server/db/supabase";
+import type { AuthAdminCreateUserInput } from "./contracts";
 
-export async function createAuthUser(input: {
-  email: string;
-  password: string;
-  name: string;
-}) {
+export async function createAuthUser(input: AuthAdminCreateUserInput) {
   const authAdmin = getSupabaseAuthAdminClient();
 
   return authAdmin.auth.admin.createUser({
@@ -32,4 +29,3 @@ export async function updateAuthUserById(
   const authAdmin = getSupabaseAuthAdminClient();
   return authAdmin.auth.admin.updateUserById(userId, input);
 }
-

@@ -1,4 +1,5 @@
 import type { PlanningItem } from "@/modules/planning/presentation/planning-page-models";
+import { recordOperationalEvent } from "../../../lib/observability/logger";
 import type { PendingPlanningMutation } from "./planning-sync-models";
 
 type ReplayPendingPlanningMutationsArgs = {
@@ -154,6 +155,15 @@ export async function replayPendingPlanningMutations({
   getErrorMessage,
   isRetryableError,
 }: ReplayPendingPlanningMutationsArgs): Promise<ReplayPendingPlanningMutationsResult> {
+  recordOperationalEvent({
+    name: "sync.replay_started",
+    source: "planningMutationQueue",
+    metadata: {
+      pendingCount: mutations.filter((mutation) => mutation.status !== "conflict").length,
+      conflictCount: mutations.filter((mutation) => mutation.status === "conflict").length,
+    },
+  });
+
   const nextQueue: PendingPlanningMutation[] = [];
   let syncedCount = 0;
   let stoppedForRetryableError = false;
@@ -176,6 +186,16 @@ export async function replayPendingPlanningMutations({
       const message = getErrorMessage(error);
 
       if (isRetryableError(error)) {
+        recordOperationalEvent({
+          level: "warn",
+          name: "sync.replay_failed",
+          source: "planningMutationQueue",
+          metadata: {
+            retryable: true,
+            method: mutation.method,
+            index,
+          },
+        });
         nextQueue.push(mutation);
         nextQueue.push(...mutations.slice(index + 1));
         stoppedForRetryableError = true;
@@ -190,6 +210,15 @@ export async function replayPendingPlanningMutations({
         lastError: message,
         lastTriedAt: new Date().toISOString(),
       });
+      recordOperationalEvent({
+        level: "warn",
+        name: "sync.conflict_detected",
+        source: "planningMutationQueue",
+        metadata: {
+          method: mutation.method,
+          index,
+        },
+      });
       foundConflict = true;
     }
   }
@@ -202,6 +231,18 @@ export async function replayPendingPlanningMutations({
       }
     }
   }
+
+  recordOperationalEvent({
+    level: foundConflict || stoppedForRetryableError ? "warn" : "info",
+    name: "sync.replay_finished",
+    source: "planningMutationQueue",
+    metadata: {
+      syncedCount,
+      nextQueueCount: nextQueue.length,
+      stoppedForRetryableError,
+      foundConflict,
+    },
+  });
 
   return {
     nextQueue,

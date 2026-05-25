@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { readProfileCache, saveProfileCache } from "@/lib/localOfflineStore";
 import { isBrowserOffline, isNetworkRequestError, subscribeNetworkStatus } from "@/lib/networkStatus";
+import { recordOperationalEvent } from "../lib/observability/logger";
 import {
   getCurrentAuthSession,
   onAuthSessionChange,
@@ -47,6 +48,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (cachedProfile?.value && !profileRef.current) {
           profileRef.current = cachedProfile.value;
           setProfile(cachedProfile.value);
+          recordOperationalEvent({
+            name: "auth.offline_profile_used",
+            source: "AuthProvider",
+            metadata: { reason: "loading-guard" },
+          });
         }
 
         setLoading(false);
@@ -84,6 +90,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const json = await response.json().catch(() => ({}));
 
         if (!response.ok) {
+          recordOperationalEvent({
+            level: "warn",
+            name: "auth.profile_sync_failed",
+            source: "AuthProvider",
+            metadata: { status: response.status, reason: "profile-sync-not-ok" },
+          });
           await signOut();
           return null;
         }
@@ -97,6 +109,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return nextProfile;
       } catch (error: unknown) {
         isNetworkRequestError(error);
+        recordOperationalEvent({
+          level: "warn",
+          name: "auth.profile_sync_failed",
+          source: "AuthProvider",
+          metadata: { reason: "profile-sync-request-error" },
+        });
         return null;
       }
     }
@@ -125,11 +143,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     async function recoverSession() {
+      recordOperationalEvent({
+        name: "auth.session_recovery_started",
+        source: "AuthProvider",
+      });
+
       try {
         const cachedProfile = await readProfileCache<AuthContextValue["profile"]>().catch(() => null);
         if (cachedProfile?.value && mounted) {
           profileRef.current = cachedProfile.value;
           setProfile(cachedProfile.value);
+          recordOperationalEvent({
+            name: "auth.offline_profile_used",
+            source: "AuthProvider",
+            metadata: { reason: "recover-session" },
+          });
         }
 
         const sessionTimeout = Symbol("session-timeout");
@@ -140,17 +168,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const result = await Promise.race([sessionPromise, timeoutPromise]);
 
         if (result === sessionTimeout) {
+          recordOperationalEvent({
+            level: "warn",
+            name: "auth.session_recovery_failed",
+            source: "AuthProvider",
+            metadata: { reason: "session-timeout" },
+          });
           setLoading(false);
           return;
         }
 
         await applySession(result, { keepLoading: !sessionRef.current });
+        recordOperationalEvent({
+          name: "auth.session_recovery_finished",
+          source: "AuthProvider",
+          metadata: { hasSession: Boolean(result) },
+        });
       } catch (error: unknown) {
         if (!mounted) {
           return;
         }
 
         if (!isNetworkRequestError(error)) {
+          recordOperationalEvent({
+            level: "warn",
+            name: "auth.session_recovery_failed",
+            source: "AuthProvider",
+            metadata: { reason: "non-network-error" },
+          });
           setLoading(false);
           return;
         }
@@ -162,6 +207,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (cachedProfile?.value) {
           profileRef.current = cachedProfile.value;
           setProfile(cachedProfile.value);
+          recordOperationalEvent({
+            name: "auth.offline_profile_used",
+            source: "AuthProvider",
+            metadata: { reason: "network-error" },
+          });
         }
 
         setLoading(false);

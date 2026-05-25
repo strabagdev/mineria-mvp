@@ -1,3 +1,5 @@
+import { buildOperationalState, type OperationalStatus } from "@/lib/operationalState";
+
 type PendingPlanningMutation = {
   id: string;
   status?: "pending" | "conflict";
@@ -9,6 +11,7 @@ type PlanningStatusStripProps = {
   retryablePlanningMutations: PendingPlanningMutation[];
   conflictedPlanningMutations: PendingPlanningMutation[];
   queueSyncing: boolean;
+  networkStatus?: OperationalStatus;
   onDiscardConflicts: () => void;
 };
 
@@ -18,6 +21,7 @@ export function PlanningStatusStrip({
   retryablePlanningMutations,
   conflictedPlanningMutations,
   queueSyncing,
+  networkStatus = "online",
   onDiscardConflicts,
 }: PlanningStatusStripProps) {
   const isLocalPlanningMessage = /^Usando planificacion local guardada\./.test(itemsError);
@@ -33,13 +37,29 @@ export function PlanningStatusStrip({
     Boolean(visibleCatalogError && visibleCatalogError !== visibleItemsError) ||
     Boolean(retryablePlanningMutations.length) ||
     Boolean(conflictedPlanningMutations.length);
+  const hasLocalSnapshot = Boolean(unifiedLocalMessage || isLocalPlanningMessage || isLocalCatalogMessage);
+  const operationalState = buildOperationalState({
+    network: networkStatus,
+    hasSession: true,
+    hasLocalSnapshot,
+    expectsLocalSnapshot: networkStatus === "offline",
+    pendingSyncCount: retryablePlanningMutations.length,
+    conflictCount: conflictedPlanningMutations.length,
+    syncing: queueSyncing,
+    refreshFailed: Boolean(visibleItemsError || visibleCatalogError),
+  });
 
   if (!hasVisibleStatus) {
     return null;
   }
 
   return (
-    <div className="gantt-status-strip" aria-live="polite">
+    <div
+      className="gantt-status-strip"
+      aria-live="polite"
+      data-operational-state={operationalState.primary}
+      data-operational-severity={operationalState.severity}
+    >
       {visibleItemsError ? <p className="feedback">{visibleItemsError}</p> : null}
       {visibleCatalogError && visibleCatalogError !== visibleItemsError ? <p className="feedback">{visibleCatalogError}</p> : null}
       {retryablePlanningMutations.length ? (

@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { type ComponentType, type MouseEvent, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useAuth } from "@/providers/auth-provider";
 import { getNetworkStatusSnapshot, isBrowserOffline, subscribeNetworkStatus } from "@/lib/networkStatus";
+import { buildOperationalState } from "@/lib/operationalState";
 import { OfflineRouteContent } from "@/components/offline-route-content";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { signOut as signOutAuthSession } from "@/modules/auth/application/auth-client";
@@ -30,9 +31,14 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
   const operationalStatus = useSyncExternalStore(
     subscribeNetworkStatus,
     getNetworkStatusSnapshot,
-    () => "offline"
+    () => "offline" as const
   );
   const isOffline = operationalStatus === "offline";
+  const shellOperationalState = buildOperationalState({
+    network: operationalStatus,
+    hasSession: Boolean(session),
+    hasOfflineProfile,
+  });
   const previousOperationalStatusRef = useRef(operationalStatus);
 
   useEffect(() => {
@@ -214,6 +220,8 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
           <ThemeToggle />
           <span
             className={`session-pill connectivity-pill ${isOffline ? "offline" : "online"}`}
+            data-operational-state={shellOperationalState.primary}
+            data-operational-severity={shellOperationalState.severity}
             title={isOffline ? "Trabajando con datos locales" : "Conexion disponible"}
           >
             {isOffline ? <WifiOff aria-hidden className="app-nav-icon" /> : <Wifi aria-hidden className="app-nav-icon" />}

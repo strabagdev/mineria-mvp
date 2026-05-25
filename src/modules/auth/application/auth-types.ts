@@ -1,10 +1,12 @@
 export type AppUser = {
   id: string;
   email?: string;
+  provider?: string;
 };
 
 export type AppSession = {
   access_token: string;
+  provider?: string;
   user: AppUser;
 };
 

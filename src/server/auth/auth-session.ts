@@ -1,6 +1,16 @@
 import "server-only";
 
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type User } from "@supabase/supabase-js";
+import type { AuthenticatedUser } from "./contracts";
+
+function toAuthenticatedUser(user: User): AuthenticatedUser {
+  return {
+    id: user.id,
+    email: user.email,
+    metadata: user.user_metadata,
+    provider: "supabase",
+  };
+}
 
 export async function requireAuthSessionUser(req: Request) {
   const authHeader = req.headers.get("authorization") ?? "";
@@ -26,6 +36,5 @@ export async function requireAuthSessionUser(req: Request) {
     throw new Error("Invalid session");
   }
 
-  return { user: data.user, token };
+  return { user: toAuthenticatedUser(data.user), token, provider: "supabase" };
 }
-

@@ -1,6 +1,7 @@
 import "server-only";
 
-import type { User } from "@supabase/supabase-js";
+import type { AuthenticatedUser } from "@/server/auth/contracts";
+import { getAuthenticatedUserDisplayName } from "@/server/auth/contracts";
 import { requireAuthSessionUser } from "@/server/auth/auth-session";
 import {
   findProfileForAuthUser,
@@ -63,17 +64,6 @@ export function isMissingAccessColumns(error: unknown) {
   );
 }
 
-function getDisplayName(user: Pick<User, "email" | "user_metadata">) {
-  const metadataName =
-    typeof user.user_metadata?.full_name === "string"
-      ? user.user_metadata.full_name.trim()
-      : typeof user.user_metadata?.name === "string"
-        ? user.user_metadata.name.trim()
-        : "";
-
-  return metadataName || user.email?.split("@")[0] || "Usuario";
-}
-
 export function resolveRole(value: string): UserRole {
   return value === USER_ROLES.ADMIN ? USER_ROLES.ADMIN : USER_ROLES.VIEWER;
 }
@@ -96,7 +86,7 @@ function normalizeProfile(row: AccessProfileRow): AppProfile {
 }
 
 function legacyProfileForAuthUser(input: {
-  user: User;
+  user: AuthenticatedUser;
   email: string;
   fullName: string;
   isBootstrapAdmin: boolean;
@@ -113,7 +103,7 @@ function legacyProfileForAuthUser(input: {
   };
 }
 
-export async function syncProfileForAuthUser(user: User): Promise<ProfileSyncResult> {
+export async function syncProfileForAuthUser(user: AuthenticatedUser): Promise<ProfileSyncResult> {
   const email = (user.email ?? "").trim().toLowerCase();
 
   if (!email) {
@@ -122,7 +112,7 @@ export async function syncProfileForAuthUser(user: User): Promise<ProfileSyncRes
 
   const bootstrapAdminEmail = getBootstrapAdminEmail();
   const isBootstrapAdmin = bootstrapAdminEmail === email;
-  const fullName = getDisplayName(user);
+  const fullName = getAuthenticatedUserDisplayName(user);
   let existingProfile: AccessProfileRow | null = null;
 
   try {
@@ -232,4 +222,3 @@ export async function requireAdminUser(req: Request) {
 
   return auth;
 }
-

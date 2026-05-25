@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useAuth } from "@/providers/auth-provider";
 import { CatalogSheet } from "@/components/planning/catalog-sheet";
 import { DeleteConfirmationDialog } from "@/components/planning/delete-confirmation-dialog";
@@ -21,6 +21,7 @@ import {
 import {
   isBrowserOffline,
   isNetworkRequestError,
+  getNetworkStatusSnapshot,
   subscribeNetworkStatus,
 } from "@/lib/networkStatus";
 import {
@@ -29,6 +30,7 @@ import {
   saveCatalogCache,
   savePlanningCache,
 } from "@/lib/localOfflineStore";
+import { recordOperationalEvent } from "../../lib/observability/logger";
 import {
   buildEventSubtitle,
   buildEventTitle,
@@ -154,6 +156,11 @@ function isTransientConnectivityMessage(message: string) {
 
 export default function Home() {
   const { session, profile } = useAuth();
+  const networkStatus = useSyncExternalStore(
+    subscribeNetworkStatus,
+    getNetworkStatusSnapshot,
+    () => "offline" as const
+  );
   const canManageCatalog = profile?.role === "admin";
   const todayIso = formatLocalDateIso();
   const [planningItems, setPlanningItems] = useState<PlanningItem[]>([]);
@@ -299,9 +306,15 @@ export default function Home() {
 
   const refreshPlanningItemsFromRealtime = useCallback(() => {
     void refreshPlanningItems().catch((error: unknown) => {
+      recordOperationalEvent({
+        level: "warn",
+        name: "realtime.refresh_failed",
+        source: "planningPage",
+        metadata: { selectedDate },
+      });
       setItemsError(getRequestErrorMessage(error, "No se pudo actualizar la planificacion."));
     });
-  }, [refreshPlanningItems]);
+  }, [refreshPlanningItems, selectedDate]);
 
   usePlanningRealtime({
     selectedDate,
@@ -318,6 +331,12 @@ export default function Home() {
       setItemsError((current) => (isTransientConnectivityMessage(current) ? "" : current));
       setCatalogError((current) => (isTransientConnectivityMessage(current) ? "" : current));
       void refreshPlanningItems().catch((error: unknown) => {
+        recordOperationalEvent({
+          level: "warn",
+          name: "refresh.failed",
+          source: "planningPage",
+          metadata: { selectedDate, target: "planning-items-recovered-connectivity" },
+        });
         setItemsError(getRequestErrorMessage(error, "No se pudo actualizar la planificacion."));
       });
     }
@@ -327,7 +346,7 @@ export default function Home() {
     return () => {
       unsubscribeNetworkStatus();
     };
-  }, [refreshPlanningItems]);
+  }, [refreshPlanningItems, selectedDate]);
 
   useEffect(() => {
     let active = true;
@@ -357,6 +376,11 @@ export default function Home() {
           const cachedCatalog = await readCatalogCache<PlanningCatalog>().catch(() => null);
 
           if (cachedCatalog) {
+            recordOperationalEvent({
+              name: "offline.cache_used",
+              source: "planningPage",
+              metadata: { dataset: "planning-catalog" },
+            });
             setCatalog(cachedCatalog.value.categories);
             setLevels(cachedCatalog.value.levels);
             setFormState((current) =>
@@ -365,6 +389,12 @@ export default function Home() {
             setDetailForm((current) => syncDetailAdminForm(current, cachedCatalog.value.categories));
             setCatalogError(`Usando catalogo local guardado. Ultima sincronizacion: ${formatLocalDateTime(cachedCatalog.updatedAt)}.`);
           } else {
+            recordOperationalEvent({
+              level: "warn",
+              name: "offline.cache_miss",
+              source: "planningPage",
+              metadata: { dataset: "planning-catalog" },
+            });
             setCatalogError(message);
           }
         }
@@ -404,11 +434,22 @@ export default function Home() {
           const cachedPlanning = await readPlanningCache<PlanningItem[]>(selectedDate).catch(() => null);
 
           if (cachedPlanning) {
+            recordOperationalEvent({
+              name: "offline.cache_used",
+              source: "planningPage",
+              metadata: { dataset: "planning-by-date", selectedDate },
+            });
             setPlanningItems(cachedPlanning.items);
             setItemsError(
               `Usando planificacion local guardada. Ultima sincronizacion: ${formatLocalDateTime(cachedPlanning.updatedAt)}.`
             );
           } else {
+            recordOperationalEvent({
+              level: "warn",
+              name: "offline.cache_miss",
+              source: "planningPage",
+              metadata: { dataset: "planning-by-date", selectedDate },
+            });
             setItemsError(message);
           }
         }
@@ -490,6 +531,12 @@ export default function Home() {
       }
 
       await refreshPlanningItems().catch((error: unknown) => {
+        recordOperationalEvent({
+          level: "warn",
+          name: "refresh.failed",
+          source: "planningPage",
+          metadata: { selectedDate, target: "planning-items-visibility" },
+        });
         setItemsError(getRequestErrorMessage(error, "No se pudo actualizar la planificacion."));
       });
     }
@@ -499,7 +546,7 @@ export default function Home() {
     return () => {
       unsubscribeNetworkStatus();
     };
-  }, [refreshPlanningItems]);
+  }, [refreshPlanningItems, selectedDate]);
 
   useEffect(() => {
     syncPendingPlanningMutationsRef.current();
@@ -987,6 +1034,7 @@ export default function Home() {
         retryablePlanningMutations={retryablePlanningMutations}
         conflictedPlanningMutations={conflictedPlanningMutations}
         queueSyncing={queueSyncing}
+        networkStatus={networkStatus}
         onDiscardConflicts={discardConflictedPlanningMutations}
       />
 

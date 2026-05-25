@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { isBrowserOffline } from "@/lib/networkStatus";
+import { recordOperationalEvent } from "../../../lib/observability/logger";
 import { subscribePlanningRealtimeChanges } from "@/modules/planning/realtime/planning-realtime-adapter";
 
 type UsePlanningRealtimeArgs = {
@@ -26,6 +27,14 @@ export function usePlanningRealtime({
     function scheduleRealtimeRefresh() {
       if (document.visibilityState === "hidden" || isBrowserOffline()) {
         pendingRealtimeRefreshRef.current = true;
+        recordOperationalEvent({
+          name: "realtime.refresh_deferred",
+          source: "usePlanningRealtime",
+          metadata: {
+            selectedDate,
+            hidden: document.visibilityState === "hidden",
+          },
+        });
         return;
       }
 

@@ -1,10 +1,35 @@
 "use client";
 
-const DB_NAME = "mineria-offline-store";
-const DB_VERSION = 1;
-const CATALOG_KEY = "planning-catalog";
-const PROFILE_KEY = "auth-profile";
-const PLANNING_MUTATION_QUEUE_KEY = "planning-mutation-queue";
+import { recordOperationalEvent } from "./observability/logger";
+
+export const OFFLINE_DB_NAME = "mineria-offline-store";
+export const OFFLINE_DB_VERSION = 1;
+export const OFFLINE_SCOPED_KEY_VERSION = "v2";
+
+export const OFFLINE_STORES = {
+  keyval: "keyval",
+  planningByDate: "planningByDate",
+} as const;
+
+export const OFFLINE_KEYS = {
+  planningCatalog: "planning-catalog",
+  authProfile: "auth-profile",
+  planningMutationQueue: "planning-mutation-queue",
+} as const;
+
+export const OFFLINE_DATASETS = {
+  planningCatalog: "planning.catalog",
+  authProfile: "auth.profile",
+  planningMutationQueue: "planning.mutationQueue",
+  planningByDate: "planning.byDate",
+  keyValueSnapshot: "shared.keyValueSnapshot",
+} as const;
+
+export type OfflineStorageScope = {
+  userId?: string | null;
+  organizationId?: string | null;
+  siteId?: string | null;
+};
 
 type StoredValue<T> = {
   key: string;
@@ -18,19 +43,53 @@ type PlanningCache<T> = {
   updatedAt: string;
 };
 
+function normalizeScopePart(value: string | null | undefined) {
+  const normalized = value?.trim();
+  return normalized ? encodeURIComponent(normalized) : "default";
+}
+
+export function hasOfflineStorageScope(scope?: OfflineStorageScope) {
+  return Boolean(scope?.userId?.trim() || scope?.organizationId?.trim() || scope?.siteId?.trim());
+}
+
+export function buildOfflineStorageKey(key: string, scope?: OfflineStorageScope) {
+  if (!hasOfflineStorageScope(scope)) {
+    return key;
+  }
+
+  return [
+    OFFLINE_SCOPED_KEY_VERSION,
+    "user",
+    normalizeScopePart(scope?.userId),
+    "org",
+    normalizeScopePart(scope?.organizationId),
+    "site",
+    normalizeScopePart(scope?.siteId),
+    key,
+  ].join(":");
+}
+
+export function buildPlanningDateCacheKey(date: string, scope?: OfflineStorageScope) {
+  if (!hasOfflineStorageScope(scope)) {
+    return date;
+  }
+
+  return buildOfflineStorageKey(`planning:${date}`, scope);
+}
+
 function openOfflineDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    const request = indexedDB.open(OFFLINE_DB_NAME, OFFLINE_DB_VERSION);
 
     request.onupgradeneeded = () => {
       const db = request.result;
 
-      if (!db.objectStoreNames.contains("keyval")) {
-        db.createObjectStore("keyval", { keyPath: "key" });
+      if (!db.objectStoreNames.contains(OFFLINE_STORES.keyval)) {
+        db.createObjectStore(OFFLINE_STORES.keyval, { keyPath: "key" });
       }
 
-      if (!db.objectStoreNames.contains("planningByDate")) {
-        db.createObjectStore("planningByDate", { keyPath: "date" });
+      if (!db.objectStoreNames.contains(OFFLINE_STORES.planningByDate)) {
+        db.createObjectStore(OFFLINE_STORES.planningByDate, { keyPath: "date" });
       }
     };
 
@@ -40,7 +99,7 @@ function openOfflineDb(): Promise<IDBDatabase> {
 }
 
 function runTransaction<T>(
-  storeName: "keyval" | "planningByDate",
+  storeName: (typeof OFFLINE_STORES)[keyof typeof OFFLINE_STORES],
   mode: IDBTransactionMode,
   operation: (store: IDBObjectStore) => IDBRequest<T>
 ): Promise<T> {
@@ -56,102 +115,134 @@ function runTransaction<T>(
         const request = operation(store);
 
         request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
+        request.onerror = () => {
+          recordOperationalEvent({
+            level: "error",
+            name: "indexeddb.transaction_failed",
+            source: "localOfflineStore",
+            metadata: { storeName, mode, phase: "request" },
+          });
+          reject(request.error);
+        };
         transaction.oncomplete = () => db.close();
         transaction.onerror = () => {
           db.close();
+          recordOperationalEvent({
+            level: "error",
+            name: "indexeddb.transaction_failed",
+            source: "localOfflineStore",
+            metadata: { storeName, mode, phase: "transaction" },
+          });
           reject(transaction.error);
         };
       })
   );
 }
 
-export async function saveCatalogCache<T>(value: T) {
-  await runTransaction("keyval", "readwrite", (store) =>
+async function readKeyValueWithLegacyFallback<T>(key: string, scope?: OfflineStorageScope) {
+  const scopedKey = buildOfflineStorageKey(key, scope);
+  const scopedResult = await runTransaction<StoredValue<T> | undefined>(
+    OFFLINE_STORES.keyval,
+    "readonly",
+    (store) => store.get(scopedKey)
+  );
+
+  if (scopedResult || scopedKey === key) {
+    return scopedResult ?? null;
+  }
+
+  const legacyResult = await runTransaction<StoredValue<T> | undefined>(
+    OFFLINE_STORES.keyval,
+    "readonly",
+    (store) => store.get(key)
+  );
+
+  return legacyResult ?? null;
+}
+
+export async function saveCatalogCache<T>(value: T, scope?: OfflineStorageScope) {
+  await runTransaction(OFFLINE_STORES.keyval, "readwrite", (store) =>
     store.put({
-      key: CATALOG_KEY,
+      key: buildOfflineStorageKey(OFFLINE_KEYS.planningCatalog, scope),
       value,
       updatedAt: new Date().toISOString(),
     } satisfies StoredValue<T>)
   );
 }
 
-export async function readCatalogCache<T>() {
-  const result = await runTransaction<StoredValue<T> | undefined>("keyval", "readonly", (store) =>
-    store.get(CATALOG_KEY)
-  );
-
-  return result ?? null;
+export async function readCatalogCache<T>(scope?: OfflineStorageScope) {
+  return readKeyValueWithLegacyFallback<T>(OFFLINE_KEYS.planningCatalog, scope);
 }
 
-export async function saveProfileCache<T>(value: T) {
-  await runTransaction("keyval", "readwrite", (store) =>
+export async function saveProfileCache<T>(value: T, scope?: OfflineStorageScope) {
+  await runTransaction(OFFLINE_STORES.keyval, "readwrite", (store) =>
     store.put({
-      key: PROFILE_KEY,
+      key: buildOfflineStorageKey(OFFLINE_KEYS.authProfile, scope),
       value,
       updatedAt: new Date().toISOString(),
     } satisfies StoredValue<T>)
   );
 }
 
-export async function readProfileCache<T>() {
-  const result = await runTransaction<StoredValue<T> | undefined>("keyval", "readonly", (store) =>
-    store.get(PROFILE_KEY)
-  );
-
-  return result ?? null;
+export async function readProfileCache<T>(scope?: OfflineStorageScope) {
+  return readKeyValueWithLegacyFallback<T>(OFFLINE_KEYS.authProfile, scope);
 }
 
-export async function savePendingPlanningMutations<T>(value: T) {
-  await runTransaction("keyval", "readwrite", (store) =>
+export async function savePendingPlanningMutations<T>(value: T, scope?: OfflineStorageScope) {
+  await runTransaction(OFFLINE_STORES.keyval, "readwrite", (store) =>
     store.put({
-      key: PLANNING_MUTATION_QUEUE_KEY,
+      key: buildOfflineStorageKey(OFFLINE_KEYS.planningMutationQueue, scope),
       value,
       updatedAt: new Date().toISOString(),
     } satisfies StoredValue<T>)
   );
 }
 
-export async function readPendingPlanningMutations<T>() {
-  const result = await runTransaction<StoredValue<T> | undefined>("keyval", "readonly", (store) =>
-    store.get(PLANNING_MUTATION_QUEUE_KEY)
-  );
-
-  return result ?? null;
+export async function readPendingPlanningMutations<T>(scope?: OfflineStorageScope) {
+  return readKeyValueWithLegacyFallback<T>(OFFLINE_KEYS.planningMutationQueue, scope);
 }
 
-export async function savePlanningCache<T>(date: string, items: T) {
-  await runTransaction("planningByDate", "readwrite", (store) =>
+export async function savePlanningCache<T>(date: string, items: T, scope?: OfflineStorageScope) {
+  await runTransaction(OFFLINE_STORES.planningByDate, "readwrite", (store) =>
     store.put({
-      date,
+      date: buildPlanningDateCacheKey(date, scope),
       items,
       updatedAt: new Date().toISOString(),
     } satisfies PlanningCache<T>)
   );
 }
 
-export async function readPlanningCache<T>(date: string) {
-  const result = await runTransaction<PlanningCache<T> | undefined>("planningByDate", "readonly", (store) =>
-    store.get(date)
+export async function readPlanningCache<T>(date: string, scope?: OfflineStorageScope) {
+  const scopedDate = buildPlanningDateCacheKey(date, scope);
+  const scopedResult = await runTransaction<PlanningCache<T> | undefined>(
+    OFFLINE_STORES.planningByDate,
+    "readonly",
+    (store) => store.get(scopedDate)
   );
 
-  return result ?? null;
+  if (scopedResult || scopedDate === date) {
+    return scopedResult ?? null;
+  }
+
+  const legacyResult = await runTransaction<PlanningCache<T> | undefined>(
+    OFFLINE_STORES.planningByDate,
+    "readonly",
+    (store) => store.get(date)
+  );
+
+  return legacyResult ?? null;
 }
 
-export async function saveKeyValueCache<T>(key: string, value: T) {
-  await runTransaction("keyval", "readwrite", (store) =>
+export async function saveKeyValueCache<T>(key: string, value: T, scope?: OfflineStorageScope) {
+  await runTransaction(OFFLINE_STORES.keyval, "readwrite", (store) =>
     store.put({
-      key,
+      key: buildOfflineStorageKey(key, scope),
       value,
       updatedAt: new Date().toISOString(),
     } satisfies StoredValue<T>)
   );
 }
 
-export async function readKeyValueCache<T>(key: string) {
-  const result = await runTransaction<StoredValue<T> | undefined>("keyval", "readonly", (store) =>
-    store.get(key)
-  );
-
-  return result ?? null;
+export async function readKeyValueCache<T>(key: string, scope?: OfflineStorageScope) {
+  return readKeyValueWithLegacyFallback<T>(key, scope);
 }
