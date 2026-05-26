@@ -56,18 +56,13 @@ export function PlanningCustomFieldsSummary({ fields, values }: PlanningCustomFi
   }
 
   return (
-    <article className="detail-notes-card custom-fields-summary">
-      <div className="detail-section-heading">
-        <p className="detail-label">Campos configurables</p>
-      </div>
-      <div className="custom-fields-summary-grid">
-        {visibleValues.map(({ field, value }) => (
-          <div key={field.id} className="custom-fields-summary-item">
-            <span>{field.label}</span>
-            <strong>{value}</strong>
-          </div>
-        ))}
-      </div>
-    </article>
+    <>
+      {visibleValues.map(({ field, value }) => (
+        <article key={field.id} className="detail-card compact">
+          <p className="detail-label">{field.label}</p>
+          <p className="detail-value">{value}</p>
+        </article>
+      ))}
+    </>
   );
 }

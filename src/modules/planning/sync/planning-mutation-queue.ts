@@ -5,6 +5,7 @@ import type { PendingPlanningMutation } from "./planning-sync-models";
 type ReplayPendingPlanningMutationsArgs = {
   mutations: PendingPlanningMutation[];
   sendMutation: (mutation: PendingPlanningMutation) => Promise<unknown>;
+  replayCustomFieldValues?: (mutation: PendingPlanningMutation, response: unknown) => Promise<void>;
   getErrorMessage: (error: unknown) => string;
   isRetryableError: (error: unknown) => boolean;
 };
@@ -34,7 +35,8 @@ export function withClientMutationId(
 
 export function makePendingPlanningMutation(
   method: PendingPlanningMutation["method"],
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
+  input: { customFieldValues?: PendingPlanningMutation["customFieldValues"] } = {}
 ): PendingPlanningMutation {
   const id = crypto.randomUUID();
 
@@ -42,6 +44,7 @@ export function makePendingPlanningMutation(
     id,
     method,
     payload: withClientMutationId(payload, id),
+    customFieldValues: input.customFieldValues,
     createdAt: new Date().toISOString(),
   };
 }
@@ -152,6 +155,7 @@ export function discardConflictedPlanningMutations(mutations: PendingPlanningMut
 export async function replayPendingPlanningMutations({
   mutations,
   sendMutation,
+  replayCustomFieldValues,
   getErrorMessage,
   isRetryableError,
 }: ReplayPendingPlanningMutationsArgs): Promise<ReplayPendingPlanningMutationsResult> {
@@ -180,7 +184,10 @@ export async function replayPendingPlanningMutations({
     }
 
     try {
-      await sendMutation(mutation);
+      const response = await sendMutation(mutation);
+      if (mutation.customFieldValues?.length) {
+        await replayCustomFieldValues?.(mutation, response);
+      }
       syncedCount += 1;
     } catch (error: unknown) {
       const message = getErrorMessage(error);

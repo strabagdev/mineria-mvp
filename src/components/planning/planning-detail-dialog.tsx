@@ -125,6 +125,12 @@ export function PlanningDetailDialog({
             </article>
           </div>
 
+          {customFieldsSlot ? (
+            <div className="detail-compact-grid">
+              {customFieldsSlot}
+            </div>
+          ) : null}
+
           {continuation ? (
             <article className="detail-notes-card">
               <div className="detail-section-heading">
@@ -155,8 +161,6 @@ export function PlanningDetailDialog({
               <p className="detail-notes-copy">{item.notes}</p>
             </article>
           ) : null}
-
-          {customFieldsSlot}
         </div>
 
         <div className="modal-actions detail-modal-actions">

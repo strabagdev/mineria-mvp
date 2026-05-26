@@ -1,7 +1,10 @@
+import type { PlanningCustomFieldValueInputDto } from "@/modules/planning-custom-fields/contracts/planning-custom-fields";
+
 export type PendingPlanningMutation = {
   id: string;
   method: "POST" | "PATCH" | "DELETE";
   payload: Record<string, unknown>;
+  customFieldValues?: PlanningCustomFieldValueInputDto[];
   createdAt: string;
   status?: "pending" | "conflict";
   lastError?: string;

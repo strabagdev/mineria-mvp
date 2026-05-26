@@ -3098,11 +3098,6 @@ select.field-input {
   margin-top: 0;
 }
 
-.custom-fields-multi-select {
-  min-height: 7rem;
-  background-image: none;
-}
-
 .custom-fields-checkbox {
   display: inline-flex;
   align-items: center;
@@ -3116,6 +3111,99 @@ select.field-input {
   width: 1.05rem;
   height: 1.05rem;
   accent-color: var(--success);
+}
+
+.custom-fields-multi-menu {
+  position: relative;
+}
+
+.custom-fields-multi-menu[open] {
+  z-index: 8;
+}
+
+.custom-fields-multi-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 3rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.custom-fields-multi-trigger::-webkit-details-marker {
+  display: none;
+}
+
+.custom-fields-multi-trigger::after {
+  width: 0.45rem;
+  height: 0.45rem;
+  flex: 0 0 auto;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  content: "";
+  transform: rotate(45deg) translateY(-0.12rem);
+}
+
+.custom-fields-multi-trigger.disabled {
+  cursor: not-allowed;
+  opacity: 0.68;
+}
+
+.custom-fields-multi-count {
+  min-width: 1.55rem;
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--background-soft);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+.custom-fields-multi-options {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  right: 0;
+  display: grid;
+  max-height: 13rem;
+  overflow: auto;
+  padding: 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--panel-solid);
+  box-shadow: 0 18px 36px rgba(15, 23, 32, 0.24);
+}
+
+.custom-fields-multi-option {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.55rem 0.6rem;
+  border-radius: var(--radius-sm);
+  color: var(--foreground);
+  font-size: 0.86rem;
+  font-weight: 650;
+}
+
+.custom-fields-multi-option:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.custom-fields-multi-option input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--success);
+}
+
+.custom-fields-required-proxy {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .custom-fields-admin {
@@ -3152,32 +3240,6 @@ select.field-input {
 .custom-field-select-button small {
   color: var(--muted);
   font-size: 0.72rem;
-}
-
-.custom-fields-summary-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
-  gap: 0.7rem;
-}
-
-.custom-fields-summary-item {
-  display: grid;
-  gap: 0.2rem;
-  padding: 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--surface) 78%, transparent);
-}
-
-.custom-fields-summary-item span {
-  color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 700;
-}
-
-.custom-fields-summary-item strong {
-  color: var(--foreground);
-  font-size: 0.92rem;
 }
 
 .button-row {

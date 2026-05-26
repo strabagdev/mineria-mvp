@@ -21,6 +21,7 @@ import {
 } from "@/modules/planning-custom-fields/application/planning-custom-fields.client";
 import type {
   PlanningCustomFieldDto,
+  PlanningCustomFieldValueInputDto,
   PlanningCustomFieldValueDto,
 } from "@/modules/planning-custom-fields/contracts/planning-custom-fields";
 import { PlanningCustomFieldsAdminPanel } from "@/modules/planning-custom-fields/presentation/planning-custom-fields-admin-panel";
@@ -44,8 +45,10 @@ import {
 } from "@/lib/networkStatus";
 import {
   readCatalogCache,
+  readPlanningCustomFieldsCache,
   readPlanningCache,
   saveCatalogCache,
+  savePlanningCustomFieldsCache,
   savePlanningCache,
 } from "@/lib/localOfflineStore";
 import { recordOperationalEvent } from "../../lib/observability/logger";
@@ -245,6 +248,35 @@ export default function Home() {
     getRequestErrorMessage,
   });
 
+  const refreshCustomFields = useCallback(async () => {
+    if (!session?.access_token) {
+      setCustomFields([]);
+      return [];
+    }
+
+    try {
+      const nextFields = await fetchPlanningCustomFields(session.access_token, { activeOnly: false });
+      setCustomFields(nextFields);
+      void savePlanningCustomFieldsCache(nextFields);
+      return nextFields;
+    } catch (error: unknown) {
+      const cachedFields = await readPlanningCustomFieldsCache<PlanningCustomFieldDto[]>().catch(() => null);
+
+      if (cachedFields?.value) {
+        recordOperationalEvent({
+          name: "offline.cache_used",
+          source: "planningPage",
+          metadata: { dataset: "planning-custom-fields" },
+        });
+        setCustomFields(cachedFields.value);
+        setCatalogError(`Usando campos configurables locales. Ultima sincronizacion: ${formatLocalDateTime(cachedFields.updatedAt)}.`);
+        return cachedFields.value;
+      }
+
+      throw error;
+    }
+  }, [session?.access_token]);
+
   useEffect(() => {
     function openCatalogFromNavigation() {
       if (canManageCatalog) {
@@ -441,7 +473,7 @@ export default function Home() {
 
     let active = true;
 
-    fetchPlanningCustomFields(session.access_token, { activeOnly: false })
+    refreshCustomFields()
       .then((nextFields) => {
         if (active) {
           setCustomFields(nextFields);
@@ -461,7 +493,7 @@ export default function Home() {
     return () => {
       active = false;
     };
-  }, [session?.access_token]);
+  }, [refreshCustomFields, session?.access_token]);
 
   useEffect(() => {
     let active = true;
@@ -657,11 +689,29 @@ export default function Home() {
     return sendPlanningMutationRequest(method, payload, session?.access_token);
   }
 
+  function getPlannedCustomFieldValuesForQueue(): PlanningCustomFieldValueInputDto[] | undefined {
+    if (formState.tracking_type !== "programado") {
+      return undefined;
+    }
+
+    if (editingPlanningItem && Object.keys(customFieldFormState).length === 0) {
+      return undefined;
+    }
+
+    const values = toCustomFieldValueInputs(
+      customFields.filter((field) => fieldAppliesTo(field, "planned")),
+      customFieldFormState
+    );
+
+    return values.length ? values : undefined;
+  }
+
   function enqueuePlanningMutation(
     method: PendingPlanningMutation["method"],
-    payload: Record<string, unknown>
+    payload: Record<string, unknown>,
+    input: { customFieldValues?: PlanningCustomFieldValueInputDto[] } = {}
   ) {
-    const pendingMutation = makePendingPlanningMutation(method, payload);
+    const pendingMutation = makePendingPlanningMutation(method, payload, input);
     setPendingPlanningMutations((current) => [...current, pendingMutation]);
     return pendingMutation;
   }
@@ -682,6 +732,32 @@ export default function Home() {
     const replayResult = await replayPendingPlanningMutations({
       mutations: pendingPlanningMutations,
       sendMutation: (mutation) => sendPlanningMutation(mutation.method, mutation.payload),
+      replayCustomFieldValues: async (mutation, response) => {
+        if (mutation.method === "DELETE" || !mutation.customFieldValues?.length) {
+          return;
+        }
+
+        const responseItemId = Number((response as { item?: { id?: unknown } })?.item?.id);
+        const payloadItemId = Number(mutation.payload.id);
+        const planningItemId =
+          Number.isFinite(responseItemId) && responseItemId > 0
+            ? responseItemId
+            : Number.isFinite(payloadItemId) && payloadItemId > 0
+              ? payloadItemId
+              : null;
+
+        if (!planningItemId) {
+          throw new Error("No se pudo asociar los campos configurables al programado sincronizado.");
+        }
+
+        await savePlanningCustomFieldValues(
+          {
+            planning_item_id: planningItemId,
+            values: mutation.customFieldValues,
+          },
+          session.access_token
+        );
+      },
       getErrorMessage: (error) =>
         getRequestErrorMessage(error, "No se pudo sincronizar un registro pendiente."),
       isRetryableError: isRetryablePlanningSyncError,
@@ -730,7 +806,9 @@ export default function Home() {
 
     if (!session?.access_token) {
       if (isBrowserOffline()) {
-        enqueuePlanningMutation(method, payload);
+        enqueuePlanningMutation(method, payload, {
+          customFieldValues: getPlannedCustomFieldValuesForQueue(),
+        });
         setItemsError(
           "Sin conexion: el registro quedo guardado en este equipo y se sincronizara automaticamente cuando vuelva la senal."
         );
@@ -782,7 +860,9 @@ export default function Home() {
       resetPlanningForm();
     } catch (error: unknown) {
       if (shouldQueuePlanningMutation(error)) {
-        enqueuePlanningMutation(method, payload);
+        enqueuePlanningMutation(method, payload, {
+          customFieldValues: getPlannedCustomFieldValuesForQueue(),
+        });
         setItemsError(
           "Sin conexion: el registro quedo guardado en este equipo y se sincronizara automaticamente cuando vuelva la senal."
         );
@@ -1130,9 +1210,19 @@ export default function Home() {
         formatLocalDateIso={formatLocalDateIso}
         onSelectOperationalDate={selectOperationalDate}
         onCreatePlanning={() => {
-          resetPlanningForm();
-          setFormState((current) => ({ ...current, tracking_type: "programado" }));
-          setIsModalOpen(true);
+          void refreshCustomFields().catch((error: unknown) => {
+            recordOperationalEvent({
+              level: "warn",
+              name: "planning_custom_fields.load_failed",
+              source: "planningPage",
+              metadata: { target: "open-planning-modal" },
+            });
+            setCatalogError(getRequestErrorMessage(error, "No se pudieron cargar los campos configurables."));
+          }).finally(() => {
+            resetPlanningForm();
+            setFormState((current) => ({ ...current, tracking_type: "programado" }));
+            setIsModalOpen(true);
+          });
         }}
       />
 
@@ -1258,7 +1348,11 @@ export default function Home() {
           editingDetail={editingDetail}
           setEditingDetail={setEditingDetail}
           syncDetailAdminForm={syncDetailAdminForm}
-          onClose={() => setIsCatalogModalOpen(false)}
+          onClose={() => {
+            void refreshCustomFields()
+              .catch(() => undefined)
+              .finally(() => setIsCatalogModalOpen(false));
+          }}
           onCreateType={handleCreateType}
           onCreateLevel={handleCreateLevel}
           onCreateDetail={handleCreateDetail}

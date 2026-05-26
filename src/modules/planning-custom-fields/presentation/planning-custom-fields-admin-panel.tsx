@@ -10,6 +10,7 @@ import {
   createPlanningCustomFieldOption,
   deletePlanningCustomField,
   deletePlanningCustomFieldOption,
+  fetchPlanningCustomFieldOptions,
   fetchPlanningCustomFields,
   updatePlanningCustomField,
   updatePlanningCustomFieldOption,
@@ -25,7 +26,13 @@ type FieldForm = {
 
 type OptionForm = {
   label: string;
+  value: string;
+  active: boolean;
   sortOrder: string;
+};
+
+type DraftOption = OptionForm & {
+  localId: string;
 };
 
 const defaultFieldForm: FieldForm = {
@@ -38,6 +45,8 @@ const defaultFieldForm: FieldForm = {
 
 const defaultOptionForm: OptionForm = {
   label: "",
+  value: "",
+  active: true,
   sortOrder: "100",
 };
 
@@ -49,10 +58,6 @@ function normalizeAdminValue(value: string) {
     .trim()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-}
-
-function canHaveOptions(field?: PlanningCustomFieldDto | null) {
-  return field?.input_type === "select" || field?.input_type === "multi_select";
 }
 
 type PlanningCustomFieldsAdminPanelProps = {
@@ -70,6 +75,8 @@ export function PlanningCustomFieldsAdminPanel({
   const [editingField, setEditingField] = useState<PlanningCustomFieldDto | null>(null);
   const [optionForm, setOptionForm] = useState<OptionForm>(defaultOptionForm);
   const [editingOption, setEditingOption] = useState<PlanningCustomFieldOptionDto | null>(null);
+  const [draftOptions, setDraftOptions] = useState<DraftOption[]>([]);
+  const [editingDraftOptionId, setEditingDraftOptionId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -77,12 +84,38 @@ export function PlanningCustomFieldsAdminPanel({
     () => fields.find((field) => field.id === selectedFieldId) ?? fields[0] ?? null,
     [fields, selectedFieldId]
   );
+  const editingFieldSnapshot = useMemo(
+    () => fields.find((field) => field.id === editingField?.id) ?? editingField,
+    [editingField, fields]
+  );
+  const optionTargetField = editingFieldSnapshot ?? selectedField;
+  const isOptionFieldForm = fieldForm.inputType === "select" || fieldForm.inputType === "multi_select";
+  const optionSectionLabel = editingFieldSnapshot?.label ?? (fieldForm.label.trim() || "este campo");
 
-  async function refreshFields() {
+  async function refreshFields(preferredFieldId?: number) {
     const nextFields = await fetchPlanningCustomFields(accessToken, { activeOnly: false });
     setFields(nextFields);
-    setSelectedFieldId((current) => current ?? nextFields[0]?.id ?? null);
+    setSelectedFieldId((current) => preferredFieldId ?? current ?? nextFields[0]?.id ?? null);
     onFieldsChange?.(nextFields);
+    return nextFields;
+  }
+
+  async function refreshOptionsForField(fieldId: number) {
+    const options = await fetchPlanningCustomFieldOptions(fieldId, accessToken);
+    const baseField = fields.find((field) => field.id === fieldId) ?? null;
+    const nextField = baseField ? { ...baseField, options } : null;
+
+    setFields((current) =>
+      current.map((field) => {
+        if (field.id !== fieldId) {
+          return field;
+        }
+
+        return { ...field, options };
+      })
+    );
+
+    return nextField;
   }
 
   useEffect(() => {
@@ -124,12 +157,45 @@ export function PlanningCustomFieldsAdminPanel({
       if (editingField) {
         await updatePlanningCustomField({ id: editingField.id, ...payload }, accessToken);
       } else {
-        await createPlanningCustomField(payload, accessToken);
+        const field = await createPlanningCustomField(payload, accessToken);
+        if (payload.input_type === "select" || payload.input_type === "multi_select") {
+          for (const option of draftOptions) {
+            await createPlanningCustomFieldOption(
+              {
+                field_id: field.id,
+                label: option.label,
+                value: option.value || normalizeAdminValue(option.label),
+                active: option.active,
+                sort_order: Number(option.sortOrder) || 100,
+              },
+              accessToken
+            );
+          }
+        }
+        const nextFields = await refreshFields(field.id);
+        const createdField = nextFields.find((entry) => entry.id === field.id) ?? { ...field, options: [] };
+        setEditingField(createdField);
+        setFieldForm({
+          label: createdField.label,
+          inputType: createdField.input_type,
+          appliesTo: createdField.applies_to,
+          required: createdField.required,
+          sortOrder: String(createdField.sort_order),
+        });
+        setDraftOptions([]);
+        setEditingDraftOptionId(null);
+        setOptionForm(defaultOptionForm);
+        setEditingOption(null);
+        return;
       }
 
       setFieldForm(defaultFieldForm);
       setEditingField(null);
-      await refreshFields();
+      setDraftOptions([]);
+      setEditingDraftOptionId(null);
+      setOptionForm(defaultOptionForm);
+      setEditingOption(null);
+      await refreshFields(editingField.id);
     } catch (nextError: unknown) {
       setError(nextError instanceof Error ? nextError.message : "No se pudo guardar el campo.");
     } finally {
@@ -137,35 +203,47 @@ export function PlanningCustomFieldsAdminPanel({
     }
   }
 
-  async function submitOption(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!selectedField) return;
+  function validateOptionForTarget(input: OptionForm, options: Array<{ id?: number; localId?: string; label: string; value: string }>) {
+    const nextValue = normalizeAdminValue(input.value || input.label);
+    const editingId = editingOption?.id;
+    const editingLocalId = editingDraftOptionId;
+    const duplicatedOption = options.find(
+      (option) =>
+        option.id !== editingId &&
+        option.localId !== editingLocalId &&
+        (normalizeAdminValue(option.label) === nextValue || option.value === nextValue)
+    );
+
+    if (!nextValue) {
+      return "La opcion debe tener un nombre o valor valido.";
+    }
+
+    if (duplicatedOption) {
+      return "Ya existe una opcion con ese nombre o valor para este campo.";
+    }
+
+    return "";
+  }
+
+  async function submitExistingOption() {
+    if (!optionTargetField) return;
 
     setBusy(true);
     setError("");
 
     try {
-      const nextValue = normalizeAdminValue(optionForm.label);
-      const duplicatedOption = selectedField.options.find(
-        (option) =>
-          option.id !== editingOption?.id &&
-          (normalizeAdminValue(option.label) === nextValue || option.value === nextValue)
-      );
-
-      if (!nextValue) {
-        setError("La opcion debe tener un nombre valido.");
-        return;
-      }
-
-      if (duplicatedOption) {
-        setError("Ya existe una opcion con ese nombre o valor para este campo.");
+      const nextValue = normalizeAdminValue(optionForm.value || optionForm.label);
+      const validationError = validateOptionForTarget(optionForm, optionTargetField.options);
+      if (validationError) {
+        setError(validationError);
         return;
       }
 
       const payload = {
-        field_id: selectedField.id,
+        field_id: optionTargetField.id,
         label: optionForm.label,
         value: nextValue,
+        active: optionForm.active,
         sort_order: Number(optionForm.sortOrder) || 100,
       };
 
@@ -177,7 +255,7 @@ export function PlanningCustomFieldsAdminPanel({
 
       setOptionForm(defaultOptionForm);
       setEditingOption(null);
-      await refreshFields();
+      await refreshFields(optionTargetField.id);
     } catch (nextError: unknown) {
       setError(nextError instanceof Error ? nextError.message : "No se pudo guardar la opcion.");
     } finally {
@@ -185,8 +263,52 @@ export function PlanningCustomFieldsAdminPanel({
     }
   }
 
-  function startEditingField(field: PlanningCustomFieldDto) {
+  function submitDraftOption() {
+    setError("");
+    const nextValue = normalizeAdminValue(optionForm.value || optionForm.label);
+    const validationError = validateOptionForTarget(optionForm, draftOptions);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    if (editingDraftOptionId) {
+      setDraftOptions((current) =>
+        current.map((option) =>
+          option.localId === editingDraftOptionId
+            ? {
+                ...option,
+                label: optionForm.label,
+                value: nextValue,
+                active: optionForm.active,
+                sortOrder: optionForm.sortOrder,
+              }
+            : option
+        )
+      );
+    } else {
+      setDraftOptions((current) => [
+        ...current,
+        {
+          localId: crypto.randomUUID(),
+          label: optionForm.label,
+          value: nextValue,
+          active: optionForm.active,
+          sortOrder: optionForm.sortOrder,
+        },
+      ]);
+    }
+
+    setOptionForm(defaultOptionForm);
+    setEditingDraftOptionId(null);
+  }
+
+  async function startEditingField(field: PlanningCustomFieldDto) {
+    setSelectedFieldId(field.id);
     setEditingField(field);
+    setEditingOption(null);
+    setEditingDraftOptionId(null);
+    setOptionForm(defaultOptionForm);
     setFieldForm({
       label: field.label,
       inputType: field.input_type,
@@ -194,13 +316,34 @@ export function PlanningCustomFieldsAdminPanel({
       required: field.required,
       sortOrder: String(field.sort_order),
     });
+
+    if (field.input_type === "select" || field.input_type === "multi_select") {
+      const nextField = await refreshOptionsForField(field.id);
+      if (nextField) {
+        setEditingField(nextField);
+      }
+    }
   }
 
   function startEditingOption(option: PlanningCustomFieldOptionDto) {
+    setEditingDraftOptionId(null);
     setEditingOption(option);
     setOptionForm({
       label: option.label,
+      value: option.value,
+      active: option.active,
       sortOrder: String(option.sort_order),
+    });
+  }
+
+  function startEditingDraftOption(option: DraftOption) {
+    setEditingOption(null);
+    setEditingDraftOptionId(option.localId);
+    setOptionForm({
+      label: option.label,
+      value: option.value,
+      active: option.active,
+      sortOrder: option.sortOrder,
     });
   }
 
@@ -232,7 +375,7 @@ export function PlanningCustomFieldsAdminPanel({
         setEditingOption(null);
         setOptionForm(defaultOptionForm);
       }
-      await refreshFields();
+      await refreshFields(option.field_id);
     } catch (nextError: unknown) {
       setError(nextError instanceof Error ? nextError.message : "No se pudo eliminar la opcion.");
     } finally {
@@ -320,6 +463,172 @@ export function PlanningCustomFieldsAdminPanel({
             <span>Requerido</span>
           </label>
         </div>
+        {isOptionFieldForm ? (
+          <div className="custom-fields-options-block embedded">
+            <div className="custom-fields-heading">
+              <div>
+                <p className="eyebrow">{editingField ? "Opciones configuradas" : "Opciones iniciales"}</p>
+                <h4 className="custom-fields-options-title">Opciones de {optionSectionLabel}</h4>
+              </div>
+              <span className="catalog-count">
+                {editingField ? `${optionTargetField?.options.length ?? 0} opciones` : `${draftOptions.length} pendientes`}
+              </span>
+            </div>
+
+            <div className="modal-grid">
+              <label className="field">
+                Label visible
+                <input
+                  className="field-input"
+                  value={optionForm.label}
+                  onChange={(event) =>
+                    setOptionForm((current) => ({
+                      ...current,
+                      label: event.target.value,
+                      value: current.value || normalizeAdminValue(event.target.value),
+                    }))
+                  }
+                  placeholder="Ej: Mixer"
+                />
+              </label>
+              <label className="field">
+                Value interno
+                <input
+                  className="field-input"
+                  value={optionForm.value}
+                  onChange={(event) => setOptionForm((current) => ({ ...current, value: normalizeAdminValue(event.target.value) }))}
+                  placeholder="mixer"
+                />
+              </label>
+            </div>
+            <div className="custom-fields-admin-row">
+              <label className="field">
+                Orden
+                <input
+                  className="field-input"
+                  type="number"
+                  value={optionForm.sortOrder}
+                  onChange={(event) => setOptionForm((current) => ({ ...current, sortOrder: event.target.value }))}
+                />
+              </label>
+              <label className="field custom-fields-checkbox">
+                <input
+                  type="checkbox"
+                  checked={optionForm.active}
+                  onChange={(event) => setOptionForm((current) => ({ ...current, active: event.target.checked }))}
+                />
+                <span>Activa</span>
+              </label>
+            </div>
+            <div className="catalog-inline-actions">
+              <button
+                type="button"
+                className="button"
+                onClick={() => void (editingField ? submitExistingOption() : submitDraftOption())}
+                disabled={busy || !optionForm.label.trim()}
+              >
+                {editingOption || editingDraftOptionId ? "Guardar opcion" : "Agregar opcion"}
+              </button>
+              {editingOption || editingDraftOptionId ? (
+                <button
+                  type="button"
+                  className="button"
+                  onClick={() => {
+                    setEditingOption(null);
+                    setEditingDraftOptionId(null);
+                    setOptionForm(defaultOptionForm);
+                  }}
+                  disabled={busy}
+                >
+                  Cancelar opcion
+                </button>
+              ) : null}
+            </div>
+
+            {editingField ? (
+              <div className="catalog-detail-list">
+                {(optionTargetField?.options.length ?? 0) === 0 ? (
+                  <p className="body-copy">Sin opciones configuradas para {optionSectionLabel}.</p>
+                ) : null}
+                {(optionTargetField?.options ?? []).map((option) => (
+                  <div key={option.id} className="catalog-detail-row">
+                    <span className="catalog-detail-chip">
+                      {option.label}
+                      {!option.active ? " (inactiva)" : ""}
+                    </span>
+                    <span className="catalog-count">{option.value}</span>
+                    <div className="catalog-inline-actions">
+                      <button type="button" className="button small" onClick={() => startEditingOption(option)}>
+                        Editar
+                      </button>
+                      <button
+                        type="button"
+                        className="button small"
+                        onClick={() =>
+                          void updatePlanningCustomFieldOption({ id: option.id, active: !option.active }, accessToken).then(() =>
+                            refreshFields(option.field_id)
+                          )
+                        }
+                        disabled={busy}
+                      >
+                        {option.active ? "Desactivar opcion" : "Activar opcion"}
+                      </button>
+                      <button
+                        type="button"
+                        className="button small danger"
+                        onClick={() => void removeOption(option)}
+                        disabled={busy}
+                      >
+                        Eliminar
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="catalog-detail-list">
+                {draftOptions.length === 0 ? (
+                  <p className="body-copy">Sin opciones iniciales para {optionSectionLabel}.</p>
+                ) : null}
+                {draftOptions.map((option) => (
+                  <div key={option.localId} className="catalog-detail-row">
+                    <span className="catalog-detail-chip">
+                      {option.label}
+                      {!option.active ? " (inactiva)" : ""}
+                    </span>
+                    <span className="catalog-count">{option.value}</span>
+                    <div className="catalog-inline-actions">
+                      <button type="button" className="button small" onClick={() => startEditingDraftOption(option)}>
+                        Editar
+                      </button>
+                      <button
+                        type="button"
+                        className="button small"
+                        onClick={() =>
+                          setDraftOptions((current) =>
+                            current.map((entry) =>
+                              entry.localId === option.localId ? { ...entry, active: !entry.active } : entry
+                            )
+                          )
+                        }
+                      >
+                        {option.active ? "Desactivar opcion" : "Activar opcion"}
+                      </button>
+                      <button
+                        type="button"
+                        className="button small danger"
+                        onClick={() => setDraftOptions((current) => current.filter((entry) => entry.localId !== option.localId))}
+                      >
+                        Eliminar
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : null}
+
         <div className="catalog-inline-actions">
           <button type="submit" className="button primary" disabled={busy || !fieldForm.label.trim()}>
             {editingField ? "Guardar campo" : "Crear campo"}
@@ -331,6 +640,10 @@ export function PlanningCustomFieldsAdminPanel({
               onClick={() => {
                 setEditingField(null);
                 setFieldForm(defaultFieldForm);
+                setDraftOptions([]);
+                setEditingDraftOptionId(null);
+                setEditingOption(null);
+                setOptionForm(defaultOptionForm);
               }}
               disabled={busy}
             >
@@ -349,16 +662,23 @@ export function PlanningCustomFieldsAdminPanel({
               onClick={() => setSelectedFieldId(field.id)}
             >
               <span>{field.label}</span>
-              <small>{field.input_type} · {field.active ? "activo" : "inactivo"}</small>
+              <small>
+                {field.input_type} · {field.active ? "activo" : "inactivo"}
+                {field.input_type === "select" || field.input_type === "multi_select" ? ` · ${field.options.length} opciones` : ""}
+              </small>
             </button>
             <div className="catalog-inline-actions">
-              <button type="button" className="button small" onClick={() => startEditingField(field)}>
-                Editar
+              <button type="button" className="button small" onClick={() => void startEditingField(field)}>
+                {field.input_type === "select" || field.input_type === "multi_select" ? "Editar campo y opciones" : "Editar"}
               </button>
               <button
                 type="button"
                 className="button small"
-                onClick={() => void updatePlanningCustomField({ id: field.id, active: !field.active }, accessToken).then(refreshFields)}
+                onClick={() =>
+                  void updatePlanningCustomField({ id: field.id, active: !field.active }, accessToken).then(() =>
+                    refreshFields(field.id)
+                  )
+                }
                 disabled={busy}
               >
                 {field.active ? "Desactivar campo" : "Activar campo"}
@@ -375,86 +695,6 @@ export function PlanningCustomFieldsAdminPanel({
           </div>
         ))}
       </div>
-
-      {selectedField && canHaveOptions(selectedField) ? (
-        <div className="custom-fields-options-block">
-          <p className="eyebrow">Opciones de {selectedField.label}</p>
-          <form className="modal-form" onSubmit={submitOption}>
-            <div className="modal-grid">
-              <label className="field">
-                Nombre opcion
-                <input
-                  className="field-input"
-                  value={optionForm.label}
-                  onChange={(event) => setOptionForm((current) => ({ ...current, label: event.target.value }))}
-                  placeholder="Ej: Mixer"
-                />
-              </label>
-              <label className="field">
-                Orden
-                <input
-                  className="field-input"
-                  type="number"
-                  value={optionForm.sortOrder}
-                  onChange={(event) => setOptionForm((current) => ({ ...current, sortOrder: event.target.value }))}
-                />
-              </label>
-            </div>
-            <div className="catalog-inline-actions">
-              <button type="submit" className="button primary" disabled={busy || !optionForm.label.trim()}>
-                {editingOption ? "Guardar opcion" : "Crear opcion"}
-              </button>
-              {editingOption ? (
-                <button
-                  type="button"
-                  className="button"
-                  onClick={() => {
-                    setEditingOption(null);
-                    setOptionForm(defaultOptionForm);
-                  }}
-                  disabled={busy}
-                >
-                  Cancelar
-                </button>
-              ) : null}
-            </div>
-          </form>
-
-          <div className="catalog-detail-list">
-            {selectedField.options.map((option) => (
-              <div key={option.id} className="catalog-detail-row">
-                <span className="catalog-detail-chip">
-                  {option.label}
-                  {!option.active ? " (inactiva)" : ""}
-                </span>
-                <div className="catalog-inline-actions">
-                  <button type="button" className="button small" onClick={() => startEditingOption(option)}>
-                    Editar
-                  </button>
-                  <button
-                    type="button"
-                    className="button small"
-                    onClick={() =>
-                      void updatePlanningCustomFieldOption({ id: option.id, active: !option.active }, accessToken).then(refreshFields)
-                    }
-                    disabled={busy}
-                  >
-                    {option.active ? "Desactivar opcion" : "Activar opcion"}
-                  </button>
-                  <button
-                    type="button"
-                    className="button small danger"
-                    onClick={() => void removeOption(option)}
-                    disabled={busy}
-                  >
-                    Eliminar
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
 
       {error ? <p className="feedback">{error}</p> : null}
     </article>

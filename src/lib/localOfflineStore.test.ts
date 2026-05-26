@@ -21,10 +21,12 @@ describe("local offline storage keys", () => {
     });
     expect(OFFLINE_KEYS).toEqual({
       planningCatalog: "planning-catalog",
+      planningCustomFields: "planning-custom-fields",
       authProfile: "auth-profile",
       planningMutationQueue: "planning-mutation-queue",
     });
     expect(OFFLINE_DATASETS.planningByDate).toBe("planning.byDate");
+    expect(OFFLINE_DATASETS.planningCustomFields).toBe("planning.customFields");
   });
 
   it("keeps legacy keys when no tenant/faena scope is available", () => {

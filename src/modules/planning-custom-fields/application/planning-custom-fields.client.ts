@@ -88,6 +88,14 @@ export async function createPlanningCustomFieldOption(
   return json.option;
 }
 
+export async function fetchPlanningCustomFieldOptions(fieldId: number, accessToken?: string) {
+  const json = await requestJson<{ options?: PlanningCustomFieldOptionDto[] }>(
+    `/api/planning-custom-field-options?field_id=${encodeURIComponent(String(fieldId))}`,
+    { accessToken }
+  );
+  return Array.isArray(json.options) ? json.options : [];
+}
+
 export async function updatePlanningCustomFieldOption(
   payload: PlanningCustomFieldOptionUpdateRequestDto,
   accessToken?: string

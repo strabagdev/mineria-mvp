@@ -13,12 +13,14 @@ export const OFFLINE_STORES = {
 
 export const OFFLINE_KEYS = {
   planningCatalog: "planning-catalog",
+  planningCustomFields: "planning-custom-fields",
   authProfile: "auth-profile",
   planningMutationQueue: "planning-mutation-queue",
 } as const;
 
 export const OFFLINE_DATASETS = {
   planningCatalog: "planning.catalog",
+  planningCustomFields: "planning.customFields",
   authProfile: "auth.profile",
   planningMutationQueue: "planning.mutationQueue",
   planningByDate: "planning.byDate",
@@ -172,6 +174,20 @@ export async function saveCatalogCache<T>(value: T, scope?: OfflineStorageScope)
 
 export async function readCatalogCache<T>(scope?: OfflineStorageScope) {
   return readKeyValueWithLegacyFallback<T>(OFFLINE_KEYS.planningCatalog, scope);
+}
+
+export async function savePlanningCustomFieldsCache<T>(value: T, scope?: OfflineStorageScope) {
+  await runTransaction(OFFLINE_STORES.keyval, "readwrite", (store) =>
+    store.put({
+      key: buildOfflineStorageKey(OFFLINE_KEYS.planningCustomFields, scope),
+      value,
+      updatedAt: new Date().toISOString(),
+    } satisfies StoredValue<T>)
+  );
+}
+
+export async function readPlanningCustomFieldsCache<T>(scope?: OfflineStorageScope) {
+  return readKeyValueWithLegacyFallback<T>(OFFLINE_KEYS.planningCustomFields, scope);
 }
 
 export async function saveProfileCache<T>(value: T, scope?: OfflineStorageScope) {

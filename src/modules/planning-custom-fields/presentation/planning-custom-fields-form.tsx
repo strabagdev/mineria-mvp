@@ -13,6 +13,26 @@ function visibleOptionsForField(field: PlanningCustomFieldDto, selectedOptionIds
   return field.options.filter((option) => option.active || selectedIds.has(option.id));
 }
 
+function formatMultiSelectLabel(field: PlanningCustomFieldDto, selectedOptionIds: string[]) {
+  if (!selectedOptionIds.length) {
+    return "Seleccionar";
+  }
+
+  const selectedLabels = selectedOptionIds
+    .map((optionId) => field.options.find((option) => option.id === Number(optionId))?.label)
+    .filter(Boolean);
+
+  if (!selectedLabels.length) {
+    return "Seleccionar";
+  }
+
+  if (selectedLabels.length <= 2) {
+    return selectedLabels.join(", ");
+  }
+
+  return `${selectedLabels.slice(0, 2).join(", ")} +${selectedLabels.length - 2}`;
+}
+
 type PlanningCustomFieldsFormProps = {
   fields: PlanningCustomFieldDto[];
   phase: PlanningCustomFieldAppliesTo;
@@ -84,29 +104,47 @@ export function PlanningCustomFieldsForm({
 
           if (field.input_type === "multi_select") {
             const visibleOptions = visibleOptionsForField(field, current.optionIds ?? []);
+            const selectedOptionIds = current.optionIds ?? [];
 
             return (
-              <label key={field.id} className="field">
-                {fieldLabel}
-                <select
-                  className="field-input custom-fields-multi-select"
-                  multiple
-                  value={current.optionIds ?? []}
-                  onChange={(event) =>
-                    updateField(field.id, {
-                      optionIds: Array.from(event.currentTarget.selectedOptions).map((option) => option.value),
-                    })
-                  }
-                  disabled={fieldDisabled}
-                  required={fieldRequired}
-                >
-                  {visibleOptions.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.active ? option.label : `${option.label} (inactiva)`}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div key={field.id} className="field">
+                <span>{fieldLabel}</span>
+                <details className="custom-fields-multi-menu">
+                  <summary
+                    className={`field-input custom-fields-multi-trigger ${fieldDisabled ? "disabled" : ""}`}
+                    aria-disabled={fieldDisabled}
+                  >
+                    <span>{formatMultiSelectLabel(field, selectedOptionIds)}</span>
+                    <span className="custom-fields-multi-count">{selectedOptionIds.length}</span>
+                  </summary>
+                  <div className="custom-fields-multi-options">
+                    {visibleOptions.map((option) => {
+                      const optionId = String(option.id);
+                      const checked = selectedOptionIds.includes(optionId);
+
+                      return (
+                        <label key={option.id} className="custom-fields-multi-option">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={fieldDisabled}
+                            onChange={(event) => {
+                              const nextIds = event.target.checked
+                                ? [...selectedOptionIds, optionId]
+                                : selectedOptionIds.filter((selectedId) => selectedId !== optionId);
+                              updateField(field.id, { optionIds: nextIds });
+                            }}
+                          />
+                          <span>{option.active ? option.label : `${option.label} (inactiva)`}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </details>
+                {fieldRequired && !selectedOptionIds.length ? (
+                  <input className="custom-fields-required-proxy" tabIndex={-1} required value="" onChange={() => undefined} />
+                ) : null}
+              </div>
             );
           }
 

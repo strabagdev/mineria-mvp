@@ -3,6 +3,7 @@ import {
   applyPendingPlanningMutations,
   discardConflictedPlanningMutations,
   getRetryablePlanningMutations,
+  makePendingPlanningMutation,
   replayPendingPlanningMutations,
   toOptimisticPlanningItem,
   withClientMutationId,
@@ -54,6 +55,18 @@ describe("planning mutation queue helpers", () => {
       sync_status: "pending",
     });
     expect(optimisticItem?.id).toBeLessThan(0);
+  });
+
+  it("keeps custom field values outside the core planning payload", () => {
+    const mutation = makePendingPlanningMutation(
+      "POST",
+      { description: "Extraccion" },
+      { customFieldValues: [{ field_id: 1, option_id: 10 }] }
+    );
+
+    expect(mutation.payload).toMatchObject({ description: "Extraccion" });
+    expect(mutation.payload).not.toHaveProperty("customFieldValues");
+    expect(mutation.customFieldValues).toEqual([{ field_id: 1, option_id: 10 }]);
   });
 
   it("applies pending creates and deletes to visible planning items", () => {
@@ -143,5 +156,27 @@ describe("planning mutation queue helpers", () => {
     expect(result.retryableError).toBe(retryableError);
     expect(result.retryableErrorMessage).toBe("Invalid session");
     expect(result.nextQueue).toEqual([baseMutation, pendingAfterRetry]);
+  });
+
+  it("replays custom field values after the core mutation succeeds", async () => {
+    const mutation: PendingPlanningMutation = {
+      ...baseMutation,
+      customFieldValues: [{ field_id: 1, value_text: "Apoyo" }],
+    };
+    const sendMutation = vi.fn().mockResolvedValueOnce({ item: { id: 123 } });
+    const replayCustomFieldValues = vi.fn().mockResolvedValueOnce(undefined);
+
+    const result = await replayPendingPlanningMutations({
+      mutations: [mutation],
+      sendMutation,
+      replayCustomFieldValues,
+      getErrorMessage: (error) => (error instanceof Error ? error.message : "error"),
+      isRetryableError: () => false,
+    });
+
+    expect(sendMutation).toHaveBeenCalledWith(mutation);
+    expect(replayCustomFieldValues).toHaveBeenCalledWith(mutation, { item: { id: 123 } });
+    expect(result.syncedCount).toBe(1);
+    expect(result.nextQueue).toEqual([]);
   });
 });
