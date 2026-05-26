@@ -15,6 +15,24 @@ import {
   fetchPlanningItems,
 } from "@/modules/planning/application/planning-reads.client";
 import {
+  fetchPlanningCustomFields,
+  fetchPlanningCustomFieldValues,
+  savePlanningCustomFieldValues,
+} from "@/modules/planning-custom-fields/application/planning-custom-fields.client";
+import type {
+  PlanningCustomFieldDto,
+  PlanningCustomFieldValueDto,
+} from "@/modules/planning-custom-fields/contracts/planning-custom-fields";
+import { PlanningCustomFieldsAdminPanel } from "@/modules/planning-custom-fields/presentation/planning-custom-fields-admin-panel";
+import { PlanningCustomFieldsForm } from "@/modules/planning-custom-fields/presentation/planning-custom-fields-form";
+import {
+  buildCustomFieldFormState,
+  fieldAppliesTo,
+  toCustomFieldValueInputs,
+  type PlanningCustomFieldFormState,
+} from "@/modules/planning-custom-fields/presentation/planning-custom-fields-form-model";
+import { PlanningCustomFieldsSummary } from "@/modules/planning-custom-fields/presentation/planning-custom-fields-summary";
+import {
   PlanningMutationRequestError,
   sendPlanningMutation as sendPlanningMutationRequest,
 } from "@/modules/planning/application/planning-writes.client";
@@ -179,6 +197,9 @@ export default function Home() {
   const [queueSyncing, setQueueSyncing] = useState(false);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState("");
+  const [customFields, setCustomFields] = useState<PlanningCustomFieldDto[]>([]);
+  const [customFieldFormState, setCustomFieldFormState] = useState<PlanningCustomFieldFormState>({});
+  const [viewingCustomFieldValues, setViewingCustomFieldValues] = useState<PlanningCustomFieldValueDto[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isCatalogModalOpen, setIsCatalogModalOpen] = useState(false);
   const [viewingPlanningItem, setViewingPlanningItem] = useState<ViewingPlanningItem>(null);
@@ -413,6 +434,36 @@ export default function Home() {
   }, [session?.access_token, setDetailForm]);
 
   useEffect(() => {
+    if (!session?.access_token) {
+      setCustomFields([]);
+      return;
+    }
+
+    let active = true;
+
+    fetchPlanningCustomFields(session.access_token, { activeOnly: false })
+      .then((nextFields) => {
+        if (active) {
+          setCustomFields(nextFields);
+        }
+      })
+      .catch((error: unknown) => {
+        if (active) {
+          recordOperationalEvent({
+            level: "warn",
+            name: "planning_custom_fields.load_failed",
+            source: "planningPage",
+          });
+          setCatalogError(getRequestErrorMessage(error, "No se pudieron cargar los campos configurables."));
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [session?.access_token]);
+
+  useEffect(() => {
     let active = true;
 
     async function loadPlanningItems() {
@@ -573,12 +624,30 @@ export default function Home() {
   function resetPlanningForm() {
     const nextForm = syncPlanningForm(toInitialPlanningForm(catalog, levels, activeShift, selectedDate), catalog, levels);
     setFormState({ ...nextForm, item_date: selectedDate, shift: activeShift });
+    setCustomFieldFormState({});
     setFormError("");
     setEditingPlanningItem(null);
   }
 
   function openPlanningDetail(item: PlanningItem) {
     setViewingPlanningItem(item);
+    setViewingCustomFieldValues([]);
+
+    if (item.tracking_type !== "programado" || !session?.access_token) {
+      return;
+    }
+
+    void fetchPlanningCustomFieldValues({ planningItemId: item.id }, session.access_token)
+      .then(setViewingCustomFieldValues)
+      .catch((error: unknown) => {
+        recordOperationalEvent({
+          level: "warn",
+          name: "planning_custom_field_values.load_failed",
+          source: "planningPage",
+          metadata: { planningItemId: item.id },
+        });
+        setItemsError(getRequestErrorMessage(error, "No se pudieron cargar los campos configurables."));
+      });
   }
 
   async function sendPlanningMutation(
@@ -677,7 +746,37 @@ export default function Home() {
     setFormBusy(true);
 
     try {
-      await sendPlanningMutation(method, payload);
+      const mutationResult = await sendPlanningMutation(method, payload);
+      const savedItemId = Number(
+        (mutationResult as { item?: { id?: unknown } }).item?.id ?? editingPlanningItem?.id
+      );
+
+      if (formState.tracking_type === "programado" && Number.isFinite(savedItemId) && savedItemId > 0) {
+        try {
+          await savePlanningCustomFieldValues(
+            {
+              planning_item_id: savedItemId,
+              values: toCustomFieldValueInputs(
+                customFields.filter((field) => fieldAppliesTo(field, "planned")),
+                customFieldFormState
+              ),
+            },
+            session.access_token
+          );
+        } catch (error: unknown) {
+          recordOperationalEvent({
+            level: "warn",
+            name: "planning_custom_field_values.save_failed",
+            source: "planningPage",
+            metadata: { planningItemId: savedItemId },
+          });
+          setEditingPlanningItem({ id: savedItemId });
+          setFormError(getRequestErrorMessage(error, "La programacion se guardo, pero no se pudieron guardar sus campos configurables. Reintenta guardar para completar los campos."));
+          await refreshPlanningItems().catch(() => undefined);
+          return;
+        }
+      }
+
       await refreshPlanningItems();
       setIsModalOpen(false);
       resetPlanningForm();
@@ -727,9 +826,24 @@ export default function Home() {
       notes: item.notes ?? "",
     });
     setEditingPlanningItem({ id: item.id });
+    setCustomFieldFormState({});
     setFormError("");
     setViewingPlanningItem(null);
     setIsModalOpen(true);
+
+    if (item.tracking_type === "programado" && session?.access_token) {
+      void fetchPlanningCustomFieldValues({ planningItemId: item.id }, session.access_token)
+        .then((values) => setCustomFieldFormState(buildCustomFieldFormState(values)))
+        .catch((error: unknown) => {
+          recordOperationalEvent({
+            level: "warn",
+            name: "planning_custom_field_values.load_failed",
+            source: "planningPage",
+            metadata: { planningItemId: item.id, mode: "edit" },
+          });
+          setFormError(getRequestErrorMessage(error, "No se pudieron cargar los campos configurables."));
+        });
+    }
   }
 
   async function handleDeletePlanningItem(id: number, trackingType: PlanningItem["tracking_type"]) {
@@ -986,6 +1100,7 @@ export default function Home() {
       notes: trackingType === "real" ? "" : sourceItem?.notes ?? group.notes ?? "",
     });
     setEditingPlanningItem(null);
+    setCustomFieldFormState({});
     setFormError("");
     setViewingPlanningItem(null);
     setIsModalOpen(true);
@@ -1075,6 +1190,17 @@ export default function Home() {
           isEditing={Boolean(editingPlanningItem)}
           deleteLabel={planningDeleteLabel}
           submitLabel={planningSubmitLabel}
+          customFieldsSlot={
+            formState.tracking_type === "programado" ? (
+              <PlanningCustomFieldsForm
+                fields={customFields}
+                phase="planned"
+                value={customFieldFormState}
+                onChange={setCustomFieldFormState}
+                disabled={formBusy}
+              />
+            ) : null
+          }
           onClose={() => setIsModalOpen(false)}
           onSubmit={handleCreateItem}
           onRequestDelete={requestDeletePlanningItem}
@@ -1091,6 +1217,11 @@ export default function Home() {
           formatDuration={formatDuration}
           toDisplayCategory={toDisplayCategory}
           toTrackingTypeLabel={toTrackingTypeLabel}
+          customFieldsSlot={
+            viewingPlanningItem.tracking_type === "programado" ? (
+              <PlanningCustomFieldsSummary fields={customFields} values={viewingCustomFieldValues} />
+            ) : null
+          }
           onClose={() => setViewingPlanningItem(null)}
           onEdit={() => openEditPlanningItem(viewingPlanningItem)}
         />
@@ -1137,6 +1268,12 @@ export default function Home() {
           onDeleteType={(id) => void handleDeleteType(id)}
           onDeleteLevel={(id) => void handleDeleteLevel(id)}
           onDeleteDetail={(id) => void handleDeleteDetail(id)}
+          customFieldsAdminSlot={
+            <PlanningCustomFieldsAdminPanel
+              accessToken={session?.access_token}
+              onFieldsChange={setCustomFields}
+            />
+          }
         />
       ) : null}
     </section>

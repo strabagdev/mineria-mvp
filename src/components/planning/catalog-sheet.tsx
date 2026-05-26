@@ -1,4 +1,4 @@
-import type { Dispatch, FormEventHandler, SetStateAction } from "react";
+import type { Dispatch, FormEventHandler, ReactNode, SetStateAction } from "react";
 import { SheetPanel } from "@/components/ui/sheet-panel";
 
 type CatalogDetail = {
@@ -87,6 +87,7 @@ type CatalogSheetProps = {
   onDeleteType: (id: number) => void;
   onDeleteLevel: (id: number) => void;
   onDeleteDetail: (id: number) => void;
+  customFieldsAdminSlot?: ReactNode;
 };
 
 export function CatalogSheet({
@@ -118,6 +119,7 @@ export function CatalogSheet({
   onDeleteType,
   onDeleteLevel,
   onDeleteDetail,
+  customFieldsAdminSlot,
 }: CatalogSheetProps) {
   const detailTypesForAdmin =
     catalog.find((category) => category.slug === detailForm.category)?.types ?? [];
@@ -262,6 +264,8 @@ export function CatalogSheet({
           </article>
 
           {catalogFormError ? <p className="feedback">{catalogFormError}</p> : null}
+
+          {customFieldsAdminSlot}
         </div>
 
         <div className="catalog-tree">

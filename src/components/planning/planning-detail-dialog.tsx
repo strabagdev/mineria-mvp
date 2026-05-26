@@ -1,4 +1,5 @@
 import { Calendar, Clock, FileText, Layers, Link2, MapPin, X } from "lucide-react";
+import type { ReactNode } from "react";
 
 type PlanningDetailItem = {
   tracking_type: "programado" | "real";
@@ -27,6 +28,7 @@ type PlanningDetailDialogProps = {
   formatDuration: (start: string, end: string) => string;
   toDisplayCategory: (category: PlanningDetailItem["category"]) => string;
   toTrackingTypeLabel: (trackingType: PlanningDetailItem["tracking_type"]) => string;
+  customFieldsSlot?: ReactNode;
   onClose: () => void;
   onEdit: () => void;
 };
@@ -40,6 +42,7 @@ export function PlanningDetailDialog({
   formatDuration,
   toDisplayCategory,
   toTrackingTypeLabel,
+  customFieldsSlot,
   onClose,
   onEdit,
 }: PlanningDetailDialogProps) {
@@ -152,6 +155,8 @@ export function PlanningDetailDialog({
               <p className="detail-notes-copy">{item.notes}</p>
             </article>
           ) : null}
+
+          {customFieldsSlot}
         </div>
 
         <div className="modal-actions detail-modal-actions">

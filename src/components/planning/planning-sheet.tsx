@@ -1,4 +1,4 @@
-import type { Dispatch, FormEventHandler, SetStateAction } from "react";
+import type { Dispatch, FormEventHandler, ReactNode, SetStateAction } from "react";
 import { SheetPanel } from "@/components/ui/sheet-panel";
 
 type CatalogDetail = {
@@ -55,6 +55,7 @@ type PlanningSheetProps = {
   isEditing: boolean;
   deleteLabel: string;
   submitLabel: string;
+  customFieldsSlot?: ReactNode;
   onClose: () => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
   onRequestDelete: () => void;
@@ -77,6 +78,7 @@ export function PlanningSheet({
   isEditing,
   deleteLabel,
   submitLabel,
+  customFieldsSlot,
   onClose,
   onSubmit,
   onRequestDelete,
@@ -212,6 +214,8 @@ export function PlanningSheet({
             />
           </label>
         </div>
+
+        {customFieldsSlot}
 
         <label className="field">
           Notas
