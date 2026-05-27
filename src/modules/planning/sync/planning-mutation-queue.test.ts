@@ -179,4 +179,28 @@ describe("planning mutation queue helpers", () => {
     expect(result.syncedCount).toBe(1);
     expect(result.nextQueue).toEqual([]);
   });
+
+  it("keeps the mutation retryable when custom field replay fails after core sync", async () => {
+    const mutation: PendingPlanningMutation = {
+      ...baseMutation,
+      customFieldValues: [{ field_id: 1, value_text: "Apoyo" }],
+    };
+    const retryableError = new Error("Network offline");
+    const sendMutation = vi.fn().mockResolvedValueOnce({ item: { id: 123 } });
+    const replayCustomFieldValues = vi.fn().mockRejectedValueOnce(retryableError);
+
+    const result = await replayPendingPlanningMutations({
+      mutations: [mutation],
+      sendMutation,
+      replayCustomFieldValues,
+      getErrorMessage: (error) => (error instanceof Error ? error.message : "error"),
+      isRetryableError: () => true,
+    });
+
+    expect(sendMutation).toHaveBeenCalledWith(mutation);
+    expect(replayCustomFieldValues).toHaveBeenCalledWith(mutation, { item: { id: 123 } });
+    expect(result.syncedCount).toBe(0);
+    expect(result.stoppedForRetryableError).toBe(true);
+    expect(result.nextQueue).toEqual([mutation]);
+  });
 });

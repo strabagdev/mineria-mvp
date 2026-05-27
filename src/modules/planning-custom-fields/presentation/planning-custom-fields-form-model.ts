@@ -94,6 +94,92 @@ export function toCustomFieldValueInputs(
   });
 }
 
+export function toDisplayCustomFieldValues(
+  values: PlanningCustomFieldValueInputDto[],
+  target: {
+    planningItemId?: number | null;
+    executionSegmentId?: number | null;
+    activityGroupId?: string | null;
+  } = {}
+): PlanningCustomFieldValueDto[] {
+  return values.flatMap((value, index) => {
+    const base = {
+      id: -(index + 1),
+      field_id: value.field_id,
+      planning_item_id: target.planningItemId ?? null,
+      execution_segment_id: target.executionSegmentId ?? null,
+      activity_group_id: target.activityGroupId ?? null,
+      value_text: value.value_text ?? null,
+      value_number: value.value_number ?? null,
+      value_date: value.value_date ?? null,
+      value_boolean: value.value_boolean ?? null,
+      value_json: value.value_json ?? {},
+    };
+
+    if (value.option_ids?.length) {
+      return value.option_ids.map((optionId, optionIndex) => ({
+        ...base,
+        id: -((index + 1) * 1000 + optionIndex + 1),
+        option_id: optionId,
+      }));
+    }
+
+    return [
+      {
+        ...base,
+        option_id: value.option_id ?? null,
+      },
+    ];
+  });
+}
+
+export function formatCustomFieldDisplayValue(field: PlanningCustomFieldDto, values: PlanningCustomFieldValueDto[]) {
+  if (!values.length) {
+    return "";
+  }
+
+  if (field.input_type === "select" || field.input_type === "multi_select") {
+    const labels = values
+      .map((value) => field.options.find((option) => option.id === value.option_id)?.label)
+      .filter(Boolean);
+    return labels.join(", ");
+  }
+
+  const value = values[0];
+
+  if (field.input_type === "number") {
+    return value.value_number === null ? "" : String(value.value_number);
+  }
+
+  if (field.input_type === "date") {
+    return value.value_date ?? "";
+  }
+
+  if (field.input_type === "boolean") {
+    return value.value_boolean === null ? "" : value.value_boolean ? "Si" : "No";
+  }
+
+  return value.value_text ?? "";
+}
+
+export function getCustomFieldDisplayEntries(
+  fields: PlanningCustomFieldDto[],
+  values: PlanningCustomFieldValueDto[]
+) {
+  const valuesByField = new Map<number, PlanningCustomFieldValueDto[]>();
+
+  for (const value of values) {
+    valuesByField.set(value.field_id, [...(valuesByField.get(value.field_id) ?? []), value]);
+  }
+
+  return fields
+    .map((field) => ({
+      field,
+      value: formatCustomFieldDisplayValue(field, valuesByField.get(field.id) ?? []),
+    }))
+    .filter((entry) => entry.value);
+}
+
 export function fieldAppliesTo(field: PlanningCustomFieldDto, phase: PlanningCustomFieldAppliesTo) {
   return field.active && (field.applies_to === "both" || field.applies_to === phase);
 }

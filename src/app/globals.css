@@ -45,6 +45,12 @@
   --radius-xl: 0.75rem;
   --radius-lg: 0.68rem;
   --radius-md: 0.55rem;
+  --z-base: 0;
+  --z-gantt: 20;
+  --z-gantt-tooltip: 40;
+  --z-header: 60;
+  --z-popover: 80;
+  --z-modal: 1000;
 }
 
 .dark {
@@ -212,7 +218,7 @@ textarea {
 .app-sidebar {
   position: fixed;
   inset: 0 auto 0 0;
-  z-index: 200;
+  z-index: var(--z-header);
   display: flex;
   flex-direction: column;
   width: var(--app-sidebar-width);
@@ -606,7 +612,7 @@ textarea {
 
 .surface-card.hero.hero-operational {
   position: relative;
-  z-index: 90;
+  z-index: var(--z-header);
   gap: 0;
   padding: 0.72rem 0.82rem;
   border-color: var(--border);
@@ -837,7 +843,7 @@ textarea {
   position: absolute;
   top: calc(100% + 0.65rem);
   left: 0;
-  z-index: 120;
+  z-index: var(--z-popover);
   width: min(21rem, calc(100vw - 2rem));
   padding: 0.82rem;
   border: 1px solid var(--border);
@@ -1355,6 +1361,8 @@ textarea {
 .gantt-shell {
   display: grid;
   gap: 0;
+  position: relative;
+  z-index: var(--z-base);
   --gantt-meta-width: clamp(220px, 21vw, 280px);
   --gantt-column-gap: 0;
   padding: 0;
@@ -1362,13 +1370,16 @@ textarea {
   border-radius: 0.75rem;
   background: var(--panel-solid);
   box-shadow: 0 10px 26px rgba(15, 23, 42, 0.05);
-  overflow: hidden;
+  overflow: visible;
 }
 
 .gantt-stage {
+  position: relative;
+  z-index: var(--z-gantt);
   display: grid;
   gap: 0.85rem;
   padding: 0.05rem 0 0.15rem;
+  overflow: visible;
 }
 
 .gantt-status-strip {
@@ -1745,8 +1756,10 @@ textarea {
 
 .gantt-rows {
   position: relative;
+  z-index: 1;
   display: grid;
   gap: 0;
+  overflow: visible;
 }
 
 .shift-empty-state {
@@ -1999,9 +2012,11 @@ textarea {
 
 .gantt-track-scale {
   position: relative;
+  z-index: 1;
   grid-column: 1 / -1;
   min-height: inherit;
   width: 100%;
+  overflow: visible;
 }
 
 .gantt-track-scale::before {
@@ -2175,7 +2190,7 @@ textarea {
 .gantt-bar-tooltip {
   position: absolute;
   left: 50%;
-  z-index: 100;
+  z-index: var(--z-gantt-tooltip);
   display: block;
   width: max-content;
   max-width: min(18rem, 78vw);
@@ -2310,6 +2325,73 @@ textarea {
 .dark .gantt-tooltip-badge.pending {
   border-color: color-mix(in srgb, var(--warning) 42%, transparent);
   color: var(--warning);
+}
+
+.gantt-tooltip-custom-fields {
+  display: flex;
+  align-items: center;
+  gap: 0.34rem;
+  padding-top: 0.22rem;
+}
+
+.gantt-tooltip-custom-field {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.42rem;
+  height: 1.42rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--popover));
+  color: var(--accent-text);
+  pointer-events: auto;
+}
+
+.gantt-tooltip-custom-field svg {
+  width: 0.82rem;
+  height: 0.82rem;
+}
+
+.gantt-tooltip-custom-field.more {
+  width: auto;
+  min-width: 1.42rem;
+  padding-inline: 0.36rem;
+  background: color-mix(in srgb, var(--foreground) 8%, var(--popover));
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.gantt-tooltip-custom-field::after {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 0.38rem);
+  z-index: 2;
+  width: max-content;
+  max-width: 13rem;
+  padding: 0.34rem 0.46rem;
+  border: 1px solid var(--border);
+  border-radius: 0.38rem;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.18);
+  content: attr(data-tooltip);
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1.25;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(0.16rem);
+  transition: opacity 120ms ease, transform 120ms ease;
+  white-space: normal;
+}
+
+.gantt-tooltip-custom-field:hover::after,
+.gantt-tooltip-custom-field:focus-visible::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
 }
 
 .gantt-bar.programado .gantt-bar-tooltip {
@@ -2561,7 +2643,7 @@ select.field-input {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 1000;
+  z-index: var(--z-modal);
   display: grid;
   place-items: center;
   padding: 1.5rem;

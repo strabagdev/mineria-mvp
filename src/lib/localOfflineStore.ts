@@ -14,6 +14,7 @@ export const OFFLINE_STORES = {
 export const OFFLINE_KEYS = {
   planningCatalog: "planning-catalog",
   planningCustomFields: "planning-custom-fields",
+  planningCustomFieldValuesPrefix: "planning-custom-field-values",
   authProfile: "auth-profile",
   planningMutationQueue: "planning-mutation-queue",
 } as const;
@@ -21,6 +22,7 @@ export const OFFLINE_KEYS = {
 export const OFFLINE_DATASETS = {
   planningCatalog: "planning.catalog",
   planningCustomFields: "planning.customFields",
+  planningCustomFieldValues: "planning.customFieldValues",
   authProfile: "auth.profile",
   planningMutationQueue: "planning.mutationQueue",
   planningByDate: "planning.byDate",

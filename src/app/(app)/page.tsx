@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Tag } from "lucide-react";
 import { useAuth } from "@/providers/auth-provider";
 import { CatalogSheet } from "@/components/planning/catalog-sheet";
 import { DeleteConfirmationDialog } from "@/components/planning/delete-confirmation-dialog";
@@ -29,9 +30,12 @@ import { PlanningCustomFieldsForm } from "@/modules/planning-custom-fields/prese
 import {
   buildCustomFieldFormState,
   fieldAppliesTo,
+  getCustomFieldDisplayEntries,
   toCustomFieldValueInputs,
+  toDisplayCustomFieldValues,
   type PlanningCustomFieldFormState,
 } from "@/modules/planning-custom-fields/presentation/planning-custom-fields-form-model";
+import { getPlanningCustomFieldIcon } from "@/modules/planning-custom-fields/presentation/planning-custom-field-icons";
 import { PlanningCustomFieldsSummary } from "@/modules/planning-custom-fields/presentation/planning-custom-fields-summary";
 import {
   PlanningMutationRequestError,
@@ -45,11 +49,14 @@ import {
 } from "@/lib/networkStatus";
 import {
   readCatalogCache,
+  readKeyValueCache,
   readPlanningCustomFieldsCache,
   readPlanningCache,
   saveCatalogCache,
+  saveKeyValueCache,
   savePlanningCustomFieldsCache,
   savePlanningCache,
+  OFFLINE_KEYS,
 } from "@/lib/localOfflineStore";
 import { recordOperationalEvent } from "../../lib/observability/logger";
 import {
@@ -98,6 +105,7 @@ import {
   getRetryablePlanningMutations,
   makePendingPlanningMutation,
   replayPendingPlanningMutations,
+  toOptimisticPlanningItem,
   withClientMutationId,
 } from "@/modules/planning/sync/planning-mutation-queue";
 import {
@@ -207,6 +215,7 @@ export default function Home() {
   const [formCustomFieldsLoading, setFormCustomFieldsLoading] = useState(false);
   const [formCustomFieldsError, setFormCustomFieldsError] = useState("");
   const [viewingCustomFieldValues, setViewingCustomFieldValues] = useState<PlanningCustomFieldValueDto[]>([]);
+  const [customFieldValuesByItemId, setCustomFieldValuesByItemId] = useState<Record<number, PlanningCustomFieldValueDto[]>>({});
   const [viewingCustomFieldsLoading, setViewingCustomFieldsLoading] = useState(false);
   const [viewingCustomFieldsError, setViewingCustomFieldsError] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -675,6 +684,57 @@ export default function Home() {
     };
   }, [isDatePickerOpen]);
 
+  function buildCustomFieldValuesCacheKey(planningItemId: number) {
+    return `${OFFLINE_KEYS.planningCustomFieldValuesPrefix}:${planningItemId}`;
+  }
+
+  async function cacheCustomFieldValues(planningItemId: number, values: PlanningCustomFieldValueDto[]) {
+    if (planningItemId <= 0) {
+      return;
+    }
+
+    setCustomFieldValuesByItemId((current) => ({
+      ...current,
+      [planningItemId]: values,
+    }));
+    await saveKeyValueCache(buildCustomFieldValuesCacheKey(planningItemId), values).catch(() => undefined);
+  }
+
+  async function readCachedCustomFieldValues(planningItemId: number) {
+    if (planningItemId <= 0) {
+      return null;
+    }
+
+    const cachedValues = await readKeyValueCache<PlanningCustomFieldValueDto[]>(
+      buildCustomFieldValuesCacheKey(planningItemId)
+    ).catch(() => null);
+
+    return cachedValues?.value && Array.isArray(cachedValues.value) ? cachedValues.value : null;
+  }
+
+  function getPendingCustomFieldValuesForItem(item: PlanningItem) {
+    const pendingMutation = pendingPlanningMutations.find((mutation) => {
+      if (!mutation.customFieldValues?.length) {
+        return false;
+      }
+
+      const payloadId = Number(mutation.payload.id);
+      if (Number.isFinite(payloadId) && payloadId === item.id) {
+        return true;
+      }
+
+      return toOptimisticPlanningItem(mutation)?.id === item.id;
+    });
+
+    return pendingMutation?.customFieldValues
+      ? toDisplayCustomFieldValues(pendingMutation.customFieldValues, { planningItemId: item.id })
+      : null;
+  }
+
+  function getCustomFieldValuesForGanttPopover(item: PlanningItem) {
+    return getPendingCustomFieldValuesForItem(item) ?? customFieldValuesByItemId[item.id] ?? [];
+  }
+
   function resetPlanningForm() {
     const nextForm = syncPlanningForm(toInitialPlanningForm(catalog, levels, activeShift, selectedDate), catalog, levels);
     setFormState({ ...nextForm, item_date: selectedDate, shift: activeShift });
@@ -686,10 +746,15 @@ export default function Home() {
 
   function openPlanningDetail(item: PlanningItem) {
     setViewingPlanningItem(item);
-    setViewingCustomFieldValues([]);
+    setViewingCustomFieldValues(getPendingCustomFieldValuesForItem(item) ?? []);
     setViewingCustomFieldsError("");
 
     if (item.tracking_type !== "programado" || !session?.access_token) {
+      setViewingCustomFieldsLoading(false);
+      return;
+    }
+
+    if (item.id <= 0) {
       setViewingCustomFieldsLoading(false);
       return;
     }
@@ -699,8 +764,16 @@ export default function Home() {
       .then((values) => {
         setViewingCustomFieldValues(values);
         setViewingCustomFieldsError("");
+        void cacheCustomFieldValues(item.id, values);
       })
-      .catch((error: unknown) => {
+      .catch(async (error: unknown) => {
+        const cachedValues = await readCachedCustomFieldValues(item.id);
+        if (cachedValues) {
+          setViewingCustomFieldValues(cachedValues);
+          setViewingCustomFieldsError("");
+          return;
+        }
+
         recordOperationalEvent({
           level: "warn",
           name: "planning_custom_field_values.load_failed",
@@ -784,13 +857,14 @@ export default function Home() {
           throw new Error("No se pudo asociar los campos configurables al programado sincronizado.");
         }
 
-        await savePlanningCustomFieldValues(
+        const savedCustomFieldValues = await savePlanningCustomFieldValues(
           {
             planning_item_id: planningItemId,
             values: mutation.customFieldValues,
           },
           session.access_token
         );
+        void cacheCustomFieldValues(planningItemId, savedCustomFieldValues);
       },
       getErrorMessage: (error) =>
         getRequestErrorMessage(error, "No se pudo sincronizar un registro pendiente."),
@@ -865,7 +939,7 @@ export default function Home() {
 
       if (formState.tracking_type === "programado" && Number.isFinite(savedItemId) && savedItemId > 0) {
         try {
-          await savePlanningCustomFieldValues(
+          const savedCustomFieldValues = await savePlanningCustomFieldValues(
             {
               planning_item_id: savedItemId,
               values: toCustomFieldValueInputs(
@@ -875,6 +949,7 @@ export default function Home() {
             },
             session.access_token
           );
+          void cacheCustomFieldValues(savedItemId, savedCustomFieldValues);
         } catch (error: unknown) {
           recordOperationalEvent({
             level: "warn",
@@ -947,13 +1022,31 @@ export default function Home() {
     setIsModalOpen(true);
 
     if (item.tracking_type === "programado" && session?.access_token) {
+      const pendingValues = getPendingCustomFieldValuesForItem(item);
+      if (pendingValues) {
+        setCustomFieldFormState(buildCustomFieldFormState(pendingValues));
+      }
+
+      if (item.id <= 0) {
+        setFormCustomFieldsLoading(false);
+        return;
+      }
+
       setFormCustomFieldsLoading(true);
       void fetchPlanningCustomFieldValues({ planningItemId: item.id }, session.access_token)
         .then((values) => {
           setCustomFieldFormState(buildCustomFieldFormState(values));
           setFormCustomFieldsError("");
+          void cacheCustomFieldValues(item.id, values);
         })
-        .catch((error: unknown) => {
+        .catch(async (error: unknown) => {
+          const cachedValues = await readCachedCustomFieldValues(item.id);
+          if (cachedValues) {
+            setCustomFieldFormState(buildCustomFieldFormState(cachedValues));
+            setFormCustomFieldsError("");
+            return;
+          }
+
           recordOperationalEvent({
             level: "warn",
             name: "planning_custom_field_values.load_failed",
@@ -1116,6 +1209,12 @@ export default function Home() {
     const ariaLabel = buildPlanningItemAriaLabel(item, duration);
     const barLabel = buildGanttBarLabel(item, layer);
     const locationLabel = buildEventSubtitle(item) || "Sin ubicacion";
+    const customFieldBadges = getCustomFieldDisplayEntries(
+      customFields,
+      item.tracking_type === "programado" ? getCustomFieldValuesForGanttPopover(item) : []
+    );
+    const visibleCustomFieldBadges = customFieldBadges.slice(0, 4);
+    const hiddenCustomFieldBadges = customFieldBadges.slice(4);
 
     return (
       <button
@@ -1161,6 +1260,35 @@ export default function Home() {
               ) : null}
             </span>
             {item.notes ? <span className="gantt-tooltip-muted">Notas: {item.notes}</span> : null}
+            {customFieldBadges.length ? (
+              <span className="gantt-tooltip-custom-fields" aria-label="Campos configurables">
+                {visibleCustomFieldBadges.map(({ field, value }) => {
+                  const FieldIcon = getPlanningCustomFieldIcon(field.icon_key) ?? Tag;
+
+                  return (
+                    <span
+                      key={field.id}
+                      className="gantt-tooltip-custom-field"
+                      data-tooltip={`${field.label}: ${value}`}
+                      title={`${field.label}: ${value}`}
+                      aria-label={`${field.label}: ${value}`}
+                    >
+                      <FieldIcon aria-hidden="true" />
+                    </span>
+                  );
+                })}
+                {hiddenCustomFieldBadges.length ? (
+                  <span
+                    className="gantt-tooltip-custom-field more"
+                    data-tooltip={hiddenCustomFieldBadges.map(({ field, value }) => `${field.label}: ${value}`).join(" · ")}
+                    title={hiddenCustomFieldBadges.map(({ field, value }) => `${field.label}: ${value}`).join(" · ")}
+                    aria-label={`${hiddenCustomFieldBadges.length} campos configurables adicionales`}
+                  >
+                    +{hiddenCustomFieldBadges.length}
+                  </span>
+                ) : null}
+              </span>
+            ) : null}
           </span>
         </span>
       </button>

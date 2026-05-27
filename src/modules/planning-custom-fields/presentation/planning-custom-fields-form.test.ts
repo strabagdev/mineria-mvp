@@ -4,7 +4,9 @@ import {
   buildCustomFieldFormState,
   fieldAppliesTo,
   fieldHasFormValue,
+  getCustomFieldDisplayEntries,
   toCustomFieldValueInputs,
+  toDisplayCustomFieldValues,
 } from "./planning-custom-fields-form-model";
 
 function makeField(input: Partial<PlanningCustomFieldDto> & Pick<PlanningCustomFieldDto, "id" | "input_type">): PlanningCustomFieldDto {
@@ -110,5 +112,69 @@ describe("planning custom field form helpers", () => {
     expect(fieldHasFormValue(2, { 2: { valueBoolean: false } })).toBe(true);
     expect(fieldHasFormValue(3, { 3: { valueText: "" } })).toBe(false);
     expect(fieldHasFormValue(4, {})).toBe(false);
+  });
+
+  it("converts queued custom field inputs into display values for offline detail", () => {
+    expect(toDisplayCustomFieldValues([
+      { field_id: 1, option_id: 10 },
+      { field_id: 2, option_ids: [21, 22] },
+      { field_id: 3, value_number: 6 },
+      { field_id: 4, value_text: "Apoyo" },
+      { field_id: 5, value_date: "2026-05-30" },
+      { field_id: 6, value_boolean: false },
+    ], { planningItemId: -123 })).toMatchObject([
+      { field_id: 1, planning_item_id: -123, option_id: 10 },
+      { field_id: 2, planning_item_id: -123, option_id: 21 },
+      { field_id: 2, planning_item_id: -123, option_id: 22 },
+      { field_id: 3, planning_item_id: -123, value_number: 6 },
+      { field_id: 4, planning_item_id: -123, value_text: "Apoyo" },
+      { field_id: 5, planning_item_id: -123, value_date: "2026-05-30" },
+      { field_id: 6, planning_item_id: -123, value_boolean: false },
+    ]);
+  });
+
+  it("formats only custom fields with assigned values for compact displays", () => {
+    const fields = [
+      makeField({
+        id: 1,
+        input_type: "select",
+        label: "Equipo",
+        options: [{ id: 10, field_id: 1, value: "mixer", label: "Mixer", active: true, sort_order: 100, metadata: {} }],
+      }),
+      makeField({ id: 2, input_type: "number", label: "Personas" }),
+      makeField({ id: 3, input_type: "text", label: "Observacion" }),
+    ];
+
+    expect(getCustomFieldDisplayEntries(fields, [
+      {
+        id: 1,
+        field_id: 1,
+        planning_item_id: 100,
+        execution_segment_id: null,
+        activity_group_id: null,
+        option_id: 10,
+        value_text: null,
+        value_number: null,
+        value_date: null,
+        value_boolean: null,
+        value_json: {},
+      },
+      {
+        id: 2,
+        field_id: 2,
+        planning_item_id: 100,
+        execution_segment_id: null,
+        activity_group_id: null,
+        option_id: null,
+        value_text: null,
+        value_number: 6,
+        value_date: null,
+        value_boolean: null,
+        value_json: {},
+      },
+    ])).toEqual([
+      { field: fields[0], value: "Mixer" },
+      { field: fields[1], value: "6" },
+    ]);
   });
 });
