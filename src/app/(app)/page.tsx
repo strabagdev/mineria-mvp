@@ -5,6 +5,7 @@ import { Tag } from "lucide-react";
 import { useAuth } from "@/providers/auth-provider";
 import { CatalogSheet } from "@/components/planning/catalog-sheet";
 import { DeleteConfirmationDialog } from "@/components/planning/delete-confirmation-dialog";
+import { GanttTooltipPortal } from "@/components/planning/gantt-tooltip-portal";
 import { GanttShiftSection } from "@/components/planning/gantt-shift-section";
 import { HistoricalModeStrip } from "@/components/planning/historical-mode-strip";
 import { OperationalHero } from "@/components/planning/operational-hero";
@@ -18,6 +19,7 @@ import {
 import {
   fetchPlanningCustomFields,
   fetchPlanningCustomFieldValues,
+  fetchPlanningCustomFieldValuesForItems,
   savePlanningCustomFieldValues,
 } from "@/modules/planning-custom-fields/application/planning-custom-fields.client";
 import type {
@@ -133,6 +135,10 @@ type DeleteConfirmation = {
 } | null;
 
 type ViewingPlanningItem = PlanningItem | null;
+
+function buildCustomFieldValuesCacheKey(planningItemId: number) {
+  return `${OFFLINE_KEYS.planningCustomFieldValuesPrefix}:${planningItemId}`;
+}
 
 const AUTH_SYNC_ERROR_MESSAGE =
   "Los registros siguen guardados en este equipo. No pudimos sincronizarlos todavia; se reintentara automaticamente cuando la conexion este estable.";
@@ -296,6 +302,72 @@ export default function Home() {
     }
   }, [session?.access_token]);
 
+  const preloadCustomFieldValuesForItems = useCallback(async (items: PlanningItem[]) => {
+    if (!session?.access_token) {
+      return;
+    }
+
+    const planningItemIds = items
+      .filter((item) => item.tracking_type === "programado" && item.id > 0)
+      .map((item) => item.id);
+
+    if (!planningItemIds.length) {
+      return;
+    }
+
+    let values: PlanningCustomFieldValueDto[];
+
+    try {
+      values = await fetchPlanningCustomFieldValuesForItems(planningItemIds, session.access_token);
+    } catch {
+      recordOperationalEvent({
+        level: "warn",
+        name: "planning_custom_field_values.load_failed",
+        source: "planningPage",
+        metadata: { selectedDate, mode: "batch" },
+      });
+
+      const cachedEntries = await Promise.all(
+        planningItemIds.map(async (planningItemId) => {
+          const cachedValues = await readKeyValueCache<PlanningCustomFieldValueDto[]>(
+            buildCustomFieldValuesCacheKey(planningItemId)
+          ).catch(() => null);
+          return [planningItemId, cachedValues?.value ?? []] as const;
+        })
+      );
+
+      setCustomFieldValuesByItemId((current) => ({
+        ...current,
+        ...Object.fromEntries(cachedEntries),
+      }));
+      return;
+    }
+
+    const nextValuesByItemId = Object.fromEntries(planningItemIds.map((id) => [id, [] as PlanningCustomFieldValueDto[]]));
+
+    for (const value of values) {
+      if (!value.planning_item_id) {
+        continue;
+      }
+
+      nextValuesByItemId[value.planning_item_id] = [
+        ...(nextValuesByItemId[value.planning_item_id] ?? []),
+        value,
+      ];
+    }
+
+    setCustomFieldValuesByItemId((current) => ({
+      ...current,
+      ...nextValuesByItemId,
+    }));
+
+    await Promise.all(
+      Object.entries(nextValuesByItemId).map(([planningItemId, itemValues]) =>
+        saveKeyValueCache(buildCustomFieldValuesCacheKey(Number(planningItemId)), itemValues).catch(() => undefined)
+      )
+    );
+  }, [selectedDate, session?.access_token]);
+
   useEffect(() => {
     function openCatalogFromNavigation() {
       if (canManageCatalog) {
@@ -374,7 +446,8 @@ export default function Home() {
     setPlanningItems(nextItems);
     setItemsError((current) => (isTransientConnectivityMessage(current) ? "" : current));
     void savePlanningCache(selectedDate, nextItems);
-  }, [selectedDate, session?.access_token]);
+    void preloadCustomFieldValuesForItems(nextItems);
+  }, [preloadCustomFieldValuesForItems, selectedDate, session?.access_token]);
 
   const refreshPlanningItemsFromRealtime = useCallback(() => {
     void refreshPlanningItems().catch((error: unknown) => {
@@ -541,6 +614,7 @@ export default function Home() {
 
         setPlanningItems(nextItems);
         void savePlanningCache(selectedDate, nextItems);
+        void preloadCustomFieldValuesForItems(nextItems);
       } catch (error: unknown) {
         const message = getRequestErrorMessage(error, "No se pudo cargar la planificacion.");
 
@@ -554,6 +628,7 @@ export default function Home() {
               metadata: { dataset: "planning-by-date", selectedDate },
             });
             setPlanningItems(cachedPlanning.items);
+            void preloadCustomFieldValuesForItems(cachedPlanning.items);
             setItemsError(
               `Usando planificacion local guardada. Ultima sincronizacion: ${formatLocalDateTime(cachedPlanning.updatedAt)}.`
             );
@@ -579,7 +654,7 @@ export default function Home() {
     return () => {
       active = false;
     };
-  }, [refreshPlanningItems, selectedDate, session?.access_token]);
+  }, [preloadCustomFieldValuesForItems, selectedDate, session?.access_token]);
 
   useEffect(() => {
     if (formState.tracking_type !== "programado" || formState.category === "actividad") {
@@ -683,10 +758,6 @@ export default function Home() {
       window.removeEventListener("pointerdown", closeDatePickerOnOutsideClick);
     };
   }, [isDatePickerOpen]);
-
-  function buildCustomFieldValuesCacheKey(planningItemId: number) {
-    return `${OFFLINE_KEYS.planningCustomFieldValuesPrefix}:${planningItemId}`;
-  }
 
   async function cacheCustomFieldValues(planningItemId: number, values: PlanningCustomFieldValueDto[]) {
     if (planningItemId <= 0) {
@@ -1239,7 +1310,7 @@ export default function Home() {
           </span>
         </span>
         {item.sync_status === "pending" ? <span className="gantt-bar-status-dot" aria-hidden="true" /> : null}
-        <span className="gantt-bar-tooltip" role="tooltip">
+        <GanttTooltipPortal>
           <span className="gantt-tooltip-content">
             <strong>{item.description}</strong>
             <span className="gantt-tooltip-muted">
@@ -1290,7 +1361,7 @@ export default function Home() {
               </span>
             ) : null}
           </span>
-        </span>
+        </GanttTooltipPortal>
       </button>
     );
   }

@@ -136,6 +136,24 @@ export async function fetchPlanningCustomFieldValues(
   return Array.isArray(json.values) ? json.values : [];
 }
 
+export async function fetchPlanningCustomFieldValuesForItems(
+  planningItemIds: number[],
+  accessToken?: string
+) {
+  const ids = [...new Set(planningItemIds.filter((id) => Number.isFinite(id) && id > 0))];
+
+  if (!ids.length) {
+    return [];
+  }
+
+  const params = new URLSearchParams({ planning_item_ids: ids.join(",") });
+  const json = await requestJson<{ values?: PlanningCustomFieldValueDto[] }>(
+    `/api/planning-custom-field-values?${params.toString()}`,
+    { accessToken }
+  );
+  return Array.isArray(json.values) ? json.values : [];
+}
+
 export async function savePlanningCustomFieldValues(
   payload: PlanningCustomFieldValuesSaveRequestDto,
   accessToken?: string

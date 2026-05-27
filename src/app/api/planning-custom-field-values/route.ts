@@ -4,6 +4,7 @@ import { getErrorMessage } from "@/lib/errorMessage";
 import type { PlanningCustomFieldValuesSaveRequestDto } from "@/modules/planning-custom-fields/contracts/planning-custom-fields";
 import {
   getCustomFieldValues,
+  getCustomFieldValuesForPlanningItems,
   saveCustomFieldValues,
 } from "@/server/services/planning-custom-fields.service";
 
@@ -45,6 +46,21 @@ export async function GET(req: Request) {
   try {
     await requireApprovedUser(req);
     const { searchParams } = new URL(req.url);
+    const planningItemIdsParam = searchParams.get("planning_item_ids");
+
+    if (planningItemIdsParam) {
+      const planningItemIds = planningItemIdsParam
+        .split(",")
+        .map((id) => Number(id.trim()))
+        .filter((id) => Number.isFinite(id) && id > 0);
+
+      if (!planningItemIds.length) {
+        return NextResponse.json({ error: "Debes indicar programados validos." }, { status: 400 });
+      }
+
+      return NextResponse.json({ values: await getCustomFieldValuesForPlanningItems(planningItemIds) });
+    }
+
     const parsed = toTarget({
       planning_item_id: searchParams.get("planning_item_id"),
       execution_segment_id: searchParams.get("execution_segment_id"),

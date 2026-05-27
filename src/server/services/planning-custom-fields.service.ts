@@ -19,6 +19,7 @@ import {
   listPlanningCustomFieldOptions,
   listPlanningCustomFieldRows,
   listPlanningCustomFieldValues,
+  listPlanningCustomFieldValuesByPlanningItemIds,
   replacePlanningCustomFieldValues,
   updatePlanningCustomField,
   updatePlanningCustomFieldOption,
@@ -192,6 +193,10 @@ export async function deleteUnusedCustomFieldOption(input: {
 
 export function getCustomFieldValues(target: PlanningCustomFieldValueTarget) {
   return listPlanningCustomFieldValues(target);
+}
+
+export function getCustomFieldValuesForPlanningItems(planningItemIds: number[]) {
+  return listPlanningCustomFieldValuesByPlanningItemIds(planningItemIds);
 }
 
 export async function saveCustomFieldValues(input: {

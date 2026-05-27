@@ -47,7 +47,7 @@
   --radius-md: 0.55rem;
   --z-base: 0;
   --z-gantt: 20;
-  --z-gantt-tooltip: 40;
+  --z-gantt-tooltip: 70;
   --z-header: 60;
   --z-popover: 80;
   --z-modal: 1000;
@@ -612,7 +612,6 @@ textarea {
 
 .surface-card.hero.hero-operational {
   position: relative;
-  z-index: var(--z-header);
   gap: 0;
   padding: 0.72rem 0.82rem;
   border-color: var(--border);
@@ -2210,6 +2209,21 @@ textarea {
   white-space: normal;
 }
 
+.gantt-tooltip-anchor {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.gantt-bar-tooltip.portal {
+  position: fixed;
+  left: 0;
+  top: 0;
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%);
+}
+
 .gantt-bar-tooltip::after {
   content: "";
   position: absolute;
@@ -2221,6 +2235,14 @@ textarea {
   border-bottom: 1px solid rgba(15, 23, 42, 0.12);
   background: color-mix(in srgb, var(--popover) 98%, transparent);
   transform: translateX(-50%) rotate(45deg);
+}
+
+.gantt-bar-tooltip.portal.below::after {
+  top: -0.28rem;
+  bottom: auto;
+  border: 0;
+  border-top: 1px solid rgba(15, 23, 42, 0.12);
+  border-left: 1px solid rgba(15, 23, 42, 0.12);
 }
 
 .gantt-tooltip-content {

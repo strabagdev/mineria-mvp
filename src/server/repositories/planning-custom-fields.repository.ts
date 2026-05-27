@@ -225,6 +225,28 @@ export async function listPlanningCustomFieldValues(target: PlanningCustomFieldV
   return (data ?? []) as PlanningCustomFieldValueRow[];
 }
 
+export async function listPlanningCustomFieldValuesByPlanningItemIds(planningItemIds: number[]) {
+  const ids = [...new Set(planningItemIds.filter((id) => Number.isFinite(id) && id > 0))];
+
+  if (!ids.length) {
+    return [];
+  }
+
+  const db = getSupabaseServerClient();
+  const { data, error } = await db
+    .from("planning_custom_field_values")
+    .select(valueSelect)
+    .in("planning_item_id", ids)
+    .order("planning_item_id", { ascending: true })
+    .order("id", { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []) as PlanningCustomFieldValueRow[];
+}
+
 export async function replacePlanningCustomFieldValues(
   target: PlanningCustomFieldValueTarget,
   values: PlanningCustomFieldValueInputDto[]
