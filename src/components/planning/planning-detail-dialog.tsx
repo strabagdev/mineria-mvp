@@ -126,7 +126,7 @@ export function PlanningDetailDialog({
           </div>
 
           {customFieldsSlot ? (
-            <div className="detail-compact-grid">
+            <div className="detail-highlight-grid">
               {customFieldsSlot}
             </div>
           ) : null}

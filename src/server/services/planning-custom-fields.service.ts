@@ -4,6 +4,7 @@ import { writeAuditLog } from "@/lib/auditLog";
 import type {
   PlanningCustomFieldAppliesTo,
   PlanningCustomFieldDto,
+  PlanningCustomFieldIconKey,
   PlanningCustomFieldInputType,
   PlanningCustomFieldJson,
   PlanningCustomFieldValueInputDto,
@@ -51,6 +52,7 @@ export async function createCustomField(input: {
   actor: AuditActor;
   slug: string;
   label: string;
+  iconKey: PlanningCustomFieldIconKey | null;
   inputType: PlanningCustomFieldInputType;
   active: boolean;
   required: boolean;
@@ -61,6 +63,7 @@ export async function createCustomField(input: {
   const field = await createPlanningCustomField({
     slug: input.slug,
     label: input.label,
+    icon_key: input.iconKey,
     input_type: input.inputType,
     active: input.active,
     required: input.required,
@@ -78,6 +81,7 @@ export async function updateCustomField(input: {
   updates: Partial<{
     slug: string;
     label: string;
+    icon_key: PlanningCustomFieldIconKey | null;
     input_type: PlanningCustomFieldInputType;
     active: boolean;
     required: boolean;

@@ -200,9 +200,15 @@ export default function Home() {
   const [queueSyncing, setQueueSyncing] = useState(false);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState("");
+  const [customFieldsLoading, setCustomFieldsLoading] = useState(true);
+  const [customFieldsError, setCustomFieldsError] = useState("");
   const [customFields, setCustomFields] = useState<PlanningCustomFieldDto[]>([]);
   const [customFieldFormState, setCustomFieldFormState] = useState<PlanningCustomFieldFormState>({});
+  const [formCustomFieldsLoading, setFormCustomFieldsLoading] = useState(false);
+  const [formCustomFieldsError, setFormCustomFieldsError] = useState("");
   const [viewingCustomFieldValues, setViewingCustomFieldValues] = useState<PlanningCustomFieldValueDto[]>([]);
+  const [viewingCustomFieldsLoading, setViewingCustomFieldsLoading] = useState(false);
+  const [viewingCustomFieldsError, setViewingCustomFieldsError] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isCatalogModalOpen, setIsCatalogModalOpen] = useState(false);
   const [viewingPlanningItem, setViewingPlanningItem] = useState<ViewingPlanningItem>(null);
@@ -251,12 +257,14 @@ export default function Home() {
   const refreshCustomFields = useCallback(async () => {
     if (!session?.access_token) {
       setCustomFields([]);
+      setCustomFieldsError("");
       return [];
     }
 
     try {
       const nextFields = await fetchPlanningCustomFields(session.access_token, { activeOnly: false });
       setCustomFields(nextFields);
+      setCustomFieldsError("");
       void savePlanningCustomFieldsCache(nextFields);
       return nextFields;
     } catch (error: unknown) {
@@ -269,10 +277,12 @@ export default function Home() {
           metadata: { dataset: "planning-custom-fields" },
         });
         setCustomFields(cachedFields.value);
+        setCustomFieldsError("");
         setCatalogError(`Usando campos configurables locales. Ultima sincronizacion: ${formatLocalDateTime(cachedFields.updatedAt)}.`);
         return cachedFields.value;
       }
 
+      setCustomFieldsError(getRequestErrorMessage(error, "No se pudieron cargar los campos configurables."));
       throw error;
     }
   }, [session?.access_token]);
@@ -468,15 +478,20 @@ export default function Home() {
   useEffect(() => {
     if (!session?.access_token) {
       setCustomFields([]);
+      setCustomFieldsLoading(false);
+      setCustomFieldsError("");
       return;
     }
 
     let active = true;
+    setCustomFieldsLoading(true);
+    setCustomFieldsError("");
 
     refreshCustomFields()
       .then((nextFields) => {
         if (active) {
           setCustomFields(nextFields);
+          setCustomFieldsError("");
         }
       })
       .catch((error: unknown) => {
@@ -486,7 +501,14 @@ export default function Home() {
             name: "planning_custom_fields.load_failed",
             source: "planningPage",
           });
-          setCatalogError(getRequestErrorMessage(error, "No se pudieron cargar los campos configurables."));
+          const message = getRequestErrorMessage(error, "No se pudieron cargar los campos configurables.");
+          setCustomFieldsError(message);
+          setCatalogError(message);
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setCustomFieldsLoading(false);
         }
       });
 
@@ -657,6 +679,7 @@ export default function Home() {
     const nextForm = syncPlanningForm(toInitialPlanningForm(catalog, levels, activeShift, selectedDate), catalog, levels);
     setFormState({ ...nextForm, item_date: selectedDate, shift: activeShift });
     setCustomFieldFormState({});
+    setFormCustomFieldsError("");
     setFormError("");
     setEditingPlanningItem(null);
   }
@@ -664,13 +687,19 @@ export default function Home() {
   function openPlanningDetail(item: PlanningItem) {
     setViewingPlanningItem(item);
     setViewingCustomFieldValues([]);
+    setViewingCustomFieldsError("");
 
     if (item.tracking_type !== "programado" || !session?.access_token) {
+      setViewingCustomFieldsLoading(false);
       return;
     }
 
+    setViewingCustomFieldsLoading(true);
     void fetchPlanningCustomFieldValues({ planningItemId: item.id }, session.access_token)
-      .then(setViewingCustomFieldValues)
+      .then((values) => {
+        setViewingCustomFieldValues(values);
+        setViewingCustomFieldsError("");
+      })
       .catch((error: unknown) => {
         recordOperationalEvent({
           level: "warn",
@@ -678,7 +707,12 @@ export default function Home() {
           source: "planningPage",
           metadata: { planningItemId: item.id },
         });
-        setItemsError(getRequestErrorMessage(error, "No se pudieron cargar los campos configurables."));
+        const message = getRequestErrorMessage(error, "No se pudieron cargar los campos configurables.");
+        setViewingCustomFieldsError(message);
+        setItemsError(message);
+      })
+      .finally(() => {
+        setViewingCustomFieldsLoading(false);
       });
   }
 
@@ -907,13 +941,18 @@ export default function Home() {
     });
     setEditingPlanningItem({ id: item.id });
     setCustomFieldFormState({});
+    setFormCustomFieldsError("");
     setFormError("");
     setViewingPlanningItem(null);
     setIsModalOpen(true);
 
     if (item.tracking_type === "programado" && session?.access_token) {
+      setFormCustomFieldsLoading(true);
       void fetchPlanningCustomFieldValues({ planningItemId: item.id }, session.access_token)
-        .then((values) => setCustomFieldFormState(buildCustomFieldFormState(values)))
+        .then((values) => {
+          setCustomFieldFormState(buildCustomFieldFormState(values));
+          setFormCustomFieldsError("");
+        })
         .catch((error: unknown) => {
           recordOperationalEvent({
             level: "warn",
@@ -921,8 +960,15 @@ export default function Home() {
             source: "planningPage",
             metadata: { planningItemId: item.id, mode: "edit" },
           });
-          setFormError(getRequestErrorMessage(error, "No se pudieron cargar los campos configurables."));
+          const message = getRequestErrorMessage(error, "No se pudieron cargar los campos configurables.");
+          setFormCustomFieldsError(message);
+          setFormError(message);
+        })
+        .finally(() => {
+          setFormCustomFieldsLoading(false);
         });
+    } else {
+      setFormCustomFieldsLoading(false);
     }
   }
 
@@ -1181,6 +1227,8 @@ export default function Home() {
     });
     setEditingPlanningItem(null);
     setCustomFieldFormState({});
+    setFormCustomFieldsLoading(false);
+    setFormCustomFieldsError("");
     setFormError("");
     setViewingPlanningItem(null);
     setIsModalOpen(true);
@@ -1210,6 +1258,11 @@ export default function Home() {
         formatLocalDateIso={formatLocalDateIso}
         onSelectOperationalDate={selectOperationalDate}
         onCreatePlanning={() => {
+          resetPlanningForm();
+          setFormState((current) => ({ ...current, tracking_type: "programado" }));
+          setFormCustomFieldsLoading(true);
+          setFormCustomFieldsError("");
+          setIsModalOpen(true);
           void refreshCustomFields().catch((error: unknown) => {
             recordOperationalEvent({
               level: "warn",
@@ -1217,11 +1270,11 @@ export default function Home() {
               source: "planningPage",
               metadata: { target: "open-planning-modal" },
             });
-            setCatalogError(getRequestErrorMessage(error, "No se pudieron cargar los campos configurables."));
+            const message = getRequestErrorMessage(error, "No se pudieron cargar los campos configurables.");
+            setFormCustomFieldsError(message);
+            setCatalogError(message);
           }).finally(() => {
-            resetPlanningForm();
-            setFormState((current) => ({ ...current, tracking_type: "programado" }));
-            setIsModalOpen(true);
+            setFormCustomFieldsLoading(false);
           });
         }}
       />
@@ -1288,6 +1341,8 @@ export default function Home() {
                 value={customFieldFormState}
                 onChange={setCustomFieldFormState}
                 disabled={formBusy}
+                loading={customFieldsLoading || formCustomFieldsLoading}
+                error={formCustomFieldsError || customFieldsError}
               />
             ) : null
           }
@@ -1309,7 +1364,12 @@ export default function Home() {
           toTrackingTypeLabel={toTrackingTypeLabel}
           customFieldsSlot={
             viewingPlanningItem.tracking_type === "programado" ? (
-              <PlanningCustomFieldsSummary fields={customFields} values={viewingCustomFieldValues} />
+              <PlanningCustomFieldsSummary
+                fields={customFields}
+                values={viewingCustomFieldValues}
+                loading={customFieldsLoading || viewingCustomFieldsLoading}
+                error={viewingCustomFieldsError || customFieldsError}
+              />
             ) : null
           }
           onClose={() => setViewingPlanningItem(null)}

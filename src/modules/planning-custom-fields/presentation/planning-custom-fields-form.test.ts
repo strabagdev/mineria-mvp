@@ -12,6 +12,7 @@ function makeField(input: Partial<PlanningCustomFieldDto> & Pick<PlanningCustomF
     id: input.id,
     slug: `field-${input.id}`,
     label: `Field ${input.id}`,
+    icon_key: input.icon_key ?? null,
     input_type: input.input_type,
     active: input.active ?? true,
     required: input.required ?? false,

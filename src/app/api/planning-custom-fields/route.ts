@@ -7,6 +7,7 @@ import type {
 } from "@/modules/planning-custom-fields/contracts/planning-custom-fields";
 import {
   isPlanningCustomFieldAppliesTo,
+  isPlanningCustomFieldIconKey,
   isPlanningCustomFieldInputType,
 } from "@/modules/planning-custom-fields/contracts/planning-custom-fields";
 import {
@@ -24,6 +25,20 @@ function toSortOrder(value: unknown) {
 
 function toConfig(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function parseIconKey(value: unknown) {
+  if (value === undefined || value === null || value === "") {
+    return { iconKey: null, error: "" };
+  }
+
+  const iconKey = String(value).trim();
+
+  if (!isPlanningCustomFieldIconKey(iconKey)) {
+    return { iconKey: null, error: "El icono del campo no es valido." };
+  }
+
+  return { iconKey, error: "" };
 }
 
 export async function GET(req: Request) {
@@ -46,6 +61,7 @@ export async function POST(req: Request) {
     const inputType = String(body.input_type ?? "").trim();
     const appliesTo = String(body.applies_to ?? "planned").trim();
     const slug = slugifyPlanningCustomField(String(body.slug ?? label));
+    const parsedIconKey = parseIconKey(body.icon_key);
 
     if (!label || !slug || !isPlanningCustomFieldInputType(inputType) || !isPlanningCustomFieldAppliesTo(appliesTo)) {
       return NextResponse.json(
@@ -54,10 +70,15 @@ export async function POST(req: Request) {
       );
     }
 
+    if (parsedIconKey.error) {
+      return NextResponse.json({ error: parsedIconKey.error }, { status: 400 });
+    }
+
     const field = await createCustomField({
       actor: { user, profile },
       slug,
       label,
+      iconKey: parsedIconKey.iconKey,
       inputType,
       active: body.active ?? true,
       required: body.required ?? false,
@@ -114,6 +135,14 @@ export async function PATCH(req: Request) {
         return NextResponse.json({ error: "La aplicacion del campo no es valida." }, { status: 400 });
       }
       updates.applies_to = appliesTo;
+    }
+
+    if (body.icon_key !== undefined) {
+      const parsedIconKey = parseIconKey(body.icon_key);
+      if (parsedIconKey.error) {
+        return NextResponse.json({ error: parsedIconKey.error }, { status: 400 });
+      }
+      updates.icon_key = parsedIconKey.iconKey;
     }
 
     if (body.active !== undefined) updates.active = Boolean(body.active);

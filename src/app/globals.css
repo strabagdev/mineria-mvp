@@ -3206,6 +3206,64 @@ select.field-input {
   pointer-events: none;
 }
 
+.custom-fields-skeleton-field,
+.custom-fields-detail-skeleton span,
+.custom-fields-detail-skeleton strong {
+  display: block;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--border) 54%, transparent),
+    color-mix(in srgb, var(--muted) 18%, transparent),
+    color-mix(in srgb, var(--border) 54%, transparent)
+  );
+  background-size: 220% 100%;
+  animation: custom-fields-loading 1.25s ease-in-out infinite;
+}
+
+.custom-fields-skeleton-field {
+  min-height: 3rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.custom-fields-detail-skeleton {
+  display: grid;
+  align-content: center;
+  gap: 0.54rem;
+  min-height: 5.15rem;
+}
+
+.custom-fields-detail-skeleton span {
+  width: 46%;
+  height: 0.78rem;
+}
+
+.custom-fields-detail-skeleton strong {
+  width: 68%;
+  height: 1rem;
+}
+
+.custom-fields-detail-message {
+  grid-column: 1 / -1;
+}
+
+.custom-fields-detail-message .detail-highlight-value {
+  margin-top: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+@keyframes custom-fields-loading {
+  0% {
+    background-position: 120% 0;
+  }
+
+  100% {
+    background-position: -120% 0;
+  }
+}
+
 .custom-fields-admin {
   gap: 1rem;
 }
@@ -3217,6 +3275,44 @@ select.field-input {
 
 .custom-fields-admin-list {
   margin-top: 1rem;
+}
+
+.custom-fields-admin-loading {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.custom-field-icon-select-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 3rem;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.custom-field-icon-preview {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3rem;
+  height: 3rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel-solid));
+  color: var(--accent-text);
+}
+
+.custom-field-icon-preview:empty::after {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 999px;
+  background: var(--muted);
+  opacity: 0.5;
+  content: "";
+}
+
+.custom-field-icon-preview svg {
+  width: 1.05rem;
+  height: 1.05rem;
 }
 
 .custom-field-select-button {

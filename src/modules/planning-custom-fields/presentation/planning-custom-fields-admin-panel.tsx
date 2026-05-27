@@ -2,9 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import type {
   PlanningCustomFieldAppliesTo,
   PlanningCustomFieldDto,
+  PlanningCustomFieldIconKey,
   PlanningCustomFieldInputType,
   PlanningCustomFieldOptionDto,
 } from "@/modules/planning-custom-fields/contracts/planning-custom-fields";
+import {
+  getPlanningCustomFieldIcon,
+  PLANNING_CUSTOM_FIELD_ICON_OPTIONS,
+} from "@/modules/planning-custom-fields/presentation/planning-custom-field-icons";
 import {
   createPlanningCustomField,
   createPlanningCustomFieldOption,
@@ -18,6 +23,7 @@ import {
 
 type FieldForm = {
   label: string;
+  iconKey: PlanningCustomFieldIconKey | "";
   inputType: PlanningCustomFieldInputType;
   appliesTo: PlanningCustomFieldAppliesTo;
   required: boolean;
@@ -37,6 +43,7 @@ type DraftOption = OptionForm & {
 
 const defaultFieldForm: FieldForm = {
   label: "",
+  iconKey: "",
   inputType: "select",
   appliesTo: "planned",
   required: false,
@@ -77,6 +84,7 @@ export function PlanningCustomFieldsAdminPanel({
   const [editingOption, setEditingOption] = useState<PlanningCustomFieldOptionDto | null>(null);
   const [draftOptions, setDraftOptions] = useState<DraftOption[]>([]);
   const [editingDraftOptionId, setEditingDraftOptionId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -91,6 +99,7 @@ export function PlanningCustomFieldsAdminPanel({
   const optionTargetField = editingFieldSnapshot ?? selectedField;
   const isOptionFieldForm = fieldForm.inputType === "select" || fieldForm.inputType === "multi_select";
   const optionSectionLabel = editingFieldSnapshot?.label ?? (fieldForm.label.trim() || "este campo");
+  const SelectedIcon = getPlanningCustomFieldIcon(fieldForm.iconKey || null);
 
   async function refreshFields(preferredFieldId?: number) {
     const nextFields = await fetchPlanningCustomFields(accessToken, { activeOnly: false });
@@ -120,10 +129,12 @@ export function PlanningCustomFieldsAdminPanel({
 
   useEffect(() => {
     if (!accessToken) {
+      setLoading(false);
       return;
     }
 
     let active = true;
+    setLoading(true);
 
     fetchPlanningCustomFields(accessToken, { activeOnly: false })
       .then((nextFields) => {
@@ -133,6 +144,9 @@ export function PlanningCustomFieldsAdminPanel({
       })
       .catch((nextError: unknown) => {
         if (active) setError(nextError instanceof Error ? nextError.message : "No se pudieron cargar los campos.");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
       });
 
     return () => {
@@ -148,6 +162,7 @@ export function PlanningCustomFieldsAdminPanel({
     try {
       const payload = {
         label: fieldForm.label,
+        icon_key: fieldForm.iconKey || null,
         input_type: fieldForm.inputType,
         applies_to: fieldForm.appliesTo,
         required: fieldForm.required,
@@ -177,6 +192,7 @@ export function PlanningCustomFieldsAdminPanel({
         setEditingField(createdField);
         setFieldForm({
           label: createdField.label,
+          iconKey: createdField.icon_key ?? "",
           inputType: createdField.input_type,
           appliesTo: createdField.applies_to,
           required: createdField.required,
@@ -311,6 +327,7 @@ export function PlanningCustomFieldsAdminPanel({
     setOptionForm(defaultOptionForm);
     setFieldForm({
       label: field.label,
+      iconKey: field.icon_key ?? "",
       inputType: field.input_type,
       appliesTo: field.applies_to,
       required: field.required,
@@ -444,6 +461,31 @@ export function PlanningCustomFieldsAdminPanel({
             </select>
           </label>
         </div>
+        <label className="field">
+          Icono
+          <div className="custom-field-icon-select-row">
+            <select
+              className="field-input"
+              value={fieldForm.iconKey}
+              onChange={(event) =>
+                setFieldForm((current) => ({
+                  ...current,
+                  iconKey: event.target.value as PlanningCustomFieldIconKey | "",
+                }))
+              }
+            >
+              <option value="">Sin icono</option>
+              {PLANNING_CUSTOM_FIELD_ICON_OPTIONS.map((option) => (
+                <option key={option.key} value={option.key}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <span className="custom-field-icon-preview" aria-hidden="true">
+              {SelectedIcon ? <SelectedIcon /> : null}
+            </span>
+          </div>
+        </label>
         <div className="custom-fields-admin-row">
           <label className="field">
             Orden
@@ -654,6 +696,13 @@ export function PlanningCustomFieldsAdminPanel({
       </form>
 
       <div className="catalog-detail-list custom-fields-admin-list">
+        {loading ? (
+          <div className="custom-fields-admin-loading" aria-busy="true">
+            <div className="custom-fields-skeleton-field" />
+            <div className="custom-fields-skeleton-field" />
+          </div>
+        ) : null}
+        {!loading && fields.length === 0 ? <p className="body-copy">Sin campos configurables definidos.</p> : null}
         {fields.map((field) => (
           <div key={field.id} className="catalog-detail-row">
             <button

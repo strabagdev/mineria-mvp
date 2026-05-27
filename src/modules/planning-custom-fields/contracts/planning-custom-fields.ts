@@ -2,6 +2,26 @@ export type PlanningCustomFieldInputType = "select" | "multi_select" | "number" 
 export type PlanningCustomFieldAppliesTo = "planned" | "actual" | "both";
 export type PlanningCustomFieldJson = Record<string, string | number | boolean | null>;
 
+export const PLANNING_CUSTOM_FIELD_ICON_KEYS = [
+  "truck",
+  "hard-hat",
+  "users",
+  "building",
+  "calendar",
+  "map-pin",
+  "clipboard-list",
+  "wrench",
+  "shield-alert",
+  "file-text",
+  "tag",
+  "clock",
+  "user",
+  "package",
+  "layers",
+] as const;
+
+export type PlanningCustomFieldIconKey = (typeof PLANNING_CUSTOM_FIELD_ICON_KEYS)[number];
+
 export type PlanningCustomFieldOptionDto = {
   id: number;
   field_id: number;
@@ -16,6 +36,7 @@ export type PlanningCustomFieldDto = {
   id: number;
   slug: string;
   label: string;
+  icon_key: PlanningCustomFieldIconKey | null;
   input_type: PlanningCustomFieldInputType;
   active: boolean;
   required: boolean;
@@ -42,6 +63,7 @@ export type PlanningCustomFieldValueDto = {
 export type PlanningCustomFieldCreateRequestDto = {
   slug?: string;
   label?: string;
+  icon_key?: string | null;
   input_type?: string;
   active?: boolean;
   required?: boolean;
@@ -91,4 +113,8 @@ export function isPlanningCustomFieldInputType(value: string): value is Planning
 
 export function isPlanningCustomFieldAppliesTo(value: string): value is PlanningCustomFieldAppliesTo {
   return ["planned", "actual", "both"].includes(value);
+}
+
+export function isPlanningCustomFieldIconKey(value: string): value is PlanningCustomFieldIconKey {
+  return (PLANNING_CUSTOM_FIELD_ICON_KEYS as readonly string[]).includes(value);
 }

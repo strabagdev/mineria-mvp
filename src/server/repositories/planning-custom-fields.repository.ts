@@ -4,6 +4,7 @@ import { getSupabaseServerClient } from "@/server/db/supabase";
 import type {
   PlanningCustomFieldAppliesTo,
   PlanningCustomFieldDto,
+  PlanningCustomFieldIconKey,
   PlanningCustomFieldInputType,
   PlanningCustomFieldJson,
   PlanningCustomFieldOptionDto,
@@ -15,7 +16,7 @@ export type PlanningCustomFieldRow = Omit<PlanningCustomFieldDto, "options">;
 export type PlanningCustomFieldOptionRow = PlanningCustomFieldOptionDto;
 export type PlanningCustomFieldValueRow = PlanningCustomFieldValueDto;
 
-const fieldSelect = "id, slug, label, input_type, active, required, applies_to, sort_order, config";
+const fieldSelect = "id, slug, label, icon_key, input_type, active, required, applies_to, sort_order, config";
 const optionSelect = "id, field_id, value, label, active, sort_order, metadata";
 const valueSelect =
   "id, field_id, planning_item_id, execution_segment_id, activity_group_id, option_id, value_text, value_number, value_date, value_boolean, value_json";
@@ -67,6 +68,7 @@ export async function listPlanningCustomFieldOptions(input: { fieldId?: number; 
 export async function createPlanningCustomField(input: {
   slug: string;
   label: string;
+  icon_key: PlanningCustomFieldIconKey | null;
   input_type: PlanningCustomFieldInputType;
   active: boolean;
   required: boolean;
@@ -85,6 +87,7 @@ export async function createPlanningCustomField(input: {
 export async function updatePlanningCustomField(id: number, input: Partial<{
   slug: string;
   label: string;
+  icon_key: PlanningCustomFieldIconKey | null;
   input_type: PlanningCustomFieldInputType;
   active: boolean;
   required: boolean;

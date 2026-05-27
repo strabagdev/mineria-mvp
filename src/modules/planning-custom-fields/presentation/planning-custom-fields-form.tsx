@@ -39,6 +39,8 @@ type PlanningCustomFieldsFormProps = {
   value: PlanningCustomFieldFormState;
   onChange: (value: PlanningCustomFieldFormState) => void;
   disabled?: boolean;
+  loading?: boolean;
+  error?: string;
 };
 
 export function PlanningCustomFieldsForm({
@@ -47,8 +49,33 @@ export function PlanningCustomFieldsForm({
   value,
   onChange,
   disabled,
+  loading,
+  error,
 }: PlanningCustomFieldsFormProps) {
   const visibleFields = fields.filter((field) => fieldAppliesTo(field, phase) || fieldHasFormValue(field.id, value));
+
+  if (loading) {
+    return (
+      <section className="custom-fields-section">
+        <div className="custom-fields-heading">
+          <p className="eyebrow">Campos configurables</p>
+          <span className="catalog-count">Cargando</span>
+        </div>
+        <div className="modal-grid custom-fields-grid" aria-busy="true">
+          <div className="custom-fields-skeleton-field" />
+          <div className="custom-fields-skeleton-field" />
+        </div>
+      </section>
+    );
+  }
+
+  if (error) {
+    return (
+      <section className="custom-fields-section">
+        <p className="feedback">{error}</p>
+      </section>
+    );
+  }
 
   if (!visibleFields.length) {
     return null;
