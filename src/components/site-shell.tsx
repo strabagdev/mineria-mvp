@@ -134,22 +134,17 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
       event.preventDefault();
       if (pathname === "/") {
         window.dispatchEvent(new CustomEvent("open-planning-catalog"));
+      } else {
+        setOfflineView("home");
       }
       return;
     }
-
-    if (pathname !== "/") {
-      return;
-    }
-
-    event.preventDefault();
-    window.dispatchEvent(new CustomEvent("open-planning-catalog"));
   }
 
   const adminNavItems: NavItem[] =
     effectiveProfile.role === "admin"
       ? [
-          { href: "/?catalog=1", label: "Catalogo", icon: Settings, offlineView: "home", onClick: openCatalog },
+          { href: "/catalog", label: "Catalogo", icon: Settings, offlineView: "home", onClick: openCatalog },
           { href: "/admin/users", label: "Usuarios", icon: Users, offlineView: "users" },
         ]
       : [];

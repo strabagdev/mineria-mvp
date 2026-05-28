@@ -3083,6 +3083,76 @@ select.field-input {
   margin-top: 1.25rem;
 }
 
+.catalog-page {
+  display: grid;
+  gap: 1rem;
+}
+
+.catalog-page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1.35rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--panel-solid) 92%, transparent);
+}
+
+.catalog-page-header .body-copy {
+  max-width: 52rem;
+}
+
+.catalog-page-nav {
+  position: sticky;
+  top: 0.75rem;
+  z-index: var(--z-base);
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--panel-solid) 94%, transparent);
+}
+
+.catalog-page-nav button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.2rem;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 700;
+  font-family: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.catalog-page-nav button:hover,
+.catalog-page-nav button:focus-visible,
+.catalog-page-nav button.active {
+  border-color: var(--border);
+  color: var(--foreground);
+  background: var(--background-soft);
+}
+
+.catalog-admin-grid.custom-fields-only {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.catalog-future-card {
+  display: grid;
+  gap: 0.35rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--panel-solid) 92%, transparent);
+}
+
 .catalog-admin-column,
 .catalog-tree,
 .catalog-type-list,
@@ -3955,6 +4025,14 @@ select.field-input {
   .modal-grid,
   .catalog-admin-grid {
     grid-template-columns: 1fr;
+  }
+
+  .catalog-page-header {
+    padding: 1rem;
+  }
+
+  .catalog-page-nav {
+    position: static;
   }
 
   .reports-filter-grid {
