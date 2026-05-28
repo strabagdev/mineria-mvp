@@ -168,6 +168,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const result = await Promise.race([sessionPromise, timeoutPromise]);
 
         if (result === sessionTimeout) {
+          sessionPromise.catch((error: unknown) => {
+            if (isNetworkRequestError(error)) {
+              recordOperationalEvent({
+                level: "warn",
+                name: "auth.network_fallback",
+                source: "AuthProvider",
+                metadata: { reason: "session-recovery-timeout-network-error" },
+              });
+              return;
+            }
+
+            recordOperationalEvent({
+              level: "error",
+              name: "auth.session_recovery_failed",
+              source: "AuthProvider",
+              metadata: { reason: "session-recovery-timeout-late-error" },
+            });
+          });
           recordOperationalEvent({
             level: "warn",
             name: "auth.session_recovery_failed",
@@ -191,7 +209,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (!isNetworkRequestError(error)) {
           recordOperationalEvent({
-            level: "warn",
+            level: "error",
             name: "auth.session_recovery_failed",
             source: "AuthProvider",
             metadata: { reason: "non-network-error" },
@@ -213,6 +231,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             metadata: { reason: "network-error" },
           });
         }
+
+        recordOperationalEvent({
+          level: "warn",
+          name: "auth.network_fallback",
+          source: "AuthProvider",
+          metadata: { reason: "session-recovery-network-error" },
+        });
 
         setLoading(false);
       }

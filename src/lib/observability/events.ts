@@ -7,6 +7,7 @@ export type OperationalEventName =
   | "auth.session_recovery_started"
   | "auth.session_recovery_finished"
   | "auth.session_recovery_failed"
+  | "auth.network_fallback"
   | "auth.profile_sync_failed"
   | "auth.offline_profile_used"
   | "realtime.subscription_started"

@@ -1,4 +1,5 @@
 import type { OperationalStatus } from "@/lib/operationalState";
+import { isAuthNetworkError } from "./authErrors";
 import { recordOperationalEvent } from "./observability/logger";
 
 export const NETWORK_ERROR_MESSAGE =
@@ -269,6 +270,10 @@ export function subscribeNetworkStatus(listener: () => void) {
 }
 
 export function isNetworkRequestError(error: unknown) {
+  if (isAuthNetworkError(error)) {
+    return true;
+  }
+
   const isNetworkError =
     error instanceof Error && /failed to fetch|fetch failed|load failed|networkerror/i.test(error.message);
 

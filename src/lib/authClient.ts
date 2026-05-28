@@ -1,7 +1,9 @@
 "use client";
 
 import { createClient } from "@supabase/supabase-js";
+import { AuthNetworkError } from "@/lib/authErrors";
 import { NETWORK_ERROR_MESSAGE, isNetworkRequestError } from "@/lib/networkStatus";
+import { recordOperationalEvent } from "@/lib/observability/logger";
 
 const authUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const authAnonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
@@ -29,9 +31,20 @@ async function resilientAuthFetch(
       return await fetch(input, init);
     } catch (error: unknown) {
       lastError = error;
+      const isNetworkError = isNetworkRequestError(error);
 
-      if (!isNetworkRequestError(error) || attempt === AUTH_FETCH_RETRY_DELAYS_MS.length) {
-        throw isNetworkRequestError(error) ? new Error(NETWORK_ERROR_MESSAGE) : error;
+      if (!isNetworkError) {
+        throw error;
+      }
+
+      if (attempt === AUTH_FETCH_RETRY_DELAYS_MS.length) {
+        recordOperationalEvent({
+          level: "warn",
+          name: "auth.network_fallback",
+          source: "authClient",
+          metadata: { reason: "auth-fetch-network-error" },
+        });
+        throw new AuthNetworkError(NETWORK_ERROR_MESSAGE, { cause: error });
       }
 
       await sleep(AUTH_FETCH_RETRY_DELAYS_MS[attempt]);
