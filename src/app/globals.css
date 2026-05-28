@@ -1090,6 +1090,7 @@ textarea {
 .reports-stack {
   display: grid;
   gap: 1rem;
+  width: 100%;
 }
 
 .reports-hero {
@@ -1183,47 +1184,16 @@ textarea {
 
 .reports-content-grid {
   display: grid;
-  grid-template-columns: minmax(18rem, 0.45fr) minmax(0, 1.55fr);
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: stretch;
+  width: 100%;
   gap: 1rem;
   align-items: start;
 }
 
-.reports-breakdowns {
-  display: grid;
-  gap: 1rem;
-  border-radius: 0.75rem;
-  border-color: var(--border);
-  background: var(--panel-solid);
-  box-shadow: none;
-}
-
-.reports-breakdown-list {
-  display: grid;
-  gap: 0.65rem;
-}
-
-.reports-breakdown-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  gap: 0.75rem;
-  align-items: center;
-  min-height: 2.75rem;
-  padding: 0.55rem 0;
-  border-bottom: 1px solid var(--border);
-  color: var(--muted);
-  font-size: 0.875rem;
-}
-
-.reports-breakdown-row:last-child {
-  border-bottom: none;
-}
-
-.reports-breakdown-row strong {
-  min-width: 0;
-  color: var(--foreground);
-}
-
 .reports-table-card {
+  justify-self: stretch;
+  width: 100%;
   min-width: 0;
   display: grid;
   gap: 1rem;
@@ -1235,6 +1205,8 @@ textarea {
 
 .reports-table-wrap {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   overflow-x: auto;
   border: 1px solid var(--border);
   border-radius: 0.75rem;
@@ -1284,7 +1256,6 @@ textarea {
 .dark .reports-hero,
 .dark .reports-filter-panel,
 .dark .reports-metric-card,
-.dark .reports-breakdowns,
 .dark .reports-table-card,
 .dark .reports-table-wrap,
 .dark .reports-table {
@@ -1298,11 +1269,6 @@ textarea {
   border-color: var(--accent-border);
   background: color-mix(in srgb, var(--accent) 14%, var(--panel-solid));
   color: var(--accent-text);
-}
-
-.dark .reports-breakdown-row {
-  border-bottom-color: var(--border);
-  color: var(--muted);
 }
 
 .dark .reports-table th,
@@ -3685,10 +3651,6 @@ select.field-input {
     gap: 0.7rem;
   }
 
-  .reports-content-grid {
-    grid-template-columns: minmax(15rem, 0.42fr) minmax(0, 1.58fr);
-  }
-
   .reports-table th,
   .reports-table td {
     padding: 0.62rem 0.68rem;
@@ -4036,10 +3998,6 @@ select.field-input {
   }
 
   .reports-filter-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .reports-breakdown-row {
     grid-template-columns: 1fr;
   }
 

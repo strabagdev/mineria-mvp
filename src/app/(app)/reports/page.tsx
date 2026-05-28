@@ -442,43 +442,22 @@ export default function ReportsPage() {
       ) : null}
 
       <section className="reports-content-grid">
-        <article className="surface-card padded reports-breakdowns">
+        <article className="surface-card padded reports-table-card">
           <div className="reports-section-header">
             <div>
-              <p className="eyebrow">Distribucion</p>
-              <h3 className="card-title">Horas por nivel</h3>
+              <p className="eyebrow">Detalle</p>
+              <h3 className="card-title">{loading ? "Cargando registros" : `${visibleRows.length} registros`}</h3>
             </div>
+            <button
+              type="button"
+              className="button primary"
+              disabled={loading || !visibleRows.length}
+              onClick={() => downloadFilteredRows(visibleRows, filters)}
+            >
+              <Download aria-hidden className="button-icon" />
+              Exportar Excel
+            </button>
           </div>
-          <div className="reports-breakdown-list">
-            {(report?.breakdowns.by_level ?? []).map((entry) => (
-              <div key={entry.label} className="reports-breakdown-row">
-                <strong>{entry.label || "Sin nivel"}</strong>
-                <span>{entry.count} registros</span>
-                <span>{formatHours(entry.hours)} h</span>
-              </div>
-            ))}
-            {!loading && !(report?.breakdowns.by_level ?? []).length ? (
-              <p className="body-copy">Sin datos para los filtros seleccionados.</p>
-            ) : null}
-          </div>
-        </article>
-
-        <article className="surface-card padded reports-table-card">
-        <div className="reports-section-header">
-          <div>
-            <p className="eyebrow">Detalle</p>
-            <h3 className="card-title">{loading ? "Cargando registros" : `${visibleRows.length} registros`}</h3>
-          </div>
-          <button
-            type="button"
-            className="button primary"
-            disabled={loading || !visibleRows.length}
-            onClick={() => downloadFilteredRows(visibleRows, filters)}
-          >
-            <Download aria-hidden className="button-icon" />
-            Exportar Excel
-          </button>
-        </div>
 
           <div className="reports-table-wrap">
             <table className="reports-table">
