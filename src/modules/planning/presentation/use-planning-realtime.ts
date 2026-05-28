@@ -1,26 +1,28 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { isBrowserOffline } from "@/lib/networkStatus";
+import { isBrowserOffline, type OperationalStatus } from "@/lib/networkStatus";
 import { recordOperationalEvent } from "../../../lib/observability/logger";
 import { subscribePlanningRealtimeChanges } from "@/modules/planning/realtime/planning-realtime-adapter";
 
 type UsePlanningRealtimeArgs = {
   selectedDate: string;
   accessToken?: string;
+  networkStatus: OperationalStatus;
   onInvalidate: () => void;
 };
 
 export function usePlanningRealtime({
   selectedDate,
   accessToken,
+  networkStatus,
   onInvalidate,
 }: UsePlanningRealtimeArgs) {
   const pendingRealtimeRefreshRef = useRef(false);
   const realtimeRefreshTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!accessToken || isBrowserOffline()) {
+    if (!accessToken || networkStatus !== "online" || isBrowserOffline()) {
       return;
     }
 
@@ -78,5 +80,5 @@ export function usePlanningRealtime({
       window.removeEventListener("focus", refreshDeferredRealtimeChanges);
       subscription.unsubscribe();
     };
-  }, [accessToken, onInvalidate, selectedDate]);
+  }, [accessToken, networkStatus, onInvalidate, selectedDate]);
 }

@@ -47,6 +47,7 @@ import {
   isBrowserOffline,
   isNetworkRequestError,
   getNetworkStatusSnapshot,
+  probeNetworkRestored,
   subscribeNetworkStatus,
 } from "@/lib/networkStatus";
 import {
@@ -185,6 +186,7 @@ function isTransientConnectivityMessage(message: string) {
     message === PLANNING_NETWORK_ERROR_MESSAGE ||
     /^Usando planificacion local guardada\./.test(message) ||
     /^Usando catalogo local guardado\./.test(message) ||
+    /^Usando campos configurables locales\./.test(message) ||
     /^Usando datos locales guardados\./.test(message)
   );
 }
@@ -232,6 +234,7 @@ export default function Home() {
   const [editingPlanningItem, setEditingPlanningItem] = useState<EditingPlanningItem | null>(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState<DeleteConfirmation>(null);
   const [formState, setFormState] = useState<PlanningItemForm>(toInitialPlanningForm([], [], "Dia", formatLocalDateIso()));
+  const resumeRefreshInFlightRef = useRef(false);
 
   function syncAdminCatalogRefresh(nextCatalog: PlanningCatalog) {
     setCatalog(nextCatalog.categories);
@@ -269,7 +272,9 @@ export default function Home() {
     getRequestErrorMessage,
   });
 
-  const refreshCustomFields = useCallback(async () => {
+  const refreshCustomFields = useCallback(async (options: { allowCacheFallback?: boolean } = {}) => {
+    const allowCacheFallback = options.allowCacheFallback ?? true;
+
     if (!session?.access_token) {
       setCustomFields([]);
       setCustomFieldsError("");
@@ -280,9 +285,16 @@ export default function Home() {
       const nextFields = await fetchPlanningCustomFields(session.access_token, { activeOnly: false });
       setCustomFields(nextFields);
       setCustomFieldsError("");
+      setCatalogError((current) => (isTransientConnectivityMessage(current) ? "" : current));
       void savePlanningCustomFieldsCache(nextFields);
       return nextFields;
     } catch (error: unknown) {
+      if (!allowCacheFallback) {
+        const message = getRequestErrorMessage(error, "No se pudieron cargar los campos configurables.");
+        setCustomFieldsError(message);
+        throw error;
+      }
+
       const cachedFields = await readPlanningCustomFieldsCache<PlanningCustomFieldDto[]>().catch(() => null);
 
       if (cachedFields?.value) {
@@ -449,6 +461,17 @@ export default function Home() {
     void preloadCustomFieldValuesForItems(nextItems);
   }, [preloadCustomFieldValuesForItems, selectedDate, session?.access_token]);
 
+  const refreshCatalog = useCallback(async () => {
+    const nextCatalog = await fetchPlanningCatalog(session?.access_token);
+    setCatalog(nextCatalog.categories);
+    setLevels(nextCatalog.levels);
+    setFormState((current) => syncPlanningForm(current, nextCatalog.categories, nextCatalog.levels));
+    setDetailForm((current) => syncDetailAdminForm(current, nextCatalog.categories));
+    setCatalogError((current) => (isTransientConnectivityMessage(current) ? "" : current));
+    void saveCatalogCache(nextCatalog);
+    return nextCatalog;
+  }, [session?.access_token, setDetailForm]);
+
   const refreshPlanningItemsFromRealtime = useCallback(() => {
     void refreshPlanningItems().catch((error: unknown) => {
       recordOperationalEvent({
@@ -464,34 +487,80 @@ export default function Home() {
   usePlanningRealtime({
     selectedDate,
     accessToken: session?.access_token,
+    networkStatus,
     onInvalidate: refreshPlanningItemsFromRealtime,
   });
 
   useEffect(() => {
-    function clearRecoveredConnectivityMessages() {
-      if (isBrowserOffline()) {
+    async function recoverOnlineData(reason: string) {
+      if (document.visibilityState === "hidden" || resumeRefreshInFlightRef.current) {
         return;
       }
 
-      setItemsError((current) => (isTransientConnectivityMessage(current) ? "" : current));
-      setCatalogError((current) => (isTransientConnectivityMessage(current) ? "" : current));
-      void refreshPlanningItems().catch((error: unknown) => {
+      resumeRefreshInFlightRef.current = true;
+
+      try {
+        const backendReachable = await probeNetworkRestored();
+
+        if (!backendReachable || isBrowserOffline()) {
+          return;
+        }
+
+        syncPendingPlanningMutationsRef.current();
+
+        const results = await Promise.allSettled([
+          refreshPlanningItems(),
+          refreshCatalog(),
+          refreshCustomFields({ allowCacheFallback: false }),
+        ]);
+        const failed = results.filter((result) => result.status === "rejected");
+
+        if (failed.length === 0) {
+          setItemsError((current) => (isTransientConnectivityMessage(current) ? "" : current));
+          setCatalogError((current) => (isTransientConnectivityMessage(current) ? "" : current));
+          setCustomFieldsError((current) => (isTransientConnectivityMessage(current) ? "" : current));
+          return;
+        }
+
         recordOperationalEvent({
           level: "warn",
           name: "refresh.failed",
           source: "planningPage",
-          metadata: { selectedDate, target: "planning-items-recovered-connectivity" },
+          metadata: { selectedDate, reason, target: "resume-online-data", failedCount: failed.length },
         });
-        setItemsError(getRequestErrorMessage(error, "No se pudo actualizar la planificacion."));
-      });
+      } finally {
+        resumeRefreshInFlightRef.current = false;
+      }
     }
 
-    const unsubscribeNetworkStatus = subscribeNetworkStatus(clearRecoveredConnectivityMessages);
+    function recoverFromNetworkStatus() {
+      void recoverOnlineData("network-status");
+    }
+
+    function recoverFromFocus() {
+      void recoverOnlineData("focus");
+    }
+
+    function recoverFromVisibility() {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+
+      void recoverOnlineData("visibility-visible");
+    }
+
+    const unsubscribeNetworkStatus = subscribeNetworkStatus(recoverFromNetworkStatus);
+    window.addEventListener("focus", recoverFromFocus);
+    window.addEventListener("online", recoverFromNetworkStatus);
+    document.addEventListener("visibilitychange", recoverFromVisibility);
 
     return () => {
       unsubscribeNetworkStatus();
+      window.removeEventListener("focus", recoverFromFocus);
+      window.removeEventListener("online", recoverFromNetworkStatus);
+      document.removeEventListener("visibilitychange", recoverFromVisibility);
     };
-  }, [refreshPlanningItems, selectedDate]);
+  }, [refreshCatalog, refreshCustomFields, refreshPlanningItems, selectedDate]);
 
   useEffect(() => {
     let active = true;
@@ -500,17 +569,13 @@ export default function Home() {
       try {
         setCatalogLoading(true);
         setCatalogError("");
-        const nextCatalog = await fetchPlanningCatalog(session?.access_token);
+        await refreshCatalog();
 
         if (!active) {
           return;
         }
 
-        setCatalog(nextCatalog.categories);
-        setLevels(nextCatalog.levels);
-        setFormState((current) => syncPlanningForm(current, nextCatalog.categories, nextCatalog.levels));
-        setDetailForm((current) => syncDetailAdminForm(current, nextCatalog.categories));
-        void saveCatalogCache(nextCatalog);
+        setCatalogError("");
       } catch (error: unknown) {
         const message = getRequestErrorMessage(
           error,
@@ -555,7 +620,7 @@ export default function Home() {
     return () => {
       active = false;
     };
-  }, [session?.access_token, setDetailForm]);
+  }, [refreshCatalog, setDetailForm]);
 
   useEffect(() => {
     if (!session?.access_token) {
@@ -712,30 +777,6 @@ export default function Home() {
       window.clearInterval(retryInterval);
     };
   }, []);
-
-  useEffect(() => {
-    async function refreshWhenActive() {
-      if (document.visibilityState === "hidden" || isBrowserOffline()) {
-        return;
-      }
-
-      await refreshPlanningItems().catch((error: unknown) => {
-        recordOperationalEvent({
-          level: "warn",
-          name: "refresh.failed",
-          source: "planningPage",
-          metadata: { selectedDate, target: "planning-items-visibility" },
-        });
-        setItemsError(getRequestErrorMessage(error, "No se pudo actualizar la planificacion."));
-      });
-    }
-
-    const unsubscribeNetworkStatus = subscribeNetworkStatus(refreshWhenActive);
-
-    return () => {
-      unsubscribeNetworkStatus();
-    };
-  }, [refreshPlanningItems, selectedDate]);
 
   useEffect(() => {
     syncPendingPlanningMutationsRef.current();
