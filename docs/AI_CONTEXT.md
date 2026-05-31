@@ -1,6 +1,6 @@
 # AI Context for Agents
 
-Ultima actualizacion: 2026-05-28
+Ultima actualizacion: 2026-05-31
 
 Guia compacta para agentes/LLMs que trabajan en `mineria-mvp`. Lee esto antes
 de explorar el repo completo. El objetivo es reducir tokens, evitar cambios fuera
@@ -26,6 +26,8 @@ Modulos/areas principales:
 - Planning: planificacion, Gantt, items programados y eventos reales.
 - Planning catalog: categorias, tipos, detalles y niveles.
 - Planning custom fields: campos configurables laterales al payload core.
+- Planning assignments: catalogo e instancias online-only para grupos
+  repetibles configurables.
 - Reporting/dashboard: reportes operacionales y snapshots offline de lectura.
 - Users/admin: usuarios, aprobacion, roles y snapshot offline degradado.
 - Offline/sync: IndexedDB, cola planning, snapshots, conectividad.
@@ -84,6 +86,16 @@ Custom fields son laterales:
 - Viven en `src/modules/planning-custom-fields`.
 - Usan APIs/tablas separadas para definiciones, opciones y valores.
 - No deben tocar Gantt, reporting, offline/sync ni realtime salvo tarea explicita.
+
+Assignments son grupos repetibles laterales:
+
+- Catalogo e instancias online-only en `src/modules/planning-assignments`.
+- `assignment_types`, `assignment_fields` y `assignment_field_options` no son
+  entidades prearmadas ni custom fields del programado.
+- Las instancias viven fuera del payload core de `planning_items`.
+- Las instancias viven en `planning_assignments` y `planning_assignment_values`;
+  POST usa reemplazo transaccional lateral por programado.
+- No reintroducir `entity_reference` ni `configurable_entities`.
 
 Offline cubre operacion, no administracion completa:
 
@@ -202,6 +214,7 @@ Rutas clave:
 - `src/modules/auth/application/**`: facade auth cliente.
 - `src/modules/planning/**`: contracts, clients, sync, realtime, presentation.
 - `src/modules/planning-custom-fields/**`: custom fields laterales.
+- `src/modules/planning-assignments/**`: catalogo base de asignaciones repetibles.
 - `src/modules/reporting/**`: contracts/helpers/offline snapshots reporting.
 - `src/server/services/**`: reglas/workflows server.
 - `src/server/repositories/**`: queries/persistencia.
@@ -268,6 +281,8 @@ Para errores:
 - Idempotencia planning via `client_mutation_id`.
 - Planning catalog con cache de lectura y CRUD online.
 - Custom fields laterales para planning, sin tocar payload core.
+- Catalogo, backend, formulario y detalle online-only de assignments repetibles
+  por programado.
 - Reporting module inicial con contracts/presentation/offline.
 - Dashboard/reportes/admin users con snapshots offline degradados.
 - Observability local con buffer y eventos tipados.
@@ -275,7 +290,8 @@ Para errores:
 - Integrations strategy con contratos provider-neutral, sin providers reales.
 - Jobs/contracts base, sin workers separados.
 - Operational states modelados en `src/lib/operationalState.ts`.
-- Catalog page/admin sheet actual para catalogo planning.
+- Catalog page con administracion de catalogo planning, custom fields y
+  definiciones de assignments.
 
 ## 8. Que todavia NO existe
 
@@ -287,6 +303,7 @@ Para errores:
 - Resolucion guiada avanzada de conflictos offline.
 - TTL/limpieza/versionado robusto de snapshots IndexedDB.
 - Reportes avanzados/export providers externos.
+- Offline, reportes y visualizacion Gantt de assignments.
 - Integraciones reales (email, Slack, WhatsApp, ERP, Power BI, webhooks).
 - Panel admin de observability.
 - Offline-first total ni hard reload offline garantizado.
@@ -308,6 +325,7 @@ Documentos fuente utiles:
 
 - Arquitectura interna: `docs/architecture/internal-architecture.md`.
 - Boundaries: `docs/architecture/domain-boundaries.md`.
+- Planning assignments: `docs/architecture/planning-assignments.md`.
 - Offline contracts: `docs/architecture/offline-contracts.md`.
 - Estrategia online/offline: `docs/OFFLINE_ONLINE_STRATEGY.md`.
 - IndexedDB: `docs/architecture/indexeddb-local-store.md`.

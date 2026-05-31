@@ -21,6 +21,8 @@ export type OperationalEventName =
   | "planning_custom_fields.load_failed"
   | "planning_custom_field_values.load_failed"
   | "planning_custom_field_values.save_failed"
+  | "planning_assignments.load_failed"
+  | "planning_assignments.save_failed"
   | "indexeddb.transaction_failed"
   | "sync.queue_loaded"
   | "sync.queue_persisted"

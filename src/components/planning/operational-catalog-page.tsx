@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { CatalogAdminWorkspace } from "@/components/planning/catalog-admin-workspace";
+import { PlanningAssignmentsAdminPanel } from "@/modules/planning-assignments/presentation/planning-assignments-admin-panel";
 import { PlanningCustomFieldsAdminPanel } from "@/modules/planning-custom-fields/presentation/planning-custom-fields-admin-panel";
 import { fetchPlanningCatalog } from "@/modules/planning/application/planning-reads.client";
 import { usePlanningCatalogAdmin } from "@/modules/planning/presentation/use-planning-catalog-admin";
@@ -15,12 +16,13 @@ import { useAuth } from "@/providers/auth-provider";
 import { isNetworkRequestError } from "@/lib/networkStatus";
 import { saveCatalogCache } from "@/lib/localOfflineStore";
 
-type CatalogPageSection = "activities" | "levels" | "custom-fields" | "future";
+type CatalogPageSection = "activities" | "levels" | "custom-fields" | "assignments" | "future";
 
 const catalogSections: Array<{ id: CatalogPageSection; label: string }> = [
   { id: "activities", label: "Actividades" },
   { id: "levels", label: "Niveles" },
   { id: "custom-fields", label: "Campos configurables" },
+  { id: "assignments", label: "Asignaciones" },
   { id: "future", label: "Futuros catalogos" },
 ];
 
@@ -142,7 +144,7 @@ export function OperationalCatalogPage() {
           <p className="eyebrow">Administracion</p>
           <h1 className="section-title">Catalogo operacional</h1>
           <p className="body-copy">
-            Mantiene las listas maestras que alimentan la planificacion: actividades, niveles y campos configurables.
+            Mantiene las listas maestras que alimentan la planificacion: actividades, niveles, campos configurables y asignaciones.
           </p>
         </div>
       </header>
@@ -171,6 +173,8 @@ export function OperationalCatalogPage() {
             Esta pagina queda como punto unico para sumar nuevos catalogos sin volver a crecer el modal de planificacion.
           </p>
         </article>
+      ) : activeSection === "assignments" ? (
+        <PlanningAssignmentsAdminPanel accessToken={session?.access_token} />
       ) : (
         <CatalogAdminWorkspace
           catalog={catalog}

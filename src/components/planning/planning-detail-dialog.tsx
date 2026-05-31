@@ -29,6 +29,7 @@ type PlanningDetailDialogProps = {
   toDisplayCategory: (category: PlanningDetailItem["category"]) => string;
   toTrackingTypeLabel: (trackingType: PlanningDetailItem["tracking_type"]) => string;
   customFieldsSlot?: ReactNode;
+  assignmentsSlot?: ReactNode;
   onClose: () => void;
   onEdit: () => void;
 };
@@ -43,6 +44,7 @@ export function PlanningDetailDialog({
   toDisplayCategory,
   toTrackingTypeLabel,
   customFieldsSlot,
+  assignmentsSlot,
   onClose,
   onEdit,
 }: PlanningDetailDialogProps) {
@@ -130,6 +132,8 @@ export function PlanningDetailDialog({
               {customFieldsSlot}
             </div>
           ) : null}
+
+          {assignmentsSlot}
 
           {continuation ? (
             <article className="detail-notes-card">

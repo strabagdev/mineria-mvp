@@ -56,6 +56,7 @@ type PlanningSheetProps = {
   deleteLabel: string;
   submitLabel: string;
   customFieldsSlot?: ReactNode;
+  assignmentsSlot?: ReactNode;
   onClose: () => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
   onRequestDelete: () => void;
@@ -79,6 +80,7 @@ export function PlanningSheet({
   deleteLabel,
   submitLabel,
   customFieldsSlot,
+  assignmentsSlot,
   onClose,
   onSubmit,
   onRequestDelete,
@@ -216,6 +218,7 @@ export function PlanningSheet({
         </div>
 
         {customFieldsSlot}
+        {assignmentsSlot}
 
         <label className="field">
           Notas

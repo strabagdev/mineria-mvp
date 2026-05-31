@@ -40,6 +40,22 @@ import {
 import { getPlanningCustomFieldIcon } from "@/modules/planning-custom-fields/presentation/planning-custom-field-icons";
 import { PlanningCustomFieldsSummary } from "@/modules/planning-custom-fields/presentation/planning-custom-fields-summary";
 import {
+  fetchAssignmentTypes,
+  fetchPlanningAssignments,
+  replacePlanningAssignments,
+} from "@/modules/planning-assignments/application/planning-assignments.client";
+import type {
+  AssignmentTypeDto,
+  PlanningAssignmentDto,
+} from "@/modules/planning-assignments/contracts/planning-assignments";
+import { PlanningAssignmentsForm } from "@/modules/planning-assignments/presentation/planning-assignments-form";
+import {
+  buildPlanningAssignmentsFormState,
+  toPlanningAssignmentInputs,
+  type PlanningAssignmentsFormState,
+} from "@/modules/planning-assignments/presentation/planning-assignments-form-model";
+import { PlanningAssignmentsSummary } from "@/modules/planning-assignments/presentation/planning-assignments-summary";
+import {
   PlanningMutationRequestError,
   sendPlanningMutation as sendPlanningMutationRequest,
 } from "@/modules/planning/application/planning-writes.client";
@@ -226,6 +242,15 @@ export default function Home() {
   const [customFieldValuesByItemId, setCustomFieldValuesByItemId] = useState<Record<number, PlanningCustomFieldValueDto[]>>({});
   const [viewingCustomFieldsLoading, setViewingCustomFieldsLoading] = useState(false);
   const [viewingCustomFieldsError, setViewingCustomFieldsError] = useState("");
+  const [formAssignmentTypes, setFormAssignmentTypes] = useState<AssignmentTypeDto[]>([]);
+  const [planningAssignmentsFormState, setPlanningAssignmentsFormState] = useState<PlanningAssignmentsFormState>({});
+  const [formAssignmentsLoading, setFormAssignmentsLoading] = useState(false);
+  const [formAssignmentsError, setFormAssignmentsError] = useState("");
+  const [formAssignmentsReady, setFormAssignmentsReady] = useState(false);
+  const [viewingAssignmentTypes, setViewingAssignmentTypes] = useState<AssignmentTypeDto[]>([]);
+  const [viewingPlanningAssignments, setViewingPlanningAssignments] = useState<PlanningAssignmentDto[]>([]);
+  const [viewingAssignmentsLoading, setViewingAssignmentsLoading] = useState(false);
+  const [viewingAssignmentsError, setViewingAssignmentsError] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isCatalogModalOpen, setIsCatalogModalOpen] = useState(false);
   const [viewingPlanningItem, setViewingPlanningItem] = useState<ViewingPlanningItem>(null);
@@ -852,6 +877,11 @@ export default function Home() {
     setFormState({ ...nextForm, item_date: selectedDate, shift: activeShift });
     setCustomFieldFormState({});
     setFormCustomFieldsError("");
+    setFormAssignmentTypes([]);
+    setPlanningAssignmentsFormState({});
+    setFormAssignmentsLoading(false);
+    setFormAssignmentsError("");
+    setFormAssignmentsReady(false);
     setFormError("");
     setEditingPlanningItem(null);
   }
@@ -860,18 +890,24 @@ export default function Home() {
     setViewingPlanningItem(item);
     setViewingCustomFieldValues(getPendingCustomFieldValuesForItem(item) ?? []);
     setViewingCustomFieldsError("");
+    setViewingAssignmentTypes([]);
+    setViewingPlanningAssignments([]);
+    setViewingAssignmentsError("");
 
     if (item.tracking_type !== "programado" || !session?.access_token) {
       setViewingCustomFieldsLoading(false);
+      setViewingAssignmentsLoading(false);
       return;
     }
 
     if (item.id <= 0) {
       setViewingCustomFieldsLoading(false);
+      setViewingAssignmentsLoading(false);
       return;
     }
 
     setViewingCustomFieldsLoading(true);
+    setViewingAssignmentsLoading(!isBrowserOffline());
     void fetchPlanningCustomFieldValues({ planningItemId: item.id }, session.access_token)
       .then((values) => {
         setViewingCustomFieldValues(values);
@@ -899,6 +935,82 @@ export default function Home() {
       .finally(() => {
         setViewingCustomFieldsLoading(false);
       });
+
+    if (isBrowserOffline()) {
+      setViewingAssignmentsError("Las asignaciones se consultan solo online por ahora.");
+    } else {
+      void Promise.all([
+        fetchAssignmentTypes(session.access_token, { activeOnly: false }),
+        fetchPlanningAssignments(item.id, session.access_token),
+      ])
+        .then(([types, assignments]) => {
+          setViewingAssignmentTypes(types);
+          setViewingPlanningAssignments(assignments);
+          setViewingAssignmentsError("");
+        })
+        .catch((error: unknown) => {
+          recordOperationalEvent({
+            level: "warn",
+            name: "planning_assignments.load_failed",
+            source: "planningPage",
+            metadata: { planningItemId: item.id, mode: "detail" },
+          });
+          setViewingAssignmentsError(getRequestErrorMessage(error, "No se pudieron cargar las asignaciones."));
+        })
+        .finally(() => setViewingAssignmentsLoading(false));
+    }
+  }
+
+  async function loadAssignmentTypesForCreate() {
+    if (!session?.access_token || isBrowserOffline()) {
+      setFormAssignmentTypes([]);
+      setPlanningAssignmentsFormState({});
+      setFormAssignmentsReady(false);
+      setFormAssignmentsError("");
+      setFormAssignmentsLoading(false);
+      return;
+    }
+
+    setFormAssignmentsLoading(true);
+    setFormAssignmentsError("");
+    try {
+      setFormAssignmentTypes(await fetchAssignmentTypes(session.access_token));
+      setPlanningAssignmentsFormState({});
+      setFormAssignmentsReady(true);
+    } catch (error: unknown) {
+      setFormAssignmentsReady(false);
+      setFormAssignmentsError(getRequestErrorMessage(error, "No se pudieron cargar las asignaciones."));
+    } finally {
+      setFormAssignmentsLoading(false);
+    }
+  }
+
+  async function loadAssignmentsForEdit(planningItemId: number) {
+    if (!session?.access_token || isBrowserOffline() || planningItemId <= 0) {
+      setFormAssignmentTypes([]);
+      setPlanningAssignmentsFormState({});
+      setFormAssignmentsReady(false);
+      setFormAssignmentsError("");
+      setFormAssignmentsLoading(false);
+      return;
+    }
+
+    setFormAssignmentsLoading(true);
+    setFormAssignmentsError("");
+    try {
+      const [types, assignments] = await Promise.all([
+        fetchAssignmentTypes(session.access_token),
+        fetchPlanningAssignments(planningItemId, session.access_token),
+      ]);
+      setFormAssignmentTypes(types);
+      setPlanningAssignmentsFormState(buildPlanningAssignmentsFormState(assignments));
+      setFormAssignmentsReady(true);
+    } catch (error: unknown) {
+      setFormAssignmentsReady(false);
+      setFormAssignmentsError(getRequestErrorMessage(error, "No se pudieron cargar las asignaciones."));
+    } finally {
+      setFormAssignmentsLoading(false);
+    }
   }
 
   async function sendPlanningMutation(
@@ -1074,6 +1186,26 @@ export default function Home() {
           await refreshPlanningItems().catch(() => undefined);
           return;
         }
+
+        if (formAssignmentsReady && !isBrowserOffline()) {
+          try {
+            await replacePlanningAssignments({
+              planning_item_id: savedItemId,
+              assignments: toPlanningAssignmentInputs(formAssignmentTypes, planningAssignmentsFormState),
+            }, session.access_token);
+          } catch (error: unknown) {
+            recordOperationalEvent({
+              level: "warn",
+              name: "planning_assignments.save_failed",
+              source: "planningPage",
+              metadata: { planningItemId: savedItemId },
+            });
+            setEditingPlanningItem({ id: savedItemId });
+            setFormAssignmentsError(getRequestErrorMessage(error, "La programacion se guardo, pero no se pudieron guardar sus asignaciones. Reintenta guardar para completarlas."));
+            await refreshPlanningItems().catch(() => undefined);
+            return;
+          }
+        }
       }
 
       await refreshPlanningItems();
@@ -1129,11 +1261,16 @@ export default function Home() {
     setEditingPlanningItem({ id: item.id });
     setCustomFieldFormState({});
     setFormCustomFieldsError("");
+    setFormAssignmentTypes([]);
+    setPlanningAssignmentsFormState({});
+    setFormAssignmentsError("");
+    setFormAssignmentsReady(false);
     setFormError("");
     setViewingPlanningItem(null);
     setIsModalOpen(true);
 
     if (item.tracking_type === "programado" && session?.access_token) {
+      void loadAssignmentsForEdit(item.id);
       const pendingValues = getPendingCustomFieldValuesForItem(item);
       if (pendingValues) {
         setCustomFieldFormState(buildCustomFieldFormState(pendingValues));
@@ -1174,6 +1311,7 @@ export default function Home() {
         });
     } else {
       setFormCustomFieldsLoading(false);
+      setFormAssignmentsLoading(false);
     }
   }
 
@@ -1469,9 +1607,18 @@ export default function Home() {
     setCustomFieldFormState({});
     setFormCustomFieldsLoading(false);
     setFormCustomFieldsError("");
+    setFormAssignmentTypes([]);
+    setPlanningAssignmentsFormState({});
+    setFormAssignmentsError("");
+    setFormAssignmentsReady(false);
     setFormError("");
     setViewingPlanningItem(null);
     setIsModalOpen(true);
+    if (trackingType === "programado") {
+      void loadAssignmentTypesForCreate();
+    } else {
+      setFormAssignmentsLoading(false);
+    }
   }
 
   return (
@@ -1502,7 +1649,9 @@ export default function Home() {
           setFormState((current) => ({ ...current, tracking_type: "programado" }));
           setFormCustomFieldsLoading(true);
           setFormCustomFieldsError("");
+          setFormAssignmentsError("");
           setIsModalOpen(true);
+          void loadAssignmentTypesForCreate();
           void refreshCustomFields().catch((error: unknown) => {
             recordOperationalEvent({
               level: "warn",
@@ -1586,6 +1735,19 @@ export default function Home() {
               />
             ) : null
           }
+          assignmentsSlot={
+            formState.tracking_type === "programado" ? (
+              <PlanningAssignmentsForm
+                types={formAssignmentTypes}
+                value={planningAssignmentsFormState}
+                onChange={setPlanningAssignmentsFormState}
+                online={networkStatus === "online" && !isBrowserOffline()}
+                disabled={formBusy}
+                loading={formAssignmentsLoading}
+                error={formAssignmentsError}
+              />
+            ) : null
+          }
           onClose={() => setIsModalOpen(false)}
           onSubmit={handleCreateItem}
           onRequestDelete={requestDeletePlanningItem}
@@ -1609,6 +1771,16 @@ export default function Home() {
                 values={viewingCustomFieldValues}
                 loading={customFieldsLoading || viewingCustomFieldsLoading}
                 error={viewingCustomFieldsError || customFieldsError}
+              />
+            ) : null
+          }
+          assignmentsSlot={
+            viewingPlanningItem.tracking_type === "programado" ? (
+              <PlanningAssignmentsSummary
+                types={viewingAssignmentTypes}
+                assignments={viewingPlanningAssignments}
+                loading={viewingAssignmentsLoading}
+                error={viewingAssignmentsError}
               />
             ) : null
           }

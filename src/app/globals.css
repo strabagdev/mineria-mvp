@@ -3110,6 +3110,35 @@ select.field-input {
   grid-template-columns: minmax(0, 1fr);
 }
 
+.assignments-admin {
+  display: grid;
+  gap: 1rem;
+}
+
+.assignments-admin-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+  gap: 1rem;
+}
+
+.assignments-admin-column {
+  min-width: 0;
+}
+
+.assignments-admin-column .modal-form {
+  margin-top: 1rem;
+}
+
+.assignments-admin-list-row {
+  align-items: flex-start;
+}
+
+.assignments-config-input {
+  min-height: 7rem;
+  resize: vertical;
+}
+
 .catalog-future-card {
   display: grid;
   gap: 0.35rem;
@@ -3223,6 +3252,43 @@ select.field-input {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--panel-solid) 88%, var(--background-soft));
+}
+
+.assignments-form-section {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--panel-solid) 88%, var(--background-soft));
+}
+
+.assignments-form-type,
+.assignments-form-instance,
+.assignments-summary-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.assignments-form-type {
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border);
+}
+
+.assignments-form-instance {
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--background-soft);
+}
+
+.assignments-multi-options {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--panel-solid);
 }
 
 .custom-fields-heading,
@@ -3825,6 +3891,10 @@ select.field-input {
 
   .dashboard-stack,
   .reports-content-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .assignments-admin-grid {
     grid-template-columns: 1fr;
   }
 
