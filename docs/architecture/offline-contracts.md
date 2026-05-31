@@ -71,6 +71,7 @@ Datos cacheados:
 
 - Items de planning por fecha en `planningByDate`.
 - Catalogo operativo en `keyval: planning-catalog`.
+- Campos configurables en `keyval: planning-custom-fields`.
 - Mutaciones pendientes en `keyval: planning-mutation-queue`.
 
 Lectura:
