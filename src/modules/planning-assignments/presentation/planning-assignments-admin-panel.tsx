@@ -18,13 +18,19 @@ import type {
   AssignmentFieldDto,
   AssignmentFieldInputType,
   AssignmentFieldOptionDto,
+  AssignmentTypeIconKey,
   AssignmentTypeDto,
 } from "@/modules/planning-assignments/contracts/planning-assignments";
+import {
+  ASSIGNMENT_TYPE_ICON_OPTIONS,
+  getAssignmentTypeIcon,
+} from "@/modules/planning-assignments/presentation/planning-assignment-type-icons";
 
 type AssignmentTypeForm = {
   slug: string;
   label: string;
   description: string;
+  iconKey: AssignmentTypeIconKey | "";
   maxInstances: string;
   sortOrder: string;
   active: boolean;
@@ -34,6 +40,7 @@ type AssignmentFieldForm = {
   slug: string;
   label: string;
   inputType: AssignmentFieldInputType;
+  suffix: string;
   required: boolean;
   sortOrder: string;
   active: boolean;
@@ -51,6 +58,7 @@ const defaultTypeForm: AssignmentTypeForm = {
   slug: "",
   label: "",
   description: "",
+  iconKey: "",
   maxInstances: "2",
   sortOrder: "100",
   active: true,
@@ -60,6 +68,7 @@ const defaultFieldForm: AssignmentFieldForm = {
   slug: "",
   label: "",
   inputType: "text",
+  suffix: "",
   required: false,
   sortOrder: "100",
   active: true,
@@ -96,8 +105,33 @@ function formatConfig(value: Record<string, unknown>) {
   return Object.keys(value).length ? JSON.stringify(value, null, 2) : "";
 }
 
+const ASSIGNMENT_FIELD_SUFFIX_MAX_LENGTH = 24;
+
+function getConfigSuffix(config: Record<string, unknown>) {
+  return typeof config.suffix === "string" ? config.suffix : "";
+}
+
+function withConfigSuffix(config: Record<string, unknown>, suffix: string) {
+  const nextConfig = { ...config };
+  const normalizedSuffix = suffix.trim();
+  if (normalizedSuffix.length > ASSIGNMENT_FIELD_SUFFIX_MAX_LENGTH) {
+    throw new Error(`El sufijo debe tener maximo ${ASSIGNMENT_FIELD_SUFFIX_MAX_LENGTH} caracteres.`);
+  }
+  if (normalizedSuffix) {
+    nextConfig.suffix = normalizedSuffix;
+  } else {
+    delete nextConfig.suffix;
+  }
+  return nextConfig;
+}
+
 function isOptionField(field?: AssignmentFieldDto | null) {
   return field?.input_type === "select" || field?.input_type === "multi_select";
+}
+
+function AssignmentTypeIcon({ iconKey }: { iconKey?: AssignmentTypeIconKey | null }) {
+  const TypeIcon = getAssignmentTypeIcon(iconKey);
+  return <TypeIcon aria-hidden="true" />;
 }
 
 type PlanningAssignmentsAdminPanelProps = {
@@ -202,6 +236,7 @@ export function PlanningAssignmentsAdminPanel({ accessToken }: PlanningAssignmen
         slug: typeForm.slug || normalizeAdminValue(typeForm.label),
         label: typeForm.label,
         description: typeForm.description || null,
+        icon_key: typeForm.iconKey || null,
         max_instances: Number(typeForm.maxInstances),
         sort_order: Number(typeForm.sortOrder) || 100,
         active: typeForm.active,
@@ -232,7 +267,7 @@ export function PlanningAssignmentsAdminPanel({ accessToken }: PlanningAssignmen
         required: fieldForm.required,
         sort_order: Number(fieldForm.sortOrder) || 100,
         active: fieldForm.active,
-        config: parseConfig(fieldForm.config),
+        config: withConfigSuffix(parseConfig(fieldForm.config), fieldForm.suffix),
       };
       const field = editingFieldId
         ? await updateAssignmentField({ id: editingFieldId, ...payload }, accessToken)
@@ -279,6 +314,7 @@ export function PlanningAssignmentsAdminPanel({ accessToken }: PlanningAssignmen
       slug: type.slug,
       label: type.label,
       description: type.description ?? "",
+      iconKey: type.icon_key ?? "",
       maxInstances: String(type.max_instances),
       sortOrder: String(type.sort_order),
       active: type.active,
@@ -291,6 +327,7 @@ export function PlanningAssignmentsAdminPanel({ accessToken }: PlanningAssignmen
       slug: field.slug,
       label: field.label,
       inputType: field.input_type,
+      suffix: getConfigSuffix(field.config),
       required: field.required,
       sortOrder: String(field.sort_order),
       active: field.active,
@@ -341,6 +378,8 @@ export function PlanningAssignmentsAdminPanel({ accessToken }: PlanningAssignmen
             <label className="field">Nombre<input className="field-input" value={typeForm.label} onChange={(event) => setTypeForm((current) => ({ ...current, label: event.target.value }))} placeholder="Ej: Cuadrillas" /></label>
             <label className="field">Slug<input className="field-input" value={typeForm.slug} onChange={(event) => setTypeForm((current) => ({ ...current, slug: normalizeAdminValue(event.target.value) }))} placeholder="cuadrillas" /></label>
             <label className="field">Descripcion<input className="field-input" value={typeForm.description} onChange={(event) => setTypeForm((current) => ({ ...current, description: event.target.value }))} placeholder="Opcional" /></label>
+            <label className="field">Icono<select className="field-input" value={typeForm.iconKey} onChange={(event) => setTypeForm((current) => ({ ...current, iconKey: event.target.value as AssignmentTypeIconKey | "" }))}><option value="">Sin icono especifico</option>{ASSIGNMENT_TYPE_ICON_OPTIONS.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}</select></label>
+            <div className="assignment-type-icon-preview"><AssignmentTypeIcon iconKey={typeForm.iconKey || null} /><span>{typeForm.iconKey ? "Vista previa" : "Icono por defecto"}</span></div>
             <div className="modal-grid">
               <label className="field">Maximo<input className="field-input" type="number" min="1" value={typeForm.maxInstances} onChange={(event) => setTypeForm((current) => ({ ...current, maxInstances: event.target.value }))} /></label>
               <label className="field">Orden<input className="field-input" type="number" value={typeForm.sortOrder} onChange={(event) => setTypeForm((current) => ({ ...current, sortOrder: event.target.value }))} /></label>
@@ -356,7 +395,7 @@ export function PlanningAssignmentsAdminPanel({ accessToken }: PlanningAssignmen
             {types.map((type) => (
               <div className="catalog-detail-row assignments-admin-list-row" key={type.id}>
                 <button type="button" className={`custom-field-select-button ${selectedType?.id === type.id ? "active" : ""}`} onClick={() => selectType(type)}>
-                  <span>{type.label}</span><small>{type.max_instances} max. · {type.active ? "activo" : "inactivo"}</small>
+                  <span className="assignment-type-list-label"><AssignmentTypeIcon iconKey={type.icon_key} />{type.label}</span><small>{type.max_instances} max. · {type.active ? "activo" : "inactivo"}</small>
                 </button>
                 <div className="catalog-inline-actions">
                   <button className="button icon-button small" type="button" title="Editar tipo" aria-label={`Editar ${type.label}`} onClick={() => editType(type)}><Pencil /></button>
@@ -382,6 +421,7 @@ export function PlanningAssignmentsAdminPanel({ accessToken }: PlanningAssignmen
                   <label className="field">Tipo<select className="field-input" value={fieldForm.inputType} onChange={(event) => setFieldForm((current) => ({ ...current, inputType: event.target.value as AssignmentFieldInputType }))}><option value="text">Text</option><option value="number">Number</option><option value="date">Date</option><option value="boolean">Boolean</option><option value="select">Select</option><option value="multi_select">Multi select</option></select></label>
                   <label className="field">Orden<input className="field-input" type="number" value={fieldForm.sortOrder} onChange={(event) => setFieldForm((current) => ({ ...current, sortOrder: event.target.value }))} /></label>
                 </div>
+                <label className="field">Sufijo<input className="field-input" maxLength={ASSIGNMENT_FIELD_SUFFIX_MAX_LENGTH} value={fieldForm.suffix} onChange={(event) => setFieldForm((current) => ({ ...current, suffix: event.target.value }))} placeholder="Ej: pers." /></label>
                 <div className="custom-fields-admin-row"><label className="field custom-fields-checkbox"><input type="checkbox" checked={fieldForm.required} onChange={(event) => setFieldForm((current) => ({ ...current, required: event.target.checked }))} /><span>Requerido</span></label><label className="field custom-fields-checkbox"><input type="checkbox" checked={fieldForm.active} onChange={(event) => setFieldForm((current) => ({ ...current, active: event.target.checked }))} /><span>Activo</span></label></div>
                 <details><summary>Configuracion avanzada</summary><label className="field">Config JSON<textarea className="field-input assignments-config-input" value={fieldForm.config} onChange={(event) => setFieldForm((current) => ({ ...current, config: event.target.value }))} placeholder="{}" /></label></details>
                 <div className="catalog-inline-actions"><button className="button small primary" type="submit" disabled={busy || !fieldForm.label.trim()}><Plus className="button-icon" />{editingFieldId ? "Guardar" : "Crear campo"}</button>{editingFieldId ? <button className="button small" type="button" onClick={resetFieldForm}><X className="button-icon" />Cancelar</button> : null}</div>

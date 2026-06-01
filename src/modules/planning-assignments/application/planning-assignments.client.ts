@@ -156,6 +156,15 @@ export async function fetchPlanningAssignments(planningItemId: number, accessTok
   return Array.isArray(json.assignments) ? json.assignments : [];
 }
 
+export async function fetchPlanningAssignmentsForItems(planningItemIds: number[], accessToken?: string) {
+  if (!planningItemIds.length) return [];
+  const json = await requestJson<{ assignments?: PlanningAssignmentDto[] }>(
+    `/api/planning-assignments?planning_item_ids=${encodeURIComponent(planningItemIds.join(","))}`,
+    { accessToken }
+  );
+  return Array.isArray(json.assignments) ? json.assignments : [];
+}
+
 export async function replacePlanningAssignments(payload: PlanningAssignmentsReplaceRequestDto, accessToken?: string) {
   const json = await requestJson<{ assignments?: PlanningAssignmentDto[] }>("/api/planning-assignments", {
     method: "POST",

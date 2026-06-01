@@ -15,24 +15,30 @@ type PlanningCustomFieldsSummaryProps = {
 export function PlanningCustomFieldsSummary({ fields, values, loading, error }: PlanningCustomFieldsSummaryProps) {
   if (loading) {
     return (
-      <>
-        <article className="detail-highlight-card custom-fields-detail-skeleton" aria-busy="true">
-          <span />
-          <strong />
-        </article>
-        <article className="detail-highlight-card custom-fields-detail-skeleton" aria-busy="true">
-          <span />
-          <strong />
-        </article>
-      </>
+      <section className="custom-fields-detail-section">
+        <p className="eyebrow">Datos adicionales</p>
+        <div className="detail-highlight-grid">
+          <article className="detail-highlight-card custom-fields-detail-skeleton" aria-busy="true">
+            <span />
+            <strong />
+          </article>
+          <article className="detail-highlight-card custom-fields-detail-skeleton" aria-busy="true">
+            <span />
+            <strong />
+          </article>
+        </div>
+      </section>
     );
   }
 
   if (error) {
     return (
-      <article className="detail-highlight-card custom-fields-detail-message">
-        <p className="detail-highlight-value">{error}</p>
-      </article>
+      <section className="custom-fields-detail-section">
+        <p className="eyebrow">Datos adicionales</p>
+        <article className="detail-highlight-card custom-fields-detail-message">
+          <p className="detail-highlight-value">{error}</p>
+        </article>
+      </section>
     );
   }
 
@@ -43,20 +49,23 @@ export function PlanningCustomFieldsSummary({ fields, values, loading, error }: 
   }
 
   return (
-    <>
-      {visibleValues.map(({ field, value }) => {
-        const FieldIcon = getPlanningCustomFieldIcon(field.icon_key);
+    <section className="custom-fields-detail-section">
+      <p className="eyebrow">Datos adicionales</p>
+      <div className="detail-highlight-grid">
+        {visibleValues.map(({ field, value }) => {
+          const FieldIcon = getPlanningCustomFieldIcon(field.icon_key);
 
-        return (
-          <article key={field.id} className="detail-highlight-card">
-            <div className="detail-highlight-label">
-              {FieldIcon ? <FieldIcon aria-hidden="true" /> : null}
-              <p className="detail-label">{field.label}</p>
-            </div>
-            <p className="detail-highlight-value">{value}</p>
-          </article>
-        );
-      })}
-    </>
+          return (
+            <article key={field.id} className="detail-highlight-card">
+              <div className="detail-highlight-label">
+                {FieldIcon ? <FieldIcon aria-hidden="true" /> : null}
+                <p className="detail-label">{field.label}</p>
+              </div>
+              <p className="detail-highlight-value">{value}</p>
+            </article>
+          );
+        })}
+      </div>
+    </section>
   );
 }

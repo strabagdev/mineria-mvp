@@ -7,6 +7,7 @@ import {
   OFFLINE_SCOPED_KEY_VERSION,
   OFFLINE_STORES,
   buildOfflineStorageKey,
+  buildPlanningAssignmentsCacheKey,
   buildPlanningDateCacheKey,
   hasOfflineStorageScope,
 } from "./localOfflineStore";
@@ -23,12 +24,20 @@ describe("local offline storage keys", () => {
       planningCatalog: "planning-catalog",
       planningCustomFields: "planning-custom-fields",
       planningCustomFieldValuesPrefix: "planning-custom-field-values",
+      planningAssignmentTypes: "planning-assignment-types",
+      planningAssignmentsPrefix: "planning-assignments",
       authProfile: "auth-profile",
       planningMutationQueue: "planning-mutation-queue",
     });
     expect(OFFLINE_DATASETS.planningByDate).toBe("planning.byDate");
     expect(OFFLINE_DATASETS.planningCustomFields).toBe("planning.customFields");
     expect(OFFLINE_DATASETS.planningCustomFieldValues).toBe("planning.customFieldValues");
+    expect(OFFLINE_DATASETS.planningAssignmentTypes).toBe("planning.assignmentTypes");
+    expect(OFFLINE_DATASETS.planningAssignments).toBe("planning.assignments");
+  });
+
+  it("builds a stable assignment instance cache key", () => {
+    expect(buildPlanningAssignmentsCacheKey(42)).toBe("planning-assignments:42");
   });
 
   it("keeps legacy keys when no tenant/faena scope is available", () => {

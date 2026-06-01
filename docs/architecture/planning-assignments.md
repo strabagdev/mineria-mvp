@@ -40,6 +40,9 @@ assignment_types
 `assignment_types.max_instances` limita cuantas instancias del tipo se podran
 crear por programado. Parte en `2`, pero queda configurable.
 
+`assignment_types.icon_key` permite elegir un icono Lucide desde una lista
+cerrada. El icono identifica el tipo en catalogo, detalle y tooltip Gantt.
+
 `assignment_fields.input_type` soporta:
 
 - `text`
@@ -61,14 +64,15 @@ Solo `select` y `multi_select` pueden tener filas en
   `/api/assignment-field-options`.
 - Server: `src/server/services/planning-assignments.service.ts` y
   `src/server/repositories/planning-assignments.repository.ts`.
-- SQL: `supabase/sql/006_assignment_catalog.sql`.
+- SQL: `supabase/sql/006_assignment_catalog.sql`,
+  `supabase/sql/007_planning_assignments.sql` y
+  `supabase/sql/008_assignment_type_icons.sql`.
 - Lectura: `requireApprovedUser`.
 - Administracion: `requireAdminUser`.
 
-El catalogo de assignments es online-only. La UI administrativa vive en
+La administracion del catalogo de assignments es online-only. La UI vive en
 `/catalog`, seccion `Asignaciones`, con tres areas: tipos, campos del tipo y
-opciones del campo. No agrega caches IndexedDB, queue, realtime, reportes ni
-integracion visual en planning.
+opciones del campo. No permite mutaciones administrativas offline.
 
 ## Instancias por programado
 
@@ -83,6 +87,7 @@ planning_items
 API:
 
 - GET `/api/planning-assignments?planning_item_id=...`
+- GET `/api/planning-assignments?planning_item_ids=1,2,3`
 - POST `/api/planning-assignments`
 
 POST recibe la lista completa de instancias para un programado. El service
@@ -91,11 +96,21 @@ campo/tipo, pertenencia de opcion/campo y serializacion por tipo. Luego ejecuta
 el reemplazo mediante RPC PostgreSQL `replace_planning_assignments`, de modo que
 delete e inserts ocurren dentro de una sola transaccion.
 
-Las instancias son online-only por ahora. El formulario de programacion carga
-tipos activos y, al editar, consulta las instancias existentes. Guarda el core
-primero y luego reemplaza assignments por API. El detalle consulta y muestra un
-resumen simple. No se integran todavia a IndexedDB, queue offline, Gantt ni
-reportes.
+Las instancias son operacionales y soportan continuidad offline. El formulario
+usa definiciones activas cacheadas cuando no hay red. Al guardar offline,
+`assignmentPayload` queda lateral al payload core dentro de la mutation queue.
+El replay guarda primero el core planning, obtiene `planning_item_id` y luego
+reemplaza assignments por API. Si falla este segundo paso, conserva el ID del
+core ya sincronizado para reintentar sin duplicarlo.
+
+IndexedDB guarda:
+
+- `planning-assignment-types`: tipos, campos y opciones necesarios en terreno.
+- `planning-assignments:{planningItemId}`: instancias por programado.
+
+El detalle resuelve instancias desde cache o queue. El Gantt precarga por lote
+las instancias visibles cuando hay red, usa cache al degradarse y muestra
+iconos por tipo sin hacer fetch por hover.
 
 ## Borrado seguro
 
@@ -105,4 +120,4 @@ reportes.
 
 ## Pendiente
 
-- Fases posteriores: offline, visualizacion Gantt y reportes.
+- Fase posterior: reportes.

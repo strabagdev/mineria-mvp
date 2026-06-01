@@ -26,15 +26,13 @@ export function PlanningAssignmentsForm({ types, value, onChange, online, disabl
     return <section className="assignments-form-section"><div className="custom-fields-heading"><p className="eyebrow">Asignaciones</p><span className="catalog-count">Cargando</span></div></section>;
   }
 
-  if (!online) {
-    return <section className="assignments-form-section"><p className="feedback">Las asignaciones se editan solo online por ahora.</p></section>;
-  }
-
   if (error) {
     return <section className="assignments-form-section"><p className="feedback">{error}</p></section>;
   }
 
-  if (!types.length) return null;
+  if (!types.length) {
+    return online ? null : <section className="assignments-form-section"><p className="feedback">Sin conexion. No hay definiciones locales de asignaciones disponibles para este equipo.</p></section>;
+  }
 
   function updateInstances(typeId: number, instances: PlanningAssignmentsFormState[number]) {
     onChange({ ...value, [typeId]: instances });
@@ -50,7 +48,8 @@ export function PlanningAssignmentsForm({ types, value, onChange, online, disabl
 
   return (
     <section className="assignments-form-section">
-      <div className="custom-fields-heading"><p className="eyebrow">Asignaciones</p><span className="catalog-count">Online</span></div>
+      <div className="custom-fields-heading"><p className="eyebrow">Asignaciones</p><span className="catalog-count">{online ? "Online" : "Offline"}</span></div>
+      {!online ? <p className="feedback">Trabajando con definiciones locales. Las asignaciones se sincronizaran cuando vuelva la conexion.</p> : null}
       {types.map((type) => {
         const instances = value[type.id] ?? [];
         return (

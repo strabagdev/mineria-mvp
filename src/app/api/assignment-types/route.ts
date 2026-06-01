@@ -5,6 +5,7 @@ import type {
   AssignmentTypeCreateRequestDto,
   AssignmentTypeUpdateRequestDto,
 } from "@/modules/planning-assignments/contracts/planning-assignments";
+import { isAssignmentTypeIconKey } from "@/modules/planning-assignments/contracts/planning-assignments";
 import {
   createAssignmentCatalogType,
   deleteUnusedAssignmentType,
@@ -27,6 +28,12 @@ function toConfig(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
+function toIconKey(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const iconKey = String(value);
+  return isAssignmentTypeIconKey(iconKey) ? iconKey : undefined;
+}
+
 export async function GET(req: Request) {
   try {
     await requireApprovedUser(req);
@@ -44,9 +51,10 @@ export async function POST(req: Request) {
     const label = String(body.label ?? "").trim();
     const slug = slugifyAssignmentCatalogValue(String(body.slug ?? label));
     const maxInstances = toMaxInstances(body.max_instances);
+    const iconKey = toIconKey(body.icon_key);
 
-    if (!label || !slug || maxInstances === null) {
-      return NextResponse.json({ error: "Debes indicar nombre, slug y maximo de instancias validos." }, { status: 400 });
+    if (!label || !slug || maxInstances === null || iconKey === undefined) {
+      return NextResponse.json({ error: "Debes indicar nombre, slug, icono y maximo de instancias validos." }, { status: 400 });
     }
 
     const type = await createAssignmentCatalogType({
@@ -54,6 +62,7 @@ export async function POST(req: Request) {
       slug,
       label,
       description: String(body.description ?? "").trim() || null,
+      iconKey,
       active: body.active ?? true,
       maxInstances,
       sortOrder: toSortOrder(body.sort_order),
@@ -84,6 +93,11 @@ export async function PATCH(req: Request) {
       updates.slug = slug;
     }
     if (body.description !== undefined) updates.description = String(body.description ?? "").trim() || null;
+    if (body.icon_key !== undefined) {
+      const iconKey = toIconKey(body.icon_key);
+      if (iconKey === undefined) return NextResponse.json({ error: "El icono no es valido." }, { status: 400 });
+      updates.icon_key = iconKey;
+    }
     if (body.active !== undefined) updates.active = Boolean(body.active);
     if (body.max_instances !== undefined) {
       const maxInstances = toMaxInstances(body.max_instances);

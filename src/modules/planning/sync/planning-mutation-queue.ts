@@ -6,6 +6,7 @@ type ReplayPendingPlanningMutationsArgs = {
   mutations: PendingPlanningMutation[];
   sendMutation: (mutation: PendingPlanningMutation) => Promise<unknown>;
   replayCustomFieldValues?: (mutation: PendingPlanningMutation, response: unknown) => Promise<void>;
+  replayAssignmentPayload?: (mutation: PendingPlanningMutation, response: unknown) => Promise<void>;
   getErrorMessage: (error: unknown) => string;
   isRetryableError: (error: unknown) => boolean;
 };
@@ -36,7 +37,11 @@ export function withClientMutationId(
 export function makePendingPlanningMutation(
   method: PendingPlanningMutation["method"],
   payload: Record<string, unknown>,
-  input: { customFieldValues?: PendingPlanningMutation["customFieldValues"] } = {}
+  input: {
+    customFieldValues?: PendingPlanningMutation["customFieldValues"];
+    assignmentPayload?: PendingPlanningMutation["assignmentPayload"];
+    syncedPlanningItemId?: PendingPlanningMutation["syncedPlanningItemId"];
+  } = {}
 ): PendingPlanningMutation {
   const id = crypto.randomUUID();
 
@@ -45,6 +50,8 @@ export function makePendingPlanningMutation(
     method,
     payload: withClientMutationId(payload, id),
     customFieldValues: input.customFieldValues,
+    assignmentPayload: input.assignmentPayload,
+    syncedPlanningItemId: input.syncedPlanningItemId,
     createdAt: new Date().toISOString(),
   };
 }
@@ -156,6 +163,7 @@ export async function replayPendingPlanningMutations({
   mutations,
   sendMutation,
   replayCustomFieldValues,
+  replayAssignmentPayload,
   getErrorMessage,
   isRetryableError,
 }: ReplayPendingPlanningMutationsArgs): Promise<ReplayPendingPlanningMutationsResult> {
@@ -177,6 +185,7 @@ export async function replayPendingPlanningMutations({
 
   for (let index = 0; index < mutations.length; index += 1) {
     const mutation = mutations[index];
+    let replayMutation = mutation;
 
     if (mutation.status === "conflict") {
       nextQueue.push(mutation);
@@ -184,9 +193,25 @@ export async function replayPendingPlanningMutations({
     }
 
     try {
-      const response = await sendMutation(mutation);
+      const response = mutation.syncedPlanningItemId
+        ? { item: { id: mutation.syncedPlanningItemId } }
+        : await sendMutation(mutation);
+      const responseItemId = Number((response as { item?: { id?: unknown } })?.item?.id);
+      const payloadItemId = Number(mutation.payload.id);
+      const syncedPlanningItemId =
+        Number.isFinite(responseItemId) && responseItemId > 0
+          ? responseItemId
+          : Number.isFinite(payloadItemId) && payloadItemId > 0
+            ? payloadItemId
+            : mutation.syncedPlanningItemId;
+      replayMutation = syncedPlanningItemId
+        ? { ...mutation, syncedPlanningItemId }
+        : mutation;
       if (mutation.customFieldValues?.length) {
-        await replayCustomFieldValues?.(mutation, response);
+        await replayCustomFieldValues?.(replayMutation, response);
+      }
+      if (mutation.assignmentPayload !== undefined) {
+        await replayAssignmentPayload?.(replayMutation, response);
       }
       syncedCount += 1;
     } catch (error: unknown) {
@@ -203,7 +228,7 @@ export async function replayPendingPlanningMutations({
             index,
           },
         });
-        nextQueue.push(mutation);
+        nextQueue.push(replayMutation);
         nextQueue.push(...mutations.slice(index + 1));
         stoppedForRetryableError = true;
         retryableError = error;
@@ -212,7 +237,7 @@ export async function replayPendingPlanningMutations({
       }
 
       nextQueue.push({
-        ...mutation,
+        ...replayMutation,
         status: "conflict",
         lastError: message,
         lastTriedAt: new Date().toISOString(),

@@ -21,6 +21,8 @@ Este documento inventaria el almacenamiento local actual de la plataforma. No ca
 | `planning-catalog` | `planning.catalog` | Catalogo de categorias, tipos, detalles y niveles | Home planning, catalogo planning | Legacy activa |
 | `auth-profile` | `auth.profile` | Perfil de aplicacion cacheado | `AuthProvider` | Legacy activa |
 | `planning-mutation-queue` | `planning.mutationQueue` | Cola de mutaciones planning pendientes | Planning mutation queue store | Legacy activa |
+| `planning-assignment-types` | `planning.assignmentTypes` | Tipos, campos y opciones de assignments para operacion offline | Home planning | Activa |
+| `planning-assignments:{planningItemId}` | `planning.assignments` | Instancias laterales de assignments por programado | Home planning | Activa |
 | `reports-catalog-v1` | Reports catalog snapshot | Catalogo auxiliar de reportes | Reports | Legacy activa |
 | `reports-data-v1-${query}` | Reports data snapshot | Respuesta de reportes por filtros | Reports/Dashboard/OfflineRouteContent | Legacy activa |
 | `admin-users-v1` | Admin users snapshot | Listado de usuarios admin | Admin users/OfflineRouteContent | Legacy activa |

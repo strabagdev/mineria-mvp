@@ -1,6 +1,20 @@
 export type AssignmentFieldInputType = "text" | "number" | "date" | "boolean" | "select" | "multi_select";
 export type AssignmentJson = Record<string, string | number | boolean | null>;
 
+export const ASSIGNMENT_TYPE_ICON_KEYS = [
+  "truck",
+  "hard-hat",
+  "users",
+  "building",
+  "wrench",
+  "package",
+  "clipboard-list",
+  "user",
+  "layers",
+] as const;
+
+export type AssignmentTypeIconKey = (typeof ASSIGNMENT_TYPE_ICON_KEYS)[number];
+
 export type AssignmentFieldOptionDto = {
   id: number;
   field_id: number;
@@ -29,6 +43,7 @@ export type AssignmentTypeDto = {
   slug: string;
   label: string;
   description: string | null;
+  icon_key: AssignmentTypeIconKey | null;
   active: boolean;
   max_instances: number;
   sort_order: number;
@@ -40,6 +55,7 @@ export type AssignmentTypeCreateRequestDto = {
   slug?: string;
   label?: string;
   description?: string | null;
+  icon_key?: string | null;
   active?: boolean;
   max_instances?: number;
   sort_order?: number;
@@ -122,4 +138,8 @@ export type PlanningAssignmentDto = {
 
 export function isAssignmentFieldInputType(value: string): value is AssignmentFieldInputType {
   return ["text", "number", "date", "boolean", "select", "multi_select"].includes(value);
+}
+
+export function isAssignmentTypeIconKey(value: string): value is AssignmentTypeIconKey {
+  return (ASSIGNMENT_TYPE_ICON_KEYS as readonly string[]).includes(value);
 }

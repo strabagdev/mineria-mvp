@@ -87,6 +87,8 @@ Contenido principal:
 | `keyval` | `planning-catalog` | Catalogo operativo de planning |
 | `keyval` | `auth-profile` | Perfil de usuario sincronizado/cacheado |
 | `keyval` | `planning-mutation-queue` | Cola offline de mutaciones planning |
+| `keyval` | `planning-assignment-types` | Tipos, campos y opciones de assignments para operacion |
+| `keyval` | `planning-assignments:{planningItemId}` | Instancias de assignments por programado |
 | `keyval` | `reports-catalog-v1` | Catalogo usado por reportes/dashboard |
 | `keyval` | `reports-data-v1-*` | Snapshots de reportes por filtros |
 | `keyval` | `admin-users-v1` | Snapshot de usuarios admin |
@@ -110,6 +112,8 @@ Rutas/vistas con soporte offline actual:
 - `/dashboard`: vista offline degradada desde snapshots.
 - `/reports`: vista offline degradada desde snapshots.
 - `/admin/users`: vista offline degradada desde snapshot de usuarios.
+- `/catalog`: fallback informativo especifico; la administracion sigue
+  disponible solo online y no renderiza formularios ni datos cacheados.
 - `/offline`: pagina de fallback PWA.
 - `/login`: disponible como shell, pero autenticacion nueva requiere red.
 
@@ -121,6 +125,17 @@ Rutas/vistas con soporte offline actual:
 - Al volver `online`, `offlineView` se limpia.
 
 Esto reduce errores del App Router y evita pedir chunks/rutas remotas durante navegacion offline. El hard reload offline sigue siendo un riesgo conocido si el shell o chunks necesarios no estan cacheados.
+
+### Regla operacion / administracion
+
+- Operacion de terreno es offline-first: planning, Gantt, lectura de
+  programacion, registro operativo ya soportado, cola de sincronizacion y datos
+  necesarios para continuidad.
+- Administracion y configuracion son online-only: catalogo, usuarios, roles,
+  configuracion, tipos de asignacion, campos configurables y
+  tipos/campos/opciones de assignments.
+- Un fallback offline administrativo informa la restriccion; no habilita
+  formularios, mutaciones, queue ni edicion sobre snapshots locales.
 
 ## 7. Service Worker / PWA
 
@@ -164,6 +179,10 @@ Cada mutacion pendiente incluye:
 - `createdAt`.
 - `status` opcional (`conflict` para conflictos no retryables).
 - `client_mutation_id` inyectado en el payload si no existe.
+- `customFieldValues` opcional, lateral al payload core.
+- `assignmentPayload` opcional, lateral al payload core.
+- `syncedPlanningItemId` opcional cuando el core ya se sincronizo y solo falta
+  completar un replay lateral.
 
 La cola se guarda en IndexedDB con la clave `planning-mutation-queue`. Existe una migracion legacy desde `localStorage` (`mineria.pendingPlanningMutations.v1`) hacia IndexedDB.
 
@@ -176,6 +195,11 @@ Procesamiento:
 - Cuando cambia la cola.
 
 Antes de enviar, `syncPendingPlanningMutations` valida sesion y `isBrowserOffline()`. Si la red esta offline, no intenta sincronizar.
+
+Para assignments, replay envia primero la mutacion core y luego ejecuta POST
+replace lateral. Si el segundo paso falla de forma retryable, conserva
+`syncedPlanningItemId`: el siguiente intento reenvia assignments sin duplicar
+el core.
 
 Duplicacion:
 
@@ -318,4 +342,3 @@ Riesgos conocidos:
 - Redes cautivas/VPN/proxy pueden producir alternancia rapida de estado.
 - Snapshots pueden estar desactualizados; la UI debe mostrar ultima sincronizacion cuando corresponda.
 - APIs criticas no deben cachearse; hacerlo podria mostrar datos privados, stale o inconsistentes.
-

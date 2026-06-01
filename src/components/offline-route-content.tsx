@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, Clock3, Gauge, ListChecks, TimerReset, Users } from "lucide-react";
+import { BarChart3, Clock3, Gauge, ListChecks, Settings, TimerReset, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { readAdminUsersSnapshot, readReportSnapshot, type AdminUsersSnapshot } from "@/lib/reportsOfflineSnapshot";
 import {
@@ -14,7 +14,7 @@ import {
 } from "@/lib/reports";
 
 type OfflineRouteContentProps = {
-  view: "home" | "dashboard" | "reports" | "users";
+  view: "home" | "dashboard" | "reports" | "users" | "catalog";
 };
 
 function OfflineNotice({ updatedAt }: { updatedAt: string | null }) {
@@ -269,6 +269,27 @@ function OfflineUsers() {
   );
 }
 
+function OfflineCatalog() {
+  return (
+    <div className="dashboard-stack">
+      <section className="surface-card hero padded">
+        <div className="reports-hero-copy">
+          <span className="reports-hero-icon" aria-hidden="true">
+            <Settings />
+          </span>
+          <div>
+            <p className="eyebrow">Disponible solo online</p>
+            <h2 className="section-title">Catalogo operacional</h2>
+            <p className="body-copy">
+              La administracion del catalogo requiere conexion al servidor. Las configuraciones no se editan en modo offline.
+            </p>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export function OfflineRouteContent({ view }: OfflineRouteContentProps) {
   if (view === "home") {
     return (
@@ -295,5 +316,9 @@ export function OfflineRouteContent({ view }: OfflineRouteContentProps) {
 
   if (view === "users") {
     return <OfflineUsers />;
+  }
+
+  if (view === "catalog") {
+    return <OfflineCatalog />;
   }
 }

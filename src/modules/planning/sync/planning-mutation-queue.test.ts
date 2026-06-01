@@ -69,6 +69,19 @@ describe("planning mutation queue helpers", () => {
     expect(mutation.customFieldValues).toEqual([{ field_id: 1, option_id: 10 }]);
   });
 
+  it("keeps assignments outside the core planning payload", () => {
+    const assignmentPayload = [{ assignment_type_id: 1, instance_order: 1, values: [{ field_id: 10, value_number: 8 }] }];
+    const mutation = makePendingPlanningMutation(
+      "POST",
+      { description: "Extraccion" },
+      { assignmentPayload }
+    );
+
+    expect(mutation.payload).toMatchObject({ description: "Extraccion" });
+    expect(mutation.payload).not.toHaveProperty("assignmentPayload");
+    expect(mutation.assignmentPayload).toEqual(assignmentPayload);
+  });
+
   it("applies pending creates and deletes to visible planning items", () => {
     const visibleItems = applyPendingPlanningMutations(
       [
@@ -175,7 +188,7 @@ describe("planning mutation queue helpers", () => {
     });
 
     expect(sendMutation).toHaveBeenCalledWith(mutation);
-    expect(replayCustomFieldValues).toHaveBeenCalledWith(mutation, { item: { id: 123 } });
+    expect(replayCustomFieldValues).toHaveBeenCalledWith({ ...mutation, syncedPlanningItemId: 123 }, { item: { id: 123 } });
     expect(result.syncedCount).toBe(1);
     expect(result.nextQueue).toEqual([]);
   });
@@ -198,9 +211,46 @@ describe("planning mutation queue helpers", () => {
     });
 
     expect(sendMutation).toHaveBeenCalledWith(mutation);
-    expect(replayCustomFieldValues).toHaveBeenCalledWith(mutation, { item: { id: 123 } });
+    expect(replayCustomFieldValues).toHaveBeenCalledWith({ ...mutation, syncedPlanningItemId: 123 }, { item: { id: 123 } });
     expect(result.syncedCount).toBe(0);
     expect(result.stoppedForRetryableError).toBe(true);
-    expect(result.nextQueue).toEqual([mutation]);
+    expect(result.nextQueue).toEqual([{ ...mutation, syncedPlanningItemId: 123 }]);
+  });
+
+  it("retries assignment replay without sending an already synced core again", async () => {
+    const retryableError = new Error("Network offline");
+    const mutation: PendingPlanningMutation = {
+      ...baseMutation,
+      assignmentPayload: [],
+    };
+    const sendMutation = vi.fn().mockResolvedValueOnce({ item: { id: 123 } });
+    const replayAssignmentPayload = vi.fn().mockRejectedValueOnce(retryableError);
+
+    const firstResult = await replayPendingPlanningMutations({
+      mutations: [mutation],
+      sendMutation,
+      replayAssignmentPayload,
+      getErrorMessage: (error) => (error instanceof Error ? error.message : "error"),
+      isRetryableError: () => true,
+    });
+
+    expect(sendMutation).toHaveBeenCalledTimes(1);
+    expect(replayAssignmentPayload).toHaveBeenCalledWith({ ...mutation, syncedPlanningItemId: 123 }, { item: { id: 123 } });
+    expect(firstResult.nextQueue).toEqual([{ ...mutation, syncedPlanningItemId: 123 }]);
+
+    replayAssignmentPayload.mockReset();
+    replayAssignmentPayload.mockResolvedValueOnce(undefined);
+    const secondResult = await replayPendingPlanningMutations({
+      mutations: firstResult.nextQueue,
+      sendMutation,
+      replayAssignmentPayload,
+      getErrorMessage: (error) => (error instanceof Error ? error.message : "error"),
+      isRetryableError: () => true,
+    });
+
+    expect(sendMutation).toHaveBeenCalledTimes(1);
+    expect(replayAssignmentPayload).toHaveBeenCalledWith({ ...mutation, syncedPlanningItemId: 123 }, { item: { id: 123 } });
+    expect(secondResult.syncedCount).toBe(1);
+    expect(secondResult.nextQueue).toEqual([]);
   });
 });

@@ -5,6 +5,7 @@ import type {
   AssignmentFieldInputType,
   AssignmentFieldOptionDto,
   AssignmentJson,
+  AssignmentTypeIconKey,
   AssignmentTypeDto,
   PlanningAssignmentDto,
   PlanningAssignmentValueDto,
@@ -21,7 +22,7 @@ export type AssignmentFieldOptionRow = AssignmentFieldOptionDto;
 export type PlanningAssignmentRow = Omit<PlanningAssignmentDto, "values">;
 export type PlanningAssignmentValueRow = PlanningAssignmentValueDto;
 
-const typeSelect = "id, slug, label, description, active, max_instances, sort_order, config";
+const typeSelect = "id, slug, label, description, icon_key, active, max_instances, sort_order, config";
 const fieldSelect = "id, assignment_type_id, slug, label, input_type, active, required, sort_order, config";
 const optionSelect = "id, field_id, value, label, active, sort_order, metadata";
 const planningAssignmentSelect = "id, planning_item_id, assignment_type_id, instance_order";
@@ -47,6 +48,7 @@ export async function createAssignmentType(input: {
   slug: string;
   label: string;
   description: string | null;
+  icon_key: AssignmentTypeIconKey | null;
   active: boolean;
   max_instances: number;
   sort_order: number;
@@ -62,6 +64,7 @@ export async function updateAssignmentType(id: number, input: Partial<{
   slug: string;
   label: string;
   description: string | null;
+  icon_key: AssignmentTypeIconKey | null;
   active: boolean;
   max_instances: number;
   sort_order: number;
@@ -212,6 +215,20 @@ export async function listPlanningAssignmentRows(planningItemId: number) {
     .from("planning_assignments")
     .select(planningAssignmentSelect)
     .eq("planning_item_id", planningItemId)
+    .order("assignment_type_id")
+    .order("instance_order");
+  if (error) throw error;
+  return (data ?? []) as PlanningAssignmentRow[];
+}
+
+export async function listPlanningAssignmentRowsByPlanningItemIds(planningItemIds: number[]) {
+  if (!planningItemIds.length) return [];
+  const db = getSupabaseServerClient();
+  const { data, error } = await db
+    .from("planning_assignments")
+    .select(planningAssignmentSelect)
+    .in("planning_item_id", planningItemIds)
+    .order("planning_item_id")
     .order("assignment_type_id")
     .order("instance_order");
   if (error) throw error;

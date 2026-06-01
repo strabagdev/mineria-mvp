@@ -26,8 +26,8 @@ Modulos/areas principales:
 - Planning: planificacion, Gantt, items programados y eventos reales.
 - Planning catalog: categorias, tipos, detalles y niveles.
 - Planning custom fields: campos configurables laterales al payload core.
-- Planning assignments: catalogo e instancias online-only para grupos
-  repetibles configurables.
+- Planning assignments: catalogo online-only e instancias operacionales
+  offline-capable para grupos repetibles configurables.
 - Reporting/dashboard: reportes operacionales y snapshots offline de lectura.
 - Users/admin: usuarios, aprobacion, roles y snapshot offline degradado.
 - Offline/sync: IndexedDB, cola planning, snapshots, conectividad.
@@ -89,19 +89,32 @@ Custom fields son laterales:
 
 Assignments son grupos repetibles laterales:
 
-- Catalogo e instancias online-only en `src/modules/planning-assignments`.
+- Catalogo online-only e instancias operacionales offline-capable en
+  `src/modules/planning-assignments`.
 - `assignment_types`, `assignment_fields` y `assignment_field_options` no son
   entidades prearmadas ni custom fields del programado.
 - Las instancias viven fuera del payload core de `planning_items`.
 - Las instancias viven en `planning_assignments` y `planning_assignment_values`;
   POST usa reemplazo transaccional lateral por programado.
+- Offline usa definiciones cacheadas, cache por programado y
+  `assignmentPayload` lateral en la mutation queue; replay sincroniza core
+  primero y assignments despues.
+- El Gantt precarga assignments por lote para items visibles; nunca hacer fetch
+  por hover.
 - No reintroducir `entity_reference` ni `configurable_entities`.
 
-Offline cubre operacion, no administracion completa:
+Offline cubre operacion, no administracion:
 
-- Escritura offline eventual existe hoy solo para planning.
-- Catalogo/admin/users/reportes son online-only para escritura.
-- Reportes/dashboard/admin users tienen lectura degradada desde snapshot.
+- Regla arquitectonica: operacion de terreno es offline-first; administracion y
+  configuracion son online-only.
+- Escritura offline eventual existe hoy solo para planning operacional.
+- Planning, Gantt, lectura de programacion, cola y datos necesarios de terreno
+  deben sostener continuidad offline dentro del alcance implementado.
+- Catalogo administrativo, usuarios, roles, configuracion, tipos de asignacion,
+  campos configurables y tipos/campos/opciones de assignments no se editan
+  offline.
+- Reportes/dashboard/admin users pueden tener lectura degradada desde snapshot
+  sin habilitar administracion offline.
 
 No fetch por hover:
 
@@ -281,8 +294,8 @@ Para errores:
 - Idempotencia planning via `client_mutation_id`.
 - Planning catalog con cache de lectura y CRUD online.
 - Custom fields laterales para planning, sin tocar payload core.
-- Catalogo, backend, formulario y detalle online-only de assignments repetibles
-  por programado.
+- Catalogo online-only, backend, formulario, cache y replay offline operacional
+  de assignments repetibles por programado.
 - Reporting module inicial con contracts/presentation/offline.
 - Dashboard/reportes/admin users con snapshots offline degradados.
 - Observability local con buffer y eventos tipados.
@@ -303,7 +316,7 @@ Para errores:
 - Resolucion guiada avanzada de conflictos offline.
 - TTL/limpieza/versionado robusto de snapshots IndexedDB.
 - Reportes avanzados/export providers externos.
-- Offline, reportes y visualizacion Gantt de assignments.
+- Reportes de assignments.
 - Integraciones reales (email, Slack, WhatsApp, ERP, Power BI, webhooks).
 - Panel admin de observability.
 - Offline-first total ni hard reload offline garantizado.

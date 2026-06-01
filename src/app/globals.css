@@ -2336,6 +2336,16 @@ textarea {
   pointer-events: auto;
 }
 
+.gantt-tooltip-custom-fields.assignments {
+  padding-top: 0.42rem;
+}
+
+.gantt-tooltip-custom-field.assignment {
+  border-color: color-mix(in srgb, var(--accent) 52%, var(--border));
+  background: color-mix(in srgb, var(--accent) 18%, var(--popover));
+  color: var(--accent-text);
+}
+
 .gantt-tooltip-custom-field svg {
   width: 0.82rem;
   height: 0.82rem;
@@ -3264,10 +3274,35 @@ select.field-input {
 }
 
 .assignments-form-type,
-.assignments-form-instance,
-.assignments-summary-list {
+.assignments-form-instance {
   display: grid;
   gap: 0.75rem;
+}
+
+.custom-fields-detail-section {
+  display: grid;
+  gap: 0.62rem;
+}
+
+.assignment-type-icon-preview,
+.assignment-type-list-label {
+  display: flex;
+  align-items: center;
+  gap: 0.48rem;
+}
+
+.assignment-type-icon-preview svg,
+.assignment-type-list-label svg {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  color: var(--accent-text);
+}
+
+.assignment-type-icon-preview {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
 }
 
 .assignments-form-type {

@@ -18,6 +18,8 @@ Base: **`mineria-offline-store`**, version `1`.
 | `keyval` | Catálogo operativo planning | `planning-catalog` | Tras GET `/api/planning-catalog` OK (`saveCatalogCache`) |
 | `keyval` | Perfil de usuario | `auth-profile` | Tras `/api/profile/sync` OK (`saveProfileCache`) |
 | `keyval` | Cola mutaciones planning | `planning-mutation-queue` | Cada cambio en cola (`savePendingPlanningMutations`) |
+| `keyval` | Definiciones operacionales assignments | `planning-assignment-types` | Tras GET exitoso de tipos/campos/opciones |
+| `keyval` | Instancias assignments por programado | `planning-assignments:{planningItemId}` | Tras GET/POST exitoso |
 | `keyval` | Snapshots reportes / admin | Claves versionadas (`reports-catalog-v1`, `reports-data-v1-*`, `admin-users-v1`, etc.) | `src/lib/reportsOfflineSnapshot.ts` (`saveKeyValueCache` / `readKeyValueCache`) |
 | `planningByDate` | Items planning por día | `date` = `YYYY-MM-DD` | Tras GET `/api/planning-items?date=...` OK (`savePlanningCache`) |
 
@@ -39,6 +41,8 @@ Base: **`mineria-offline-store`**, version `1`.
 
 - Lectura: catálogo e ítems por fecha con fallback a IDB (`readCatalogCache`, `readPlanningCache`).
 - Escritura offline: POST/PATCH/DELETE encolados; reintento en `online`, `focus` e intervalo.
+- Assignments: definiciones e instancias cacheadas; `assignmentPayload` viaja
+  lateralmente en queue y se sincroniza despues del core planning.
 - **Nota de producto:** si no hay caché para una fecha y no hay red, el estado de ítems puede quedar desalineado con la fecha mostrada en el hero (último lote cargado no se limpia en todos los errores). Corregir en código si se prioriza.
 
 ### Catálogo admin (modal en home)

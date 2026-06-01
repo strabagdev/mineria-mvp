@@ -17,6 +17,10 @@ Base de observabilidad interna: `docs/architecture/observability.md`.
 - La conectividad oficial se decide en `src/lib/networkStatus.ts`, combinando `navigator.onLine` con heartbeat a `/api/health`.
 - La UI expone estado binario: `online` u `offline`.
 - Solo planning soporta escritura offline eventual hoy.
+- Regla arquitectonica: operacion de terreno es offline-first; administracion y
+  configuracion son online-only.
+- Los snapshots administrativos degradados son solo lectura y no habilitan
+  formularios ni mutaciones offline.
 
 ## Clasificacion
 
@@ -34,6 +38,7 @@ Base de observabilidad interna: `docs/architecture/observability.md`.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Planning | Si, por fecha cacheada | Si, cola eventual | `planningByDate`, `planning-catalog` | Cola FIFO con reintentos | Si, Supabase Realtime | Backend | Offline-capable parcial |
 | Catalogo planning | Si, ultimo catalogo | No | `keyval: planning-catalog` | Refresco online exitoso | No | Backend | Offline-read parcial |
+| Catalogo administrativo/configuracion | No | No | No usa snapshot administrativo | No aplica | No | Backend | Online-only |
 | Reports | Si, snapshots por filtros | No | `reports-data-v1-*`, `reports-catalog-v1` | Refresco online exitoso | No | Backend | Offline-cache only |
 | Dashboard | Si, snapshot agregado | No | `reports-data-v1-*` | Refresco online exitoso | No | Backend | Offline-cache only |
 | Auth/session | Perfil local parcial | No | `auth-profile` | `/api/profile/sync` online | Supabase auth events | Auth provider/backend | Degradacion parcial |
@@ -57,6 +62,8 @@ Base IndexedDB:
 | `keyval` | `planning-catalog` | Catalogo de planning | Home planning tras GET exitoso | Sin TTL |
 | `keyval` | `auth-profile` | Perfil aprobado/cacheado | `AuthProvider` tras sync exitoso | Sin TTL |
 | `keyval` | `planning-mutation-queue` | Cola de mutaciones planning | Home planning ante cambios de cola | Sin TTL |
+| `keyval` | `planning-assignment-types` | Tipos, campos y opciones de assignments operacionales | Home planning tras GET exitoso | Sin TTL |
+| `keyval` | `planning-assignments:{planningItemId}` | Instancias de assignments por programado | Home planning tras GET/POST exitoso | Sin TTL |
 | `keyval` | `reports-catalog-v1` | Catalogo usado por reportes | Reports tras GET exitoso | Sin TTL |
 | `keyval` | `reports-data-v1-*` | Snapshot de reportes por query | Reports/Dashboard tras GET exitoso | Sin TTL |
 | `keyval` | `admin-users-v1` | Snapshot de usuarios admin | Admin users tras GET exitoso | Sin TTL |
@@ -72,6 +79,8 @@ Datos cacheados:
 - Items de planning por fecha en `planningByDate`.
 - Catalogo operativo en `keyval: planning-catalog`.
 - Campos configurables en `keyval: planning-custom-fields`.
+- Definiciones operacionales de assignments en `keyval: planning-assignment-types`.
+- Instancias de assignments en `keyval: planning-assignments:{planningItemId}`.
 - Mutaciones pendientes en `keyval: planning-mutation-queue`.
 
 Lectura:
@@ -85,7 +94,9 @@ Escritura:
 
 - Online: intenta POST/PATCH/DELETE `/api/planning-items`.
 - Offline, error de red o sesion invalida recuperable: encola mutacion local.
-- Cada mutacion pendiente incluye `id`, `method`, `payload`, `createdAt`, `client_mutation_id` y estado opcional.
+- Cada mutacion pendiente incluye `id`, `method`, `payload`, `createdAt`,
+  `client_mutation_id` y estado opcional. Puede adjuntar `customFieldValues` y
+  `assignmentPayload` como datos laterales sin contaminar el payload core.
 - Las mutaciones pendientes se renderizan de forma optimista con `sync_status: "pending"`.
 
 Sincronizacion:
@@ -93,6 +104,9 @@ Sincronizacion:
 - Se dispara por cambios de red, intervalo de 30 segundos, cambios de sesion/token y cambios en cola.
 - No sincroniza si no hay `access_token`, si ya esta sincronizando, si no hay pendientes retryables o si `isBrowserOffline()` retorna true.
 - Procesa en orden.
+- Para assignments sincroniza core primero y luego POST replace lateral. Si
+  falla el segundo paso, conserva `syncedPlanningItemId` para reintentar sin
+  duplicar el core.
 - Errores retryables mantienen la mutacion y detienen el lote.
 - Errores no retryables pasan a `status: "conflict"` con `lastError` y `lastTriedAt`.
 - Tras sincronizar o detectar conflicto, refresca planning desde backend.
@@ -108,6 +122,14 @@ Expectativa de usuario:
 - Puede crear, editar o eliminar registros y verlos como pendientes.
 - Al volver la conexion, la app intenta sincronizar automaticamente.
 - La confirmacion final depende del backend.
+
+### Assignments operacionales
+
+Las definiciones cacheadas permiten completar assignments offline sin habilitar
+administracion de catalogo. Las instancias de programados sincronizados se leen
+desde cache por `planning_item_id`; las instancias de programados pendientes se
+resuelven desde `assignmentPayload` en queue. Detalle y tooltip Gantt no hacen
+fetch por hover.
 
 ## Contrato: Catalogo Planning
 
@@ -132,6 +154,27 @@ Escritura:
 Riesgo:
 
 - Una mutacion planning offline puede quedar basada en un catalogo local que luego cambio en backend; la validacion final ocurre al sincronizar.
+
+El catalogo local anterior sostiene formularios y labels de la operacion de
+terreno. No convierte `/catalog` en una pantalla administrativa offline.
+
+## Contrato: Catalogo Administrativo
+
+**Clasificacion:** `online-only`.
+
+Incluye:
+
+- Categorias, tipos, detalles y niveles administrables.
+- Tipos de asignacion, campos y opciones.
+- Campos configurables y opciones.
+- Configuraciones futuras expuestas desde `/catalog`.
+
+Comportamiento offline:
+
+- `/catalog` muestra un fallback informativo especifico.
+- No renderiza formularios de administracion.
+- No lee datos cacheados como workspace editable.
+- No crea queue ni mutaciones pendientes.
 
 ## Contrato: Reports
 
@@ -250,6 +293,7 @@ Garantias actuales:
 - Inyeccion de `client_mutation_id` para idempotencia en creacion.
 - Reintentos automaticos.
 - Estado `conflict` para errores no retryables.
+- Replay lateral de assignments posterior al core con continuidad de retry.
 
 No garantizado hoy:
 

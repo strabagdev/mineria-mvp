@@ -101,20 +101,72 @@ export function toPlanningAssignmentInputs(
   );
 }
 
+export function toOperationalAssignmentTypes(types: AssignmentTypeDto[]) {
+  return types
+    .filter((type) => type.active)
+    .map((type) => ({
+      ...type,
+      fields: type.fields
+        .filter((field) => field.active)
+        .map((field) => ({ ...field, options: field.options.filter((option) => option.active) })),
+    }));
+}
+
+export function toDisplayPlanningAssignments(
+  assignments: PlanningAssignmentInputDto[],
+  planningItemId: number
+): PlanningAssignmentDto[] {
+  return assignments.map((assignment, assignmentIndex) => {
+    const assignmentId = -(assignmentIndex + 1);
+    const values: PlanningAssignmentValueDto[] = [];
+
+    for (const value of assignment.values) {
+      const optionIds = value.option_ids?.length ? value.option_ids : [value.option_id ?? null];
+      for (const optionId of optionIds) {
+        values.push({
+          id: -(values.length + 1),
+          assignment_id: assignmentId,
+          field_id: value.field_id,
+          option_id: optionId,
+          value_text: value.value_text ?? null,
+          value_number: value.value_number ?? null,
+          value_date: value.value_date ?? null,
+          value_boolean: value.value_boolean ?? null,
+          value_json: value.value_json ?? {},
+        });
+      }
+    }
+
+    return {
+      id: assignmentId,
+      planning_item_id: planningItemId,
+      assignment_type_id: assignment.assignment_type_id,
+      instance_order: assignment.instance_order,
+      values,
+    };
+  });
+}
+
 export function formatPlanningAssignmentFieldValue(field: AssignmentFieldDto, values: PlanningAssignmentValueDto[]) {
+  let formattedValue: string;
+
   if (field.input_type === "select" || field.input_type === "multi_select") {
-    return values
+    formattedValue = values
       .map((value) => field.options.find((option) => option.id === value.option_id)?.label)
       .filter(Boolean)
       .join(", ");
+  } else {
+    const value = values[0];
+    if (!value) return "";
+    if (field.input_type === "number") formattedValue = value.value_number === null ? "" : String(value.value_number);
+    else if (field.input_type === "date") formattedValue = value.value_date ?? "";
+    else if (field.input_type === "boolean") formattedValue = value.value_boolean === null ? "" : value.value_boolean ? "Si" : "No";
+    else formattedValue = value.value_text ?? "";
   }
 
-  const value = values[0];
-  if (!value) return "";
-  if (field.input_type === "number") return value.value_number === null ? "" : String(value.value_number);
-  if (field.input_type === "date") return value.value_date ?? "";
-  if (field.input_type === "boolean") return value.value_boolean === null ? "" : value.value_boolean ? "Si" : "No";
-  return value.value_text ?? "";
+  if (!formattedValue) return "";
+  const suffix = typeof field.config.suffix === "string" ? field.config.suffix.trim() : "";
+  return suffix ? `${formattedValue} ${suffix}` : formattedValue;
 }
 
 export function getPlanningAssignmentSummaryEntries(types: AssignmentTypeDto[], assignments: PlanningAssignmentDto[]) {
@@ -130,9 +182,25 @@ export function getPlanningAssignmentSummaryEntries(types: AssignmentTypeDto[], 
     return [{
       assignment,
       type,
-      values: type.fields
+      values: [...type.fields]
+        .sort((left, right) => left.sort_order - right.sort_order || left.id - right.id)
         .map((field) => ({ field, value: formatPlanningAssignmentFieldValue(field, valuesByField.get(field.id) ?? []) }))
         .filter((entry) => entry.value),
     }];
+  });
+}
+
+export function getPlanningAssignmentTypeSummaries(types: AssignmentTypeDto[], assignments: PlanningAssignmentDto[]) {
+  const assignmentCountByTypeId = new Map<number, number>();
+  for (const assignment of assignments) {
+    assignmentCountByTypeId.set(
+      assignment.assignment_type_id,
+      (assignmentCountByTypeId.get(assignment.assignment_type_id) ?? 0) + 1
+    );
+  }
+
+  return types.flatMap((type) => {
+    const count = assignmentCountByTypeId.get(type.id) ?? 0;
+    return count ? [{ type, count }] : [];
   });
 }

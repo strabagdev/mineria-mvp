@@ -6,6 +6,7 @@ import type {
   AssignmentFieldDto,
   AssignmentFieldInputType,
   AssignmentJson,
+  AssignmentTypeIconKey,
   AssignmentTypeDto,
   PlanningAssignmentDto,
   PlanningAssignmentInputDto,
@@ -29,6 +30,7 @@ import {
   listAssignmentFieldRows,
   listAssignmentTypeRows,
   listPlanningAssignmentRows,
+  listPlanningAssignmentRowsByPlanningItemIds,
   listPlanningAssignmentValueRows,
   planningItemExists,
   replacePlanningAssignmentRows,
@@ -71,6 +73,7 @@ export async function createAssignmentCatalogType(input: {
   slug: string;
   label: string;
   description: string | null;
+  iconKey: AssignmentTypeIconKey | null;
   active: boolean;
   maxInstances: number;
   sortOrder: number;
@@ -80,6 +83,7 @@ export async function createAssignmentCatalogType(input: {
     slug: input.slug,
     label: input.label,
     description: input.description,
+    icon_key: input.iconKey,
     active: input.active,
     max_instances: input.maxInstances,
     sort_order: input.sortOrder,
@@ -92,7 +96,7 @@ export async function createAssignmentCatalogType(input: {
 export async function updateAssignmentCatalogType(input: {
   actor: AuditActor;
   id: number;
-  updates: Partial<{ slug: string; label: string; description: string | null; active: boolean; max_instances: number; sort_order: number; config: Record<string, unknown> }>;
+  updates: Partial<{ slug: string; label: string; description: string | null; icon_key: AssignmentTypeIconKey | null; active: boolean; max_instances: number; sort_order: number; config: Record<string, unknown> }>;
 }) {
   const before = await getAssignmentTypeById(input.id);
   const type = await updateAssignmentType(input.id, input.updates);
@@ -225,6 +229,21 @@ export async function deleteAssignmentCatalogOption(input: { actor: AuditActor; 
 
 export async function getPlanningAssignments(planningItemId: number) {
   const assignments = await listPlanningAssignmentRows(planningItemId);
+  const values = await listPlanningAssignmentValueRows(assignments.map((assignment) => assignment.id));
+  const valuesByAssignment = new Map<number, typeof values>();
+
+  for (const value of values) {
+    valuesByAssignment.set(value.assignment_id, [...(valuesByAssignment.get(value.assignment_id) ?? []), value]);
+  }
+
+  return assignments.map((assignment): PlanningAssignmentDto => ({
+    ...assignment,
+    values: valuesByAssignment.get(assignment.id) ?? [],
+  }));
+}
+
+export async function getPlanningAssignmentsForPlanningItems(planningItemIds: number[]) {
+  const assignments = await listPlanningAssignmentRowsByPlanningItemIds(planningItemIds);
   const values = await listPlanningAssignmentValueRows(assignments.map((assignment) => assignment.id));
   const valuesByAssignment = new Map<number, typeof values>();
 

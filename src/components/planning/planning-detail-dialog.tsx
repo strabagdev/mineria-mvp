@@ -127,13 +127,9 @@ export function PlanningDetailDialog({
             </article>
           </div>
 
-          {customFieldsSlot ? (
-            <div className="detail-highlight-grid">
-              {customFieldsSlot}
-            </div>
-          ) : null}
-
           {assignmentsSlot}
+
+          {customFieldsSlot}
 
           {continuation ? (
             <article className="detail-notes-card">

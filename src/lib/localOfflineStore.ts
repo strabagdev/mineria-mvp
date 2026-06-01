@@ -15,6 +15,8 @@ export const OFFLINE_KEYS = {
   planningCatalog: "planning-catalog",
   planningCustomFields: "planning-custom-fields",
   planningCustomFieldValuesPrefix: "planning-custom-field-values",
+  planningAssignmentTypes: "planning-assignment-types",
+  planningAssignmentsPrefix: "planning-assignments",
   authProfile: "auth-profile",
   planningMutationQueue: "planning-mutation-queue",
 } as const;
@@ -23,6 +25,8 @@ export const OFFLINE_DATASETS = {
   planningCatalog: "planning.catalog",
   planningCustomFields: "planning.customFields",
   planningCustomFieldValues: "planning.customFieldValues",
+  planningAssignmentTypes: "planning.assignmentTypes",
+  planningAssignments: "planning.assignments",
   authProfile: "auth.profile",
   planningMutationQueue: "planning.mutationQueue",
   planningByDate: "planning.byDate",
@@ -79,6 +83,10 @@ export function buildPlanningDateCacheKey(date: string, scope?: OfflineStorageSc
   }
 
   return buildOfflineStorageKey(`planning:${date}`, scope);
+}
+
+export function buildPlanningAssignmentsCacheKey(planningItemId: number) {
+  return `${OFFLINE_KEYS.planningAssignmentsPrefix}:${planningItemId}`;
 }
 
 function openOfflineDb(): Promise<IDBDatabase> {

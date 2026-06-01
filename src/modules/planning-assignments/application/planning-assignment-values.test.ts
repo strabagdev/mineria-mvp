@@ -26,6 +26,7 @@ function makeType(fields: AssignmentFieldDto[], input: Partial<AssignmentTypeDto
     slug: input.slug ?? "cuadrillas",
     label: input.label ?? "Cuadrillas",
     description: input.description ?? null,
+    icon_key: input.icon_key ?? null,
     active: input.active ?? true,
     max_instances: input.max_instances ?? 2,
     sort_order: input.sort_order ?? 100,

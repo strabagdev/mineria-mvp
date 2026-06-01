@@ -12,7 +12,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { signOut as signOutAuthSession } from "@/modules/auth/application/auth-client";
 
 type ShellIcon = ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
-type OfflineView = null | "home" | "dashboard" | "reports" | "users";
+type OfflineView = null | "home" | "dashboard" | "reports" | "users" | "catalog";
 type NavItem = {
   href: string;
   label: string;
@@ -132,11 +132,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
   function openCatalog(event: MouseEvent<HTMLAnchorElement>) {
     if (isBrowserOffline()) {
       event.preventDefault();
-      if (pathname === "/") {
-        window.dispatchEvent(new CustomEvent("open-planning-catalog"));
-      } else {
-        setOfflineView("home");
-      }
+      setOfflineView("catalog");
       return;
     }
   }
@@ -144,7 +140,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
   const adminNavItems: NavItem[] =
     effectiveProfile.role === "admin"
       ? [
-          { href: "/catalog", label: "Catalogo", icon: Settings, offlineView: "home", onClick: openCatalog },
+          { href: "/catalog", label: "Catalogo", icon: Settings, offlineView: "catalog", onClick: openCatalog },
           { href: "/admin/users", label: "Usuarios", icon: Users, offlineView: "users" },
         ]
       : [];
