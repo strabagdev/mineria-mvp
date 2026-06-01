@@ -1,7 +1,6 @@
 "use client";
 
 import { createClient } from "@supabase/supabase-js";
-import { AuthNetworkError } from "@/lib/authErrors";
 import { NETWORK_ERROR_MESSAGE, isNetworkRequestError } from "@/lib/networkStatus";
 import { recordOperationalEvent } from "@/lib/observability/logger";
 
@@ -44,7 +43,19 @@ async function resilientAuthFetch(
           source: "authClient",
           metadata: { reason: "auth-fetch-network-error" },
         });
-        throw new AuthNetworkError(NETWORK_ERROR_MESSAGE, { cause: error });
+        // Supabase logs rejected custom fetches before callers can handle them.
+        // A retryable response keeps this expected offline state controlled.
+        return new Response(
+          JSON.stringify({
+            code: "auth_network_unavailable",
+            message: NETWORK_ERROR_MESSAGE,
+          }),
+          {
+            status: 503,
+            statusText: "Service Unavailable",
+            headers: { "Content-Type": "application/json" },
+          }
+        );
       }
 
       await sleep(AUTH_FETCH_RETRY_DELAYS_MS[attempt]);

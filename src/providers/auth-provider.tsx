@@ -266,15 +266,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      void syncProfile(nextSession ?? null).then((nextProfile) => {
-        if (!mounted) {
-          return;
-        }
+      void syncProfile(nextSession ?? null)
+        .then((nextProfile) => {
+          if (!mounted) {
+            return;
+          }
 
-        profileRef.current = nextProfile;
-        setProfile(nextProfile);
-        setLoading(false);
-      });
+          profileRef.current = nextProfile;
+          setProfile(nextProfile);
+          setLoading(false);
+        })
+        .catch((error: unknown) => {
+          if (!mounted) {
+            return;
+          }
+
+          const isNetworkError = isNetworkRequestError(error);
+          recordOperationalEvent({
+            level: isNetworkError ? "warn" : "error",
+            name: isNetworkError ? "auth.network_fallback" : "auth.profile_sync_failed",
+            source: "AuthProvider",
+            metadata: {
+              reason: isNetworkError
+                ? "session-change-network-error"
+                : "session-change-error",
+            },
+          });
+          setLoading(false);
+        });
     });
 
     return () => {

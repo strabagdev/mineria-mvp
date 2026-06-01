@@ -2,7 +2,7 @@
 
 import React from "react";
 import { useRouter } from "next/navigation";
-import { NETWORK_ERROR_MESSAGE, assertBrowserOnline } from "@/lib/networkStatus";
+import { NETWORK_ERROR_MESSAGE, assertBrowserOnline, isNetworkRequestError } from "@/lib/networkStatus";
 import {
   getCurrentAuthSession,
   signInWithPassword,
@@ -37,8 +37,14 @@ export default function LoginPage() {
       if (synced) {
         router.replace("/");
       }
-    }).catch(() => {
-      setMessage(NETWORK_ERROR_MESSAGE);
+    }).catch((error: unknown) => {
+      setMessage(
+        isNetworkRequestError(error)
+          ? NETWORK_ERROR_MESSAGE
+          : error instanceof Error
+            ? error.message
+            : "No se pudo validar la sesion."
+      );
     });
   }, [router]);
 

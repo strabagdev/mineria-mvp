@@ -2,6 +2,11 @@
 
 import type { EmailOtpType, Session } from "@supabase/supabase-js";
 import { supabaseAuth } from "@/lib/authClient";
+import {
+  AuthNetworkError,
+  isRetryableAuthProviderError,
+} from "@/lib/authErrors";
+import { NETWORK_ERROR_MESSAGE, isBrowserOffline } from "@/lib/networkStatus";
 import type { AppAuthError, AppSession } from "./auth-types";
 import type { AuthProviderAdapter } from "./auth-provider-adapter";
 
@@ -13,6 +18,18 @@ function toAppAuthError(error: { message?: string } | null | undefined): AppAuth
   return {
     message: error.message || "Authentication error",
   };
+}
+
+function throwIfAuthNetworkFailure(error: unknown) {
+  if (isRetryableAuthProviderError(error)) {
+    throw new AuthNetworkError(NETWORK_ERROR_MESSAGE, { cause: error });
+  }
+}
+
+function assertAuthProviderAvailable() {
+  if (isBrowserOffline()) {
+    throw new AuthNetworkError(NETWORK_ERROR_MESSAGE);
+  }
 }
 
 function toAppSession(session: Session | null): AppSession | null {
@@ -35,11 +52,15 @@ export const supabaseAuthAdapter: AuthProviderAdapter = {
   id: "supabase",
   capabilities: ["password-sign-in", "session-listener", "oauth-callback", "email-otp", "bearer-token"],
   async getCurrentSession() {
-    const { data } = await supabaseAuth.auth.getSession();
+    assertAuthProviderAvailable();
+    const { data, error } = await supabaseAuth.auth.getSession();
+    throwIfAuthNetworkFailure(error);
     return toAppSession(data.session ?? null);
   },
   async signInWithPassword(input) {
+    assertAuthProviderAvailable();
     const { data, error } = await supabaseAuth.auth.signInWithPassword(input);
+    throwIfAuthNetworkFailure(error);
 
     return {
       session: toAppSession(data.session ?? null),
@@ -47,7 +68,13 @@ export const supabaseAuthAdapter: AuthProviderAdapter = {
     };
   },
   async signOut() {
-    await supabaseAuth.auth.signOut();
+    assertAuthProviderAvailable();
+    const { error } = await supabaseAuth.auth.signOut();
+    throwIfAuthNetworkFailure(error);
+
+    if (error) {
+      throw new Error(error.message);
+    }
   },
   onSessionChange(listener) {
     const { data } = supabaseAuth.auth.onAuthStateChange((_event, nextSession) => {
@@ -59,21 +86,24 @@ export const supabaseAuthAdapter: AuthProviderAdapter = {
     };
   },
   async exchangeCodeForSession(code) {
+    assertAuthProviderAvailable();
     const { error } = await supabaseAuth.auth.exchangeCodeForSession(code);
+    throwIfAuthNetworkFailure(error);
 
     return {
       error: toAppAuthError(error),
     };
   },
   async verifyEmailOtp(input) {
+    assertAuthProviderAvailable();
     const { error } = await supabaseAuth.auth.verifyOtp({
       token_hash: input.token_hash,
       type: input.type as EmailOtpType,
     });
+    throwIfAuthNetworkFailure(error);
 
     return {
       error: toAppAuthError(error),
     };
   },
 };
-

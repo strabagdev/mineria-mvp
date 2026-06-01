@@ -4057,10 +4057,6 @@ select.field-input {
     padding-right: 0.92rem;
   }
 
-  .detail-primary-grid {
-    grid-template-columns: 1fr;
-  }
-
   .detail-compact-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -4274,6 +4270,21 @@ select.field-input {
 
   .detail-modal-body {
     gap: 0.82rem;
+  }
+
+  .detail-primary-grid {
+    gap: 0.48rem;
+  }
+
+  .detail-primary-card {
+    gap: 0.58rem;
+    min-height: 4.35rem;
+    padding: 0.72rem 0.68rem;
+  }
+
+  .detail-primary-icon {
+    width: 2rem;
+    height: 2rem;
   }
 
   .detail-compact-grid {

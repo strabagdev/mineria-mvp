@@ -5,7 +5,8 @@ import { BarChart3, ChevronLeft, ChevronRight, Home, LayoutDashboard, LogOut, Se
 import { usePathname, useRouter } from "next/navigation";
 import { type ComponentType, type MouseEvent, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useAuth } from "@/providers/auth-provider";
-import { getNetworkStatusSnapshot, isBrowserOffline, subscribeNetworkStatus } from "@/lib/networkStatus";
+import { getNetworkStatusSnapshot, isBrowserOffline, isNetworkRequestError, subscribeNetworkStatus } from "@/lib/networkStatus";
+import { recordOperationalEvent } from "@/lib/observability/logger";
 import { buildOperationalState } from "@/lib/operationalState";
 import { OfflineRouteContent } from "@/components/offline-route-content";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -92,7 +93,20 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   async function signOut() {
-    await signOutAuthSession();
+    try {
+      await signOutAuthSession();
+    } catch (error: unknown) {
+      const isNetworkError = isNetworkRequestError(error);
+      recordOperationalEvent({
+        level: isNetworkError ? "warn" : "error",
+        name: isNetworkError ? "auth.network_fallback" : "auth.session_recovery_failed",
+        source: "SiteShell",
+        metadata: {
+          reason: isNetworkError ? "sign-out-network-error" : "sign-out-error",
+        },
+      });
+      return;
+    }
 
     if (typeof window !== "undefined") {
       window.location.assign(`${window.location.origin}/login`);
