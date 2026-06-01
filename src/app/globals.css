@@ -2792,8 +2792,8 @@ select.field-input {
 .detail-modal-card {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  width: min(560px, 100%);
-  max-height: min(860px, calc(100vh - 2rem));
+  width: min(720px, 100%);
+  max-height: min(900px, calc(100vh - 2rem));
   padding: 0;
   overflow: hidden;
 }
@@ -2837,21 +2837,36 @@ select.field-input {
 }
 
 .detail-modal-header {
+  position: relative;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
-  padding: 1.2rem 1.2rem 1.05rem;
+  padding: 1.45rem 1.55rem 1.35rem 1.75rem;
   border-bottom: 1px solid var(--border);
   background:
-    linear-gradient(135deg, color-mix(in srgb, var(--accent-soft) 42%, transparent), transparent 68%),
+    linear-gradient(135deg, color-mix(in srgb, var(--accent-soft) 72%, transparent), transparent 68%),
     color-mix(in srgb, var(--panel-solid) 94%, var(--background-soft));
+}
+
+.detail-modal-header::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 0.34rem;
+  background: var(--accent);
+  content: "";
 }
 
 .detail-modal-header.category-interferencia {
   background:
-    linear-gradient(135deg, color-mix(in srgb, var(--warning) 14%, transparent), transparent 68%),
+    linear-gradient(135deg, color-mix(in srgb, var(--warning) 22%, transparent), transparent 68%),
     color-mix(in srgb, var(--panel-solid) 94%, var(--background-soft));
+}
+
+.detail-modal-header.category-interferencia::before {
+  background: var(--warning);
 }
 
 .detail-modal-heading {
@@ -2894,9 +2909,9 @@ select.field-input {
 
 .card-title.detail-modal-title {
   color: var(--foreground);
-  font-size: 1.5rem;
-  font-weight: 800;
-  line-height: 1.2;
+  font-size: clamp(1.65rem, 3vw, 2.15rem);
+  font-weight: 850;
+  line-height: 1.12;
   overflow-wrap: anywhere;
 }
 
@@ -2929,14 +2944,13 @@ select.field-input {
 
 .detail-modal-body {
   display: grid;
-  gap: 0.9rem;
-  padding: 1.05rem 1.2rem;
+  gap: 1rem;
+  padding: 1.2rem 1.35rem 1.35rem;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
 
-.detail-primary-grid,
-.detail-highlight-grid {
+.detail-primary-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem;
@@ -2944,7 +2958,7 @@ select.field-input {
 
 .detail-content-section {
   display: grid;
-  gap: 0.62rem;
+  gap: 0.68rem;
 }
 
 .detail-compact-grid {
@@ -2955,7 +2969,6 @@ select.field-input {
 
 .detail-primary-card,
 .detail-card,
-.detail-highlight-card,
 .detail-notes-card {
   min-width: 0;
   border: 1px solid var(--border);
@@ -2966,16 +2979,29 @@ select.field-input {
 .detail-primary-card {
   display: flex;
   align-items: center;
-  gap: 0.78rem;
-  min-height: 4.4rem;
-  padding: 0.82rem 0.88rem;
+  gap: 0.85rem;
+  min-height: 5rem;
+  padding: 0.95rem 1rem;
+  border-color: color-mix(in srgb, var(--accent-border) 62%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 54%, var(--panel-solid));
 }
 
-.detail-primary-card svg {
-  width: 1.05rem;
-  height: 1.05rem;
+.detail-primary-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
+  width: 2.4rem;
+  height: 2.4rem;
+  border: 1px solid var(--accent-border);
+  border-radius: 0.68rem;
+  background: color-mix(in srgb, var(--panel-solid) 82%, transparent);
   color: var(--accent-text);
+}
+
+.detail-primary-icon svg {
+  width: 1.18rem;
+  height: 1.18rem;
 }
 
 .detail-card {
@@ -2983,7 +3009,16 @@ select.field-input {
 }
 
 .detail-card.compact {
+  display: grid;
+  justify-items: center;
+  gap: 0.28rem;
   text-align: center;
+}
+
+.detail-card.compact svg {
+  width: 0.95rem;
+  height: 0.95rem;
+  color: var(--muted);
 }
 
 .detail-label {
@@ -3003,20 +3038,18 @@ select.field-input {
   overflow-wrap: anywhere;
 }
 
-.detail-highlight-card {
-  padding: 0.88rem 0.92rem;
-}
-
-.detail-highlight-card.level {
-  border-color: var(--accent-border);
-  background: color-mix(in srgb, var(--accent-soft) 72%, var(--panel-solid));
-}
-
+.detail-section-title,
 .detail-highlight-label,
 .detail-section-heading {
   display: flex;
   align-items: center;
   gap: 0.48rem;
+}
+
+.detail-section-title svg {
+  width: 0.98rem;
+  height: 0.98rem;
+  color: var(--accent-text);
 }
 
 .detail-highlight-label svg,
@@ -3027,10 +3060,33 @@ select.field-input {
   color: var(--muted);
 }
 
-.detail-highlight-card.level .detail-highlight-label svg,
-.detail-highlight-card.level .detail-label,
-.detail-highlight-card.level .detail-highlight-value {
-  color: var(--accent-text);
+.detail-location-section {
+  padding: 0.92rem;
+  border: 1px solid var(--border);
+  border-radius: 0.78rem;
+  background: color-mix(in srgb, var(--background-soft) 72%, var(--panel-solid));
+}
+
+.detail-location-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.58rem;
+}
+
+.detail-location-card {
+  min-width: 0;
+  padding: 0.72rem 0.78rem;
+  border-left: 2px solid var(--accent-border);
+  background: color-mix(in srgb, var(--panel-solid) 90%, transparent);
+}
+
+.detail-location-value {
+  margin: 0.28rem 0 0;
+  color: var(--foreground);
+  font-size: 0.96rem;
+  font-weight: 800;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
 }
 
 .detail-highlight-value {
@@ -3055,7 +3111,7 @@ select.field-input {
 }
 
 .detail-modal-actions {
-  padding: 0.95rem 1.2rem 1.2rem;
+  padding: 0.95rem 1.35rem 1.1rem;
   border-top: 1px solid var(--border);
   background: color-mix(in srgb, var(--panel-solid) 90%, var(--background-soft));
 }
@@ -3302,6 +3358,90 @@ select.field-input {
 .custom-fields-detail-section {
   display: grid;
   gap: 0.62rem;
+  padding-top: 0.12rem;
+}
+
+.assignments-detail-section {
+  padding: 0.95rem;
+  border: 1px solid color-mix(in srgb, var(--accent-border) 68%, var(--border));
+  border-radius: 0.78rem;
+  background: color-mix(in srgb, var(--accent-soft) 32%, var(--panel-solid));
+}
+
+.assignments-detail-grid {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.assignment-detail-card {
+  display: flex;
+  align-items: center;
+  gap: 0.72rem;
+  min-width: 0;
+  padding: 0.72rem 0.78rem;
+  border: 1px solid color-mix(in srgb, var(--accent-border) 44%, var(--border));
+  border-radius: 0.68rem;
+  background: color-mix(in srgb, var(--panel-solid) 92%, transparent);
+}
+
+.assignment-detail-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--accent-border);
+  border-radius: 0.58rem;
+  background: color-mix(in srgb, var(--accent-soft) 74%, var(--panel-solid));
+  color: var(--accent-text);
+}
+
+.assignment-detail-icon svg {
+  width: 1.06rem;
+  height: 1.06rem;
+}
+
+.assignment-detail-copy {
+  min-width: 0;
+}
+
+.assignment-detail-label {
+  margin: 0;
+  color: var(--accent-text);
+  font-size: 0.74rem;
+  font-weight: 850;
+  line-height: 1.2;
+}
+
+.assignment-detail-value {
+  margin: 0.24rem 0 0;
+  color: var(--foreground);
+  font-size: 0.92rem;
+  font-weight: 750;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.assignment-detail-status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.custom-fields-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.58rem;
+}
+
+.custom-field-detail-card {
+  min-width: 0;
+  padding: 0.76rem 0.82rem;
+  border: 1px solid var(--border);
+  border-radius: 0.66rem;
+  background: color-mix(in srgb, var(--background-soft) 66%, var(--panel-solid));
 }
 
 .assignment-type-icon-preview,
@@ -3921,10 +4061,6 @@ select.field-input {
     grid-template-columns: 1fr;
   }
 
-  .detail-highlight-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .detail-compact-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -4124,6 +4260,32 @@ select.field-input {
 
   .reports-filter-grid {
     grid-template-columns: 1fr;
+  }
+
+  .detail-location-grid,
+  .custom-fields-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-modal-header {
+    padding-top: 1.15rem;
+    padding-bottom: 1.05rem;
+  }
+
+  .detail-modal-body {
+    gap: 0.82rem;
+  }
+
+  .detail-compact-grid {
+    gap: 0.42rem;
+  }
+
+  .detail-card.compact {
+    padding: 0.68rem 0.42rem;
+  }
+
+  .assignment-detail-card {
+    align-items: flex-start;
   }
 
   .hero-operational-footer {

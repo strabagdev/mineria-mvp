@@ -10,28 +10,38 @@ type PlanningAssignmentsSummaryProps = {
 };
 
 export function PlanningAssignmentsSummary({ types, assignments, loading, error }: PlanningAssignmentsSummaryProps) {
-  if (loading) return <article className="detail-notes-card"><p className="detail-notes-copy">Cargando asignaciones...</p></article>;
-  if (error) return <article className="detail-notes-card"><p className="detail-notes-copy">{error}</p></article>;
+  if (loading || error) {
+    return (
+      <section className="detail-content-section assignments-detail-section">
+        <p className="eyebrow">Asignaciones</p>
+        <p className="assignment-detail-status">{loading ? "Cargando asignaciones..." : error}</p>
+      </section>
+    );
+  }
+
   const entries = getPlanningAssignmentSummaryEntries(types, assignments);
   if (!entries.length) return null;
 
   return (
-    <section className="custom-fields-detail-section">
-      <div className="detail-highlight-grid">
+    <section className="detail-content-section assignments-detail-section">
+      <p className="eyebrow">Asignaciones</p>
+      <div className="assignments-detail-grid">
         {entries.map(({ assignment, type, values }) => {
           const TypeIcon = getAssignmentTypeIcon(type.icon_key);
 
           return (
-            <article className="detail-highlight-card" key={assignment.id}>
-              <div className="detail-highlight-label">
+            <article className="assignment-detail-card" key={assignment.id}>
+              <span className="assignment-detail-icon">
                 <TypeIcon aria-hidden="true" />
-                <p className="detail-label">{type.label}</p>
+              </span>
+              <div className="assignment-detail-copy">
+                <p className="assignment-detail-label">{type.label}</p>
+                {values.length ? (
+                  <p className="assignment-detail-value">
+                    {values.map(({ value }) => value).join(" · ")}
+                  </p>
+                ) : null}
               </div>
-              {values.length ? (
-                <p className="detail-highlight-value">
-                  {values.map(({ value }) => value).join(" · ")}
-                </p>
-              ) : null}
             </article>
           );
         })}

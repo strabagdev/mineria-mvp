@@ -1,4 +1,4 @@
-import { Calendar, Clock, FileText, Layers, Link2, MapPin, Pencil, X } from "lucide-react";
+import { Calendar, Clock, FileText, Layers, Link2, MapPin, Pencil, Timer, X } from "lucide-react";
 import type { ReactNode } from "react";
 
 type PlanningDetailItem = {
@@ -78,14 +78,18 @@ export function PlanningDetailDialog({
         <div className="detail-modal-body">
           <div className="detail-primary-grid">
             <article className="detail-primary-card">
-              <Calendar aria-hidden="true" />
+              <span className="detail-primary-icon">
+                <Calendar aria-hidden="true" />
+              </span>
               <div>
                 <p className="detail-label">Fecha</p>
                 <p className="detail-value">{formatDateLabel(item.item_date)}</p>
               </div>
             </article>
             <article className="detail-primary-card">
-              <Clock aria-hidden="true" />
+              <span className="detail-primary-icon">
+                <Clock aria-hidden="true" />
+              </span>
               <div>
                 <p className="detail-label">Horario</p>
                 <p className="detail-value">
@@ -97,35 +101,35 @@ export function PlanningDetailDialog({
 
           <div className="detail-compact-grid">
             <article className="detail-card compact">
+              <Clock aria-hidden="true" />
               <p className="detail-label">Turno</p>
               <p className="detail-value">{item.shift}</p>
             </article>
             <article className="detail-card compact">
+              <Timer aria-hidden="true" />
               <p className="detail-label">Duracion</p>
               <p className="detail-value">{formatDuration(item.start, item.end)}</p>
             </article>
             <article className="detail-card compact">
+              <Layers aria-hidden="true" />
               <p className="detail-label">Tipo</p>
               <p className="detail-value">{item.item_type}</p>
             </article>
           </div>
 
-          <section className="detail-content-section">
-            <p className="eyebrow">Ubicacion</p>
-            <div className="detail-highlight-grid">
-              <article className="detail-highlight-card level">
-                <div className="detail-highlight-label">
-                  <Layers aria-hidden="true" />
-                  <p className="detail-label">Nivel</p>
-                </div>
-                <p className="detail-highlight-value">{item.level}</p>
+          <section className="detail-content-section detail-location-section">
+            <div className="detail-section-title">
+              <MapPin aria-hidden="true" />
+              <p className="eyebrow">Ubicacion</p>
+            </div>
+            <div className="detail-location-grid">
+              <article className="detail-location-card">
+                <p className="detail-label">Nivel</p>
+                <p className="detail-location-value">{item.level}</p>
               </article>
-              <article className="detail-highlight-card">
-                <div className="detail-highlight-label">
-                  <MapPin aria-hidden="true" />
-                  <p className="detail-label">Frente</p>
-                </div>
-                <p className="detail-highlight-value">{item.front}</p>
+              <article className="detail-location-card">
+                <p className="detail-label">Frente</p>
+                <p className="detail-location-value">{item.front}</p>
               </article>
             </div>
           </section>

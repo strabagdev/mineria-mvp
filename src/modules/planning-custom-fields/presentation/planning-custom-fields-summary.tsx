@@ -17,12 +17,12 @@ export function PlanningCustomFieldsSummary({ fields, values, loading, error }: 
     return (
       <section className="custom-fields-detail-section">
         <p className="eyebrow">Datos adicionales</p>
-        <div className="detail-highlight-grid">
-          <article className="detail-highlight-card custom-fields-detail-skeleton" aria-busy="true">
+        <div className="custom-fields-detail-grid">
+          <article className="custom-field-detail-card custom-fields-detail-skeleton" aria-busy="true">
             <span />
             <strong />
           </article>
-          <article className="detail-highlight-card custom-fields-detail-skeleton" aria-busy="true">
+          <article className="custom-field-detail-card custom-fields-detail-skeleton" aria-busy="true">
             <span />
             <strong />
           </article>
@@ -35,7 +35,7 @@ export function PlanningCustomFieldsSummary({ fields, values, loading, error }: 
     return (
       <section className="custom-fields-detail-section">
         <p className="eyebrow">Datos adicionales</p>
-        <article className="detail-highlight-card custom-fields-detail-message">
+        <article className="custom-field-detail-card custom-fields-detail-message">
           <p className="detail-highlight-value">{error}</p>
         </article>
       </section>
@@ -51,12 +51,12 @@ export function PlanningCustomFieldsSummary({ fields, values, loading, error }: 
   return (
     <section className="custom-fields-detail-section">
       <p className="eyebrow">Datos adicionales</p>
-      <div className="detail-highlight-grid">
+      <div className="custom-fields-detail-grid">
         {visibleValues.map(({ field, value }) => {
           const FieldIcon = getPlanningCustomFieldIcon(field.icon_key);
 
           return (
-            <article key={field.id} className="detail-highlight-card">
+            <article key={field.id} className="custom-field-detail-card">
               <div className="detail-highlight-label">
                 {FieldIcon ? <FieldIcon aria-hidden="true" /> : null}
                 <p className="detail-label">{field.label}</p>
