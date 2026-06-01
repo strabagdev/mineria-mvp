@@ -1,7 +1,11 @@
 "use client";
 
 import type { EmailOtpType, Session } from "@supabase/supabase-js";
-import { supabaseAuth } from "@/lib/authClient";
+import {
+  assertSupabaseAuthConfigured,
+  hasSupabaseAuthConfiguration,
+  supabaseAuth,
+} from "@/lib/authClient";
 import {
   AuthNetworkError,
   isRetryableAuthProviderError,
@@ -27,6 +31,8 @@ function throwIfAuthNetworkFailure(error: unknown) {
 }
 
 function assertAuthProviderAvailable() {
+  assertSupabaseAuthConfigured();
+
   if (isBrowserOffline()) {
     throw new AuthNetworkError(NETWORK_ERROR_MESSAGE);
   }
@@ -77,6 +83,10 @@ export const supabaseAuthAdapter: AuthProviderAdapter = {
     }
   },
   onSessionChange(listener) {
+    if (!hasSupabaseAuthConfiguration()) {
+      return () => undefined;
+    }
+
     const { data } = supabaseAuth.auth.onAuthStateChange((_event, nextSession) => {
       listener(toAppSession(nextSession ?? null));
     });

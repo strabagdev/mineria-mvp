@@ -4,13 +4,21 @@ import { createClient } from "@supabase/supabase-js";
 import { NETWORK_ERROR_MESSAGE, isNetworkRequestError } from "@/lib/networkStatus";
 import { recordOperationalEvent } from "@/lib/observability/logger";
 
-const authUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const authAnonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+const authUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+const authPublishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim();
+const AUTH_CONFIGURATION_ERROR_MESSAGE =
+  "Falta configurar NEXT_PUBLIC_SUPABASE_URL o NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY.";
+const INERT_SUPABASE_URL = "https://missing-supabase-config.invalid";
+const INERT_SUPABASE_PUBLISHABLE_KEY = "missing-supabase-publishable-key";
 
-if (!authUrl || !authAnonKey) {
-  throw new Error(
-    "Missing NEXT_PUBLIC_SUPABASE_URL/NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY."
-  );
+export function assertSupabaseAuthConfigured() {
+  if (!hasSupabaseAuthConfiguration()) {
+    throw new Error(AUTH_CONFIGURATION_ERROR_MESSAGE);
+  }
+}
+
+export function hasSupabaseAuthConfiguration() {
+  return Boolean(authUrl && authPublishableKey);
 }
 
 const AUTH_FETCH_RETRY_DELAYS_MS = [300, 1000];
@@ -65,8 +73,12 @@ async function resilientAuthFetch(
   throw lastError;
 }
 
-export const supabaseAuth = createClient(authUrl, authAnonKey, {
-  global: {
-    fetch: resilientAuthFetch,
-  },
-});
+export const supabaseAuth = createClient(
+  authUrl || INERT_SUPABASE_URL,
+  authPublishableKey || INERT_SUPABASE_PUBLISHABLE_KEY,
+  {
+    global: {
+      fetch: resilientAuthFetch,
+    },
+  }
+);
