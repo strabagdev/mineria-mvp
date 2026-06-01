@@ -275,6 +275,10 @@ export default function Home() {
   const [formState, setFormState] = useState<PlanningItemForm>(toInitialPlanningForm([], [], "Dia", formatLocalDateIso()));
   const resumeRefreshInFlightRef = useRef(false);
 
+  const selectActiveShift = useCallback((shift: ShiftKey) => {
+    setActiveShift(shift);
+  }, []);
+
   function syncAdminCatalogRefresh(nextCatalog: PlanningCatalog) {
     setCatalog(nextCatalog.categories);
     setLevels(nextCatalog.levels);
@@ -1908,7 +1912,7 @@ export default function Home() {
     <section className="home-grid">
       <OperationalHero
         activeShift={activeShift}
-        setActiveShift={setActiveShift}
+        onSelectShift={selectActiveShift}
         shiftConfig={SHIFT_CONFIG}
         selectedDate={selectedDate}
         todayIso={todayIso}

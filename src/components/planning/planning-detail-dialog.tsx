@@ -1,4 +1,4 @@
-import { Calendar, Clock, FileText, Layers, Link2, MapPin, X } from "lucide-react";
+import { Calendar, Clock, FileText, Layers, Link2, MapPin, Pencil, X } from "lucide-react";
 import type { ReactNode } from "react";
 
 type PlanningDetailItem = {
@@ -60,7 +60,7 @@ export function PlanningDetailDialog({
         aria-labelledby="planning-detail-title"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="detail-modal-header">
+        <div className={`detail-modal-header category-${item.category}`}>
           <div className="detail-modal-heading">
             <div className="detail-badge-row">
               <span className={`detail-badge category-${item.category}`}>{categoryLabel}</span>
@@ -110,22 +110,25 @@ export function PlanningDetailDialog({
             </article>
           </div>
 
-          <div className="detail-highlight-grid">
-            <article className="detail-highlight-card level">
-              <div className="detail-highlight-label">
-                <Layers aria-hidden="true" />
-                <p className="detail-label">Nivel</p>
-              </div>
-              <p className="detail-highlight-value">{item.level}</p>
-            </article>
-            <article className="detail-highlight-card">
-              <div className="detail-highlight-label">
-                <MapPin aria-hidden="true" />
-                <p className="detail-label">Frente</p>
-              </div>
-              <p className="detail-highlight-value">{item.front}</p>
-            </article>
-          </div>
+          <section className="detail-content-section">
+            <p className="eyebrow">Ubicacion</p>
+            <div className="detail-highlight-grid">
+              <article className="detail-highlight-card level">
+                <div className="detail-highlight-label">
+                  <Layers aria-hidden="true" />
+                  <p className="detail-label">Nivel</p>
+                </div>
+                <p className="detail-highlight-value">{item.level}</p>
+              </article>
+              <article className="detail-highlight-card">
+                <div className="detail-highlight-label">
+                  <MapPin aria-hidden="true" />
+                  <p className="detail-label">Frente</p>
+                </div>
+                <p className="detail-highlight-value">{item.front}</p>
+              </article>
+            </div>
+          </section>
 
           {assignmentsSlot}
 
@@ -169,6 +172,7 @@ export function PlanningDetailDialog({
           </button>
           {!readOnly ? (
             <button type="button" className="button primary" onClick={onEdit}>
+              <Pencil className="button-icon" aria-hidden="true" />
               Editar registro
             </button>
           ) : null}

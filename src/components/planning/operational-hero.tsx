@@ -13,7 +13,7 @@ type ShiftConfig = Record<
 
 type OperationalHeroProps = {
   activeShift: ShiftKey;
-  setActiveShift: Dispatch<SetStateAction<ShiftKey>>;
+  onSelectShift: (shift: ShiftKey) => void;
   shiftConfig: ShiftConfig;
   selectedDate: string;
   todayIso: string;
@@ -43,9 +43,13 @@ function ShiftIcon({ shift }: { shift: ShiftKey }) {
   return <Moon aria-hidden />;
 }
 
+function getNextShift(shift: ShiftKey): ShiftKey {
+  return shift === "Dia" ? "Noche" : "Dia";
+}
+
 export function OperationalHero({
   activeShift,
-  setActiveShift,
+  onSelectShift,
   shiftConfig,
   selectedDate,
   todayIso,
@@ -84,22 +88,25 @@ export function OperationalHero({
     <article className="surface-card hero hero-operational">
       <div className="hero-operational-line">
         <div className="hero-operational-copy">
-          <div className="shift-tabs" role="tablist" aria-label="Turnos disponibles">
+          <button
+            type="button"
+            className="shift-tabs"
+            role="switch"
+            aria-checked={activeShift === "Noche"}
+            aria-label={`Cambiar a ${shiftConfig[getNextShift(activeShift)].title}`}
+            title={`Cambiar a ${shiftConfig[getNextShift(activeShift)].title}`}
+            onClick={() => onSelectShift(getNextShift(activeShift))}
+          >
             {(["Dia", "Noche"] as ShiftKey[]).map((shift) => (
-              <button
+              <span
                 key={shift}
-                type="button"
-                role="tab"
-                aria-selected={activeShift === shift}
                 className={`shift-tab ${activeShift === shift ? "active" : ""}`}
-                onClick={() => setActiveShift(shift)}
-                aria-label={shiftConfig[shift].title}
-                title={shiftConfig[shift].title}
+                aria-hidden="true"
               >
                 <ShiftIcon shift={shift} />
-              </button>
+              </span>
             ))}
-          </div>
+          </button>
           <h2 className="hero-title">
             <span>Seguimiento operativo del turno</span>
             <span className="hero-title-separator" aria-hidden="true">
