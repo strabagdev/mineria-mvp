@@ -2,7 +2,13 @@
 
 import React from "react";
 import { useRouter } from "next/navigation";
-import { NETWORK_ERROR_MESSAGE, assertBrowserOnline, isNetworkRequestError } from "@/lib/networkStatus";
+import {
+  NETWORK_ERROR_MESSAGE,
+  assertBrowserOnline,
+  getNetworkStatusSnapshot,
+  isNetworkRequestError,
+  subscribeNetworkStatus,
+} from "@/lib/networkStatus";
 import {
   getCurrentAuthSession,
   signInWithPassword,
@@ -20,33 +26,40 @@ export default function LoginPage() {
   const [confirmPassword, setConfirmPassword] = React.useState("");
   const [message, setMessage] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  const networkStatus = React.useSyncExternalStore(
+    subscribeNetworkStatus,
+    getNetworkStatusSnapshot,
+    () => "offline" as const
+  );
+  const isOffline = networkStatus === "offline";
+  const visibleMessage = isOffline ? NETWORK_ERROR_MESSAGE : message;
 
   React.useEffect(() => {
-    if (typeof navigator !== "undefined" && !navigator.onLine) {
-      setMessage(
-        "Sin conexion: puedes continuar solo si ya habias iniciado sesion en este equipo. Para autenticar una cuenta nueva, vuelve a intentar cuando recuperes red."
-      );
+    if (isOffline) {
+      return;
     }
 
+    let cancelled = false;
+
     getCurrentAuthSession().then(async (session) => {
-      if (!session?.access_token) {
+      if (cancelled || !session?.access_token) {
         return;
       }
 
       const synced = await syncProfile(session.access_token).catch(() => false);
-      if (synced) {
+      if (synced && !cancelled) {
         router.replace("/");
       }
     }).catch((error: unknown) => {
-      setMessage(
-        isNetworkRequestError(error)
-          ? NETWORK_ERROR_MESSAGE
-          : error instanceof Error
-            ? error.message
-            : "No se pudo validar la sesion."
-      );
+      if (!cancelled && !isNetworkRequestError(error)) {
+        setMessage(error instanceof Error ? error.message : "No se pudo validar la sesion.");
+      }
     });
-  }, [router]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOffline, router]);
 
   async function syncProfile(token: string) {
     assertBrowserOnline();
@@ -97,7 +110,13 @@ export default function LoginPage() {
       await syncProfile(session.access_token);
       router.replace("/");
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "No se pudo iniciar sesion.");
+      setMessage(
+        isNetworkRequestError(error)
+          ? ""
+          : error instanceof Error
+            ? error.message
+            : "No se pudo iniciar sesion."
+      );
     } finally {
       setBusy(false);
     }
@@ -133,7 +152,13 @@ export default function LoginPage() {
       setPassword("");
       setConfirmPassword("");
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "No se pudo registrar la solicitud.");
+      setMessage(
+        isNetworkRequestError(error)
+          ? ""
+          : error instanceof Error
+            ? error.message
+            : "No se pudo registrar la solicitud."
+      );
     } finally {
       setBusy(false);
     }
@@ -174,9 +199,9 @@ export default function LoginPage() {
               />
             </label>
 
-            {message ? <p className="feedback">{message}</p> : null}
+            {visibleMessage ? <p className="feedback">{visibleMessage}</p> : null}
 
-            <button type="submit" disabled={busy} className="button primary">
+            <button type="submit" disabled={busy || isOffline} className="button primary">
               {busy ? "Ingresando..." : "Ingresar"}
             </button>
           </form>
@@ -230,9 +255,9 @@ export default function LoginPage() {
               />
             </label>
 
-            {message ? <p className="feedback">{message}</p> : null}
+            {visibleMessage ? <p className="feedback">{visibleMessage}</p> : null}
 
-            <button type="submit" disabled={busy} className="button primary">
+            <button type="submit" disabled={busy || isOffline} className="button primary">
               {busy ? "Enviando..." : "Solicitar acceso"}
             </button>
           </form>

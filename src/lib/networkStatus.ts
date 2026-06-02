@@ -26,6 +26,60 @@ type NetworkStatusChangeDetail = {
   healthStatus?: number;
 };
 
+type NetworkRequestErrorReason = "network-changed" | "network-request-error";
+
+const NETWORK_CHANGED_PATTERN =
+  /err_network_changed|network(?: connection)? changed|network change/i;
+const NETWORK_REQUEST_ERROR_PATTERN =
+  /failed to fetch|fetch failed|load failed|networkerror|network error|sin conexi[oó]n/i;
+
+function getErrorText(error: unknown, visited = new Set<unknown>()): string {
+  if (!error || visited.has(error)) {
+    return "";
+  }
+
+  if (typeof error === "string") {
+    return error;
+  }
+
+  if (typeof error !== "object") {
+    return String(error);
+  }
+
+  visited.add(error);
+  const candidate = error as {
+    cause?: unknown;
+    code?: unknown;
+    message?: unknown;
+    name?: unknown;
+  };
+
+  return [
+    candidate.name,
+    candidate.code,
+    candidate.message,
+    getErrorText(candidate.cause, visited),
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ");
+}
+
+export function getNetworkRequestErrorReason(
+  error: unknown
+): NetworkRequestErrorReason | null {
+  const errorText = getErrorText(error);
+
+  if (NETWORK_CHANGED_PATTERN.test(errorText)) {
+    return "network-changed";
+  }
+
+  if (NETWORK_REQUEST_ERROR_PATTERN.test(errorText)) {
+    return "network-request-error";
+  }
+
+  return null;
+}
+
 function getCurrentOperationalStatus(): OperationalStatus {
   return backendOnline === true ? "online" : "offline";
 }
@@ -274,19 +328,19 @@ export function isNetworkRequestError(error: unknown) {
     return true;
   }
 
-  const isNetworkError =
-    error instanceof Error && /failed to fetch|fetch failed|load failed|networkerror/i.test(error.message);
+  const networkErrorReason = getNetworkRequestErrorReason(error);
+  const isNetworkError = networkErrorReason !== null;
 
   if (isNetworkError) {
     recordOperationalEvent({
       level: "warn",
       name: "network.request_failed",
       source: "networkStatus",
-      metadata: { reason: "network-request-error" },
+      metadata: { reason: networkErrorReason },
     });
-    setBackendOnline(false, { reason: "network-request-error" });
+    setBackendOnline(false, { reason: networkErrorReason });
     if (hasBrowserConnectivity()) {
-      startHeartbeat("network-request-error");
+      startHeartbeat(networkErrorReason);
     }
   }
 

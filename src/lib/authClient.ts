@@ -1,7 +1,11 @@
 "use client";
 
 import { createClient } from "@supabase/supabase-js";
-import { NETWORK_ERROR_MESSAGE, isNetworkRequestError } from "@/lib/networkStatus";
+import {
+  NETWORK_ERROR_MESSAGE,
+  getNetworkRequestErrorReason,
+  isNetworkRequestError,
+} from "@/lib/networkStatus";
 import { recordOperationalEvent } from "@/lib/observability/logger";
 
 const authUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
@@ -38,6 +42,7 @@ async function resilientAuthFetch(
       return await fetch(input, init);
     } catch (error: unknown) {
       lastError = error;
+      const networkErrorReason = getNetworkRequestErrorReason(error);
       const isNetworkError = isNetworkRequestError(error);
 
       if (!isNetworkError) {
@@ -49,7 +54,12 @@ async function resilientAuthFetch(
           level: "warn",
           name: "auth.network_fallback",
           source: "authClient",
-          metadata: { reason: "auth-fetch-network-error" },
+          metadata: {
+            reason:
+              networkErrorReason === "network-changed"
+                ? "auth-fetch-network-changed"
+                : "auth-fetch-network-error",
+          },
         });
         // Supabase logs rejected custom fetches before callers can handle them.
         // A retryable response keeps this expected offline state controlled.
