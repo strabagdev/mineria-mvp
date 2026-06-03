@@ -52,7 +52,7 @@ export function PwaRegister() {
       const worker = registration?.active ?? navigator.serviceWorker.controller;
       worker?.postMessage({
         type: "CACHE_CRITICAL_ROUTES",
-        routes: ["/dashboard", "/reports", "/admin/users"],
+        routes: ["/dashboard", "/reports", "/admin/users", "/admin/audit"],
       });
     }
 

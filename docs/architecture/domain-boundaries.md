@@ -27,7 +27,7 @@ Cada dominio debe tener ownership claro de:
 | Auth/access | Cliente modularizado en `src/modules/auth/application`; provider React en `src/providers`; server boundary en `src/server/auth`; access rules en `access.service`. | Mantener auth provider/client facade; extraer access/profile types propios y reducir dependencia de tipos Supabase server cuando sea seguro. |
 | Sync/offline | Planning sync en `src/modules/planning/sync`; IndexedDB y snapshots generales en `src/lib/localOfflineStore` y `reportsOfflineSnapshot`; PWA en `public/sw.js` y `pwa-register`. | Separar `src/modules/offline` o `src/modules/sync` cuando haya mas de un modulo con escritura eventual. Por ahora planning sync sigue dentro de planning. |
 | Connectivity | `src/lib/networkStatus.ts`; consumido transversalmente por UI y offline. | Mantener como cross-cutting platform boundary; no duplicar probes ni listeners por dominio. |
-| Audit | `src/lib/auditLog.ts` + `src/server/repositories/audit.repository.ts`; llamado desde services. | Crear boundary server `src/server/audit` o `src/modules/audit/server` cuando crezca; nunca llamar audit desde UI. |
+| Audit | Escritura en `src/lib/auditLog.ts`, lectura en `src/server/services/audit.service.ts` + `src/server/repositories/audit.repository.ts`, contratos/UI en `src/modules/audit`. | Mantener escritura desde services; no llamar audit desde UI salvo lectura via API admin. |
 | Realtime | Adapter planning en `src/modules/planning/realtime`; README en `src/server/realtime`. | Mantener adapters por dominio; si aparece mas realtime, crear contratos compartidos en `src/modules/realtime` o `src/server/realtime`. |
 | Users/admin | UI en `/admin/users`; server en users service/repository; snapshots en reports offline helper. | Definir modulo `access-admin` o `users` si crecen permisos, auditoria y multi-faena. |
 
@@ -456,7 +456,7 @@ Dependencias prohibidas:
 | `src/lib/reportsOfflineSnapshot.ts` | Mezcla snapshots reports, catalog y admin users. | Ownership poco claro y versionado local dificil. |
 | `src/lib/localOfflineStore.ts` | Infraestructura local generica sin namespace por dominio/tenant. | Multi-tenant/faena requerira migracion cuidadosa. |
 | `src/lib/accessControl.ts` / `requireAuthUser.ts` | Re-export legacy de server access/auth. | Puede confundir ubicacion oficial de auth server. |
-| `src/lib/auditLog.ts` | Audit server helper vive en `lib`. | `lib` mezcla utilidades cliente/servidor. |
+| `src/lib/auditLog.ts` | Helper server de escritura audit vive en `lib`; lectura/UI ya tiene modulo `src/modules/audit` y service/repository. | `lib` mezcla utilidades cliente/servidor; mover escritura a boundary server dedicado cuando crezca compliance. |
 | `src/components/offline-route-content.tsx` | Contiene vistas offline de varios dominios. | Puede crecer como pagina paralela no modular. |
 | `src/components/planning/**` | Componentes de dominio fuera de `src/modules/planning`. | Aceptable por ahora, pero ownership debe seguir siendo planning. |
 | Users/admin | No tiene modulo propio. | Crecimiento de permisos/multi-faena puede acoplarse a auth/report snapshots. |
@@ -517,4 +517,3 @@ Una nueva funcionalidad queda modularmente aceptable cuando:
 6. Usa services/repositories para persistencia server.
 7. Mantiene errores de auth/offline/conflict diferenciados.
 8. Agrega pruebas proporcionales al riesgo.
-

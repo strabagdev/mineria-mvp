@@ -15,11 +15,39 @@ import type {
 export type PlanningCustomFieldRow = Omit<PlanningCustomFieldDto, "options">;
 export type PlanningCustomFieldOptionRow = PlanningCustomFieldOptionDto;
 export type PlanningCustomFieldValueRow = PlanningCustomFieldValueDto;
+export type PlanningCustomFieldUsageContextRow = PlanningCustomFieldValueRow & {
+  planning_items: {
+    id: number;
+    item_date: string;
+    shift: string;
+    description: string;
+    level: string;
+    front: string;
+  } | null;
+  activity_execution_segments: {
+    id: number;
+    planning_item_id: number | null;
+    activity_group_id: string;
+    item_date: string;
+    shift: string;
+    description: string;
+    level: string;
+    front: string;
+  } | null;
+  planning_custom_field_options: {
+    value: string;
+    label: string;
+  } | null;
+};
 
 const fieldSelect = "id, slug, label, icon_key, input_type, active, required, applies_to, sort_order, config";
 const optionSelect = "id, field_id, value, label, active, sort_order, metadata";
 const valueSelect =
   "id, field_id, planning_item_id, execution_segment_id, activity_group_id, option_id, value_text, value_number, value_date, value_boolean, value_json";
+const usageContextSelect = `${valueSelect},
+  planning_items(id, item_date, shift, description, level, front),
+  activity_execution_segments(id, planning_item_id, activity_group_id, item_date, shift, description, level, front),
+  planning_custom_field_options(value, label)`;
 
 export async function listPlanningCustomFieldRows(input: { activeOnly?: boolean }) {
   const db = getSupabaseServerClient();
@@ -117,6 +145,70 @@ export async function countPlanningCustomFieldValuesByFieldId(fieldId: number) {
   return count ?? 0;
 }
 
+export async function findPlanningCustomFieldRow(input: { fieldId?: number; slug?: string }) {
+  const db = getSupabaseServerClient();
+  let query = db.from("planning_custom_fields").select(fieldSelect);
+
+  if (input.fieldId) {
+    query = query.eq("id", input.fieldId);
+  } else if (input.slug) {
+    query = query.eq("slug", input.slug);
+  }
+
+  const { data, error } = await query.maybeSingle();
+  if (error) {
+    throw error;
+  }
+
+  return data as PlanningCustomFieldRow | null;
+}
+
+export async function listPlanningCustomFieldUsageRows(fieldId: number) {
+  const db = getSupabaseServerClient();
+  const { data, error } = await db
+    .from("planning_custom_field_values")
+    .select(usageContextSelect)
+    .eq("field_id", fieldId)
+    .order("id", { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []) as unknown as PlanningCustomFieldUsageContextRow[];
+}
+
+export async function listPlannedItemUsageContextsByActivityGroupIds(
+  activityGroupIds: string[]
+) {
+  const ids = [...new Set(activityGroupIds.filter(Boolean))];
+
+  if (!ids.length) {
+    return [];
+  }
+
+  const db = getSupabaseServerClient();
+  const { data, error } = await db
+    .from("planning_items")
+    .select("id, activity_group_id, item_date, shift, description, level, front")
+    .eq("tracking_type", "programado")
+    .in("activity_group_id", ids);
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []) as {
+    id: number;
+    activity_group_id: string;
+    item_date: string;
+    shift: string;
+    description: string;
+    level: string;
+    front: string;
+  }[];
+}
+
 export async function deletePlanningCustomField(id: number) {
   const db = getSupabaseServerClient();
   const { error } = await db.from("planning_custom_fields").delete().eq("id", id);
@@ -155,6 +247,21 @@ export async function updatePlanningCustomFieldOption(id: number, input: Partial
     throw error;
   }
   return data as PlanningCustomFieldOptionRow;
+}
+
+export async function getPlanningCustomFieldOptionById(id: number) {
+  const db = getSupabaseServerClient();
+  const { data, error } = await db
+    .from("planning_custom_field_options")
+    .select(optionSelect)
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data as PlanningCustomFieldOptionRow | null;
 }
 
 export async function countPlanningCustomFieldValuesByOptionId(optionId: number) {

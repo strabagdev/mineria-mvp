@@ -60,6 +60,33 @@ export type PlanningCustomFieldValueDto = {
   value_json: PlanningCustomFieldJson;
 };
 
+export type PlanningCustomFieldUsageTargetType =
+  | "planning_item"
+  | "execution_segment"
+  | "activity_group";
+
+export type PlanningCustomFieldUsageRecordDto = {
+  value_id: number;
+  planning_item_id: number | null;
+  execution_segment_id: number | null;
+  activity_group_id: string | null;
+  target_type: PlanningCustomFieldUsageTargetType;
+  item_date: string | null;
+  shift: string | null;
+  activity: string | null;
+  level: string | null;
+  front: string | null;
+  stored_value: string;
+};
+
+export type PlanningCustomFieldUsageDto = {
+  field: Pick<PlanningCustomFieldDto, "id" | "slug" | "label" | "input_type" | "active">;
+  total_usage_count: number;
+  distinct_planning_item_count: number;
+  has_historical_values: boolean;
+  records: PlanningCustomFieldUsageRecordDto[];
+};
+
 export type PlanningCustomFieldCreateRequestDto = {
   slug?: string;
   label?: string;

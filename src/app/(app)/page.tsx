@@ -12,6 +12,7 @@ import { OperationalHero } from "@/components/planning/operational-hero";
 import { PlanningDetailDialog } from "@/components/planning/planning-detail-dialog";
 import { PlanningSheet } from "@/components/planning/planning-sheet";
 import { PlanningStatusStrip } from "@/components/planning/planning-status-strip";
+import { PlanningAuditTimeline } from "@/modules/audit/presentation/planning-audit-timeline";
 import {
   fetchPlanningCatalog,
   fetchPlanningItems,
@@ -2068,6 +2069,15 @@ export default function Home() {
                 assignments={viewingPlanningAssignments}
                 loading={viewingAssignmentsLoading}
                 error={viewingAssignmentsError}
+              />
+            ) : null
+          }
+          historySlot={
+            viewingPlanningItem.tracking_type === "programado" && canManageCatalog ? (
+              <PlanningAuditTimeline
+                planningItemId={viewingPlanningItem.id}
+                accessToken={session?.access_token}
+                enabled={Boolean(session?.access_token)}
               />
             ) : null
           }

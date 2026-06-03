@@ -30,6 +30,8 @@ Modulos/areas principales:
   offline-capable para grupos repetibles configurables.
 - Reporting/dashboard: reportes operacionales y snapshots offline de lectura.
 - Users/admin: usuarios, aprobacion, roles y snapshot offline degradado.
+- Audit: historico persistente admin-only en `audit_logs`, consulta global y
+  timeline por programado.
 - Offline/sync: IndexedDB, cola planning, snapshots, conectividad.
 - Realtime: invalidacion/refresco planning con Supabase Realtime.
 - Observability/events/jobs/integrations: bases internas, aun ligeras.
@@ -133,6 +135,14 @@ Observability central:
 - Eventos operacionales esperados deben ser `info`/`warn`, no errores rojos.
 - No loguear tokens, emails, authorization, passwords, payloads sensibles.
 
+Auditoría persistida:
+
+- Usar `writeAuditLog` desde services para mutaciones de negocio.
+- `audit_logs` registra actor, acción, entidad, `before_data`, `after_data` y
+  `metadata`.
+- No mezclar auditoría con observability runtime.
+- Consulta/UI de auditoría es admin-only y online-only.
+
 Queue idempotente:
 
 - Mutaciones planning offline llevan `client_mutation_id`.
@@ -228,6 +238,7 @@ Rutas clave:
 - `src/modules/planning/**`: contracts, clients, sync, realtime, presentation.
 - `src/modules/planning-custom-fields/**`: custom fields laterales.
 - `src/modules/planning-assignments/**`: catalogo base de asignaciones repetibles.
+- `src/modules/audit/**`: contracts/client/presentation de audit logs.
 - `src/modules/reporting/**`: contracts/helpers/offline snapshots reporting.
 - `src/server/services/**`: reglas/workflows server.
 - `src/server/repositories/**`: queries/persistencia.
@@ -278,6 +289,13 @@ Para observability:
 - `warn`: degradacion operacional esperada/retryable.
 - `error`: bug, fallo no esperado o perdida critica.
 
+Para auditoría:
+
+- Escribir desde service, no desde UI.
+- Preferir `entity_type/entity_id` navegables para futuras vistas por entidad.
+- Guardar `before/after` cuando ayude a entender el cambio.
+- Usar `metadata` para resumen o contexto adicional, no para duplicar todo.
+
 Para errores:
 
 - No silenciar errores reales de auth/data.
@@ -298,6 +316,8 @@ Para errores:
   de assignments repetibles por programado.
 - Reporting module inicial con contracts/presentation/offline.
 - Dashboard/reportes/admin users con snapshots offline degradados.
+- Auditoría persistida con API admin `/api/audit-events`, pantalla
+  `/admin/audit` y timeline de programado para admins.
 - Observability local con buffer y eventos tipados.
 - Event bus in-process para base futura, no critico.
 - Integrations strategy con contratos provider-neutral, sin providers reales.
@@ -308,7 +328,8 @@ Para errores:
 
 ## 8. Que todavia NO existe
 
-- Audit trail formal completo y transversal.
+- Auditoría transversal completa con retención, export, multi-tenant/faena y
+  timeline para todas las entidades.
 - Multi-tenant/faena real aplicado end-to-end.
 - Workers separados o queue persistente externa.
 - Outbox/eventos persistentes con entrega garantizada.
@@ -344,6 +365,7 @@ Documentos fuente utiles:
 - IndexedDB: `docs/architecture/indexeddb-local-store.md`.
 - Estados operacionales: `docs/architecture/operational-states.md`.
 - Observability: `docs/architecture/observability.md`.
+- Auditoría: `docs/architecture/audit.md`.
 - Auth portability: `docs/architecture/auth-provider-portability.md`.
 - Integrations: `docs/architecture/integrations-strategy.md`.
 - Events: `docs/architecture/internal-events-strategy.md`.

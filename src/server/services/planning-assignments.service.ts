@@ -41,6 +41,58 @@ import {
 
 type AuditActor = Parameters<typeof writeAuditLog>[0]["actor"];
 
+function buildAssignmentAuditSnapshot(
+  assignments: PlanningAssignmentDto[],
+  types: AssignmentTypeDto[]
+) {
+  const typeById = new Map(types.map((type) => [type.id, type]));
+  const fieldById = new Map<number, AssignmentTypeDto["fields"][number]>();
+  const optionById = new Map<number, AssignmentTypeDto["fields"][number]["options"][number]>();
+
+  for (const type of types) {
+    for (const field of type.fields) {
+      fieldById.set(field.id, field);
+      for (const option of field.options) {
+        optionById.set(option.id, option);
+      }
+    }
+  }
+
+  return assignments.map((assignment) => {
+    const type = typeById.get(assignment.assignment_type_id);
+
+    return {
+      ...assignment,
+      assignment_type_slug: type?.slug ?? null,
+      assignment_type_label: type?.label ?? null,
+      values: assignment.values.map((value) => {
+        const field = fieldById.get(value.field_id);
+        const option = value.option_id ? optionById.get(value.option_id) : undefined;
+
+        return {
+          ...value,
+          field_slug: field?.slug ?? null,
+          field_label: field?.label ?? null,
+          option_value: option?.value ?? null,
+          option_label: option?.label ?? null,
+        };
+      }),
+    };
+  });
+}
+
+function buildAssignmentAuditSummary(assignments: PlanningAssignmentDto[], types: AssignmentTypeDto[]) {
+  const typeById = new Map(types.map((type) => [type.id, type]));
+  const summary: Record<string, number> = {};
+
+  for (const assignment of assignments) {
+    const key = typeById.get(assignment.assignment_type_id)?.slug ?? String(assignment.assignment_type_id);
+    summary[key] = (summary[key] ?? 0) + 1;
+  }
+
+  return summary;
+}
+
 export function slugifyAssignmentCatalogValue(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
@@ -266,7 +318,11 @@ export async function savePlanningAssignments(input: {
     throw new Error("El programado no existe.");
   }
 
-  const types = await listAssignmentTypes({ activeOnly: true });
+  const [beforeAssignments, types, auditTypes] = await Promise.all([
+    getPlanningAssignments(input.planningItemId),
+    listAssignmentTypes({ activeOnly: true }),
+    listAssignmentTypes({ activeOnly: false }),
+  ]);
   const normalizedAssignments = normalizePlanningAssignments(types, input.assignments);
   await replacePlanningAssignmentRows(input.planningItemId, normalizedAssignments);
   const assignments = await getPlanningAssignments(input.planningItemId);
@@ -275,8 +331,13 @@ export async function savePlanningAssignments(input: {
     action: "planning_assignments.replaced",
     entityType: "planning_item",
     entityId: input.planningItemId,
-    after: assignments,
-    metadata: { assignmentCount: assignments.length },
+    before: buildAssignmentAuditSnapshot(beforeAssignments, auditTypes),
+    after: buildAssignmentAuditSnapshot(assignments, auditTypes),
+    metadata: {
+      assignmentCountBefore: beforeAssignments.length,
+      assignmentCountAfter: assignments.length,
+      summary: buildAssignmentAuditSummary(assignments, auditTypes),
+    },
   });
   return assignments;
 }

@@ -14,6 +14,8 @@ Base minima en Next.js + Supabase Auth para arrancar un producto desde una auten
 - `TASKS.md`: backlog, trabajo en curso, hecho y mini handoff.
 - `OFFLINE.md`: documentacion unica de offline/conectividad (almacenamiento, matriz por flujo, contrato planning, fases, pruebas, gaps, archivos clave).
 - `MESSAGE_CENTER_SCOPE.md`: alcance UX/tecnico del centro de mensajes.
+- `architecture/audit.md`: auditoría persistida, flujo `writeAuditLog` ->
+  `audit_logs` -> `/admin/audit` y timeline de programado.
 
 ## Incluye
 - Login con email y password

@@ -4,6 +4,9 @@ Ultima actualizacion: 2026-05-24
 
 La observabilidad inicial de Mineria MVP es una capa local, ligera y sin proveedores externos. Su objetivo es diagnosticar problemas operacionales durante desarrollo y preparar una futura integracion con drains, dashboards o alertas sin acoplar la aplicacion a una plataforma especifica.
 
+No es auditoría de negocio. La auditoría persistida vive en `audit_logs` y se
+documenta en `docs/architecture/audit.md`.
+
 ## Arquitectura
 
 Fuente principal: `src/lib/observability/`
@@ -34,6 +37,22 @@ recordOperationalEvent({
 - En produccion se mantiene el buffer, pero no se escribe ruido a consola.
 - Metadata con claves sensibles (`token`, `authorization`, `password`, `secret`, `email`) se filtra.
 - No se registran payloads de mutaciones, tokens ni datos personales.
+
+## Diferencia Con Auditoría
+
+| Tema | Observability runtime | Auditoría |
+| --- | --- | --- |
+| API principal | `recordOperationalEvent` | `writeAuditLog` |
+| Persistencia | Buffer local en memoria | Tabla `audit_logs` |
+| Objetivo | Diagnosticar estado tecnico/operacional | Reconstruir cambios de negocio |
+| Ejemplos | red, sync, realtime, fallback auth | planning, assignments, custom fields, usuarios |
+| UI actual | Sin panel dedicado | `/admin/audit` y timeline del programado |
+| Acceso | Interno/runtime | Admin-only |
+| Offline | Puede registrar degradaciones locales | Consulta online-only |
+
+Regla practica: si quieres saber por que la app degrado o fallo, usa
+observability. Si quieres saber quien cambio un dato de negocio y que cambio,
+usa auditoría.
 
 ## Eventos instrumentados
 

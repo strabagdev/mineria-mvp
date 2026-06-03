@@ -139,6 +139,15 @@ Un service puede:
 - componer operaciones de dominio;
 - mapear rows de persistencia a resultados de aplicacion.
 
+Auditoría actual:
+
+- Los services llaman `writeAuditLog` para mutaciones de negocio.
+- `audit_logs` guarda `action`, `entity_type`, `entity_id`, `before_data`,
+  `after_data` y `metadata`.
+- La lectura admin se expone por `GET /api/audit-events` y se presenta en
+  `/admin/audit` y en el timeline del programado.
+- Ver `docs/architecture/audit.md`.
+
 Un service no debe:
 
 - depender de React ni componentes;

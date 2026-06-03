@@ -30,6 +30,7 @@ type PlanningDetailDialogProps = {
   toTrackingTypeLabel: (trackingType: PlanningDetailItem["tracking_type"]) => string;
   customFieldsSlot?: ReactNode;
   assignmentsSlot?: ReactNode;
+  historySlot?: ReactNode;
   onClose: () => void;
   onEdit: () => void;
 };
@@ -45,6 +46,7 @@ export function PlanningDetailDialog({
   toTrackingTypeLabel,
   customFieldsSlot,
   assignmentsSlot,
+  historySlot,
   onClose,
   onEdit,
 }: PlanningDetailDialogProps) {
@@ -168,6 +170,8 @@ export function PlanningDetailDialog({
               <p className="detail-notes-copy">{item.notes}</p>
             </article>
           ) : null}
+
+          {historySlot}
         </div>
 
         <div className="modal-actions detail-modal-actions">

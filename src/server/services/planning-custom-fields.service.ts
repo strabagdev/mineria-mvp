@@ -7,6 +7,8 @@ import type {
   PlanningCustomFieldIconKey,
   PlanningCustomFieldInputType,
   PlanningCustomFieldJson,
+  PlanningCustomFieldUsageDto,
+  PlanningCustomFieldUsageRecordDto,
   PlanningCustomFieldValueInputDto,
 } from "@/modules/planning-custom-fields/contracts/planning-custom-fields";
 import {
@@ -16,8 +18,12 @@ import {
   createPlanningCustomFieldOption,
   deletePlanningCustomField,
   deletePlanningCustomFieldOption,
+  findPlanningCustomFieldRow,
+  getPlanningCustomFieldOptionById,
+  listPlannedItemUsageContextsByActivityGroupIds,
   listPlanningCustomFieldOptions,
   listPlanningCustomFieldRows,
+  listPlanningCustomFieldUsageRows,
   listPlanningCustomFieldValues,
   listPlanningCustomFieldValuesByPlanningItemIds,
   replacePlanningCustomFieldValues,
@@ -91,8 +97,13 @@ export async function updateCustomField(input: {
     config: Record<string, unknown>;
   }>;
 }) {
+  const before = await findPlanningCustomFieldRow({ fieldId: input.id });
+  if (!before) {
+    throw new Error("El campo configurable no existe.");
+  }
+
   const field = await updatePlanningCustomField(input.id, input.updates);
-  await writeAuditLog({ actor: input.actor, action: "planning_custom_field.updated", entityType: "planning_custom_field", entityId: field.id, after: field });
+  await writeAuditLog({ actor: input.actor, action: "planning_custom_field.updated", entityType: "planning_custom_field", entityId: field.id, before, after: field });
   return field;
 }
 
@@ -100,6 +111,11 @@ export async function deleteUnusedCustomField(input: {
   actor: AuditActor;
   id: number;
 }) {
+  const before = await findPlanningCustomFieldRow({ fieldId: input.id });
+  if (!before) {
+    throw new Error("El campo configurable no existe.");
+  }
+
   const usageCount = await countPlanningCustomFieldValuesByFieldId(input.id);
 
   if (usageCount > 0) {
@@ -116,6 +132,7 @@ export async function deleteUnusedCustomField(input: {
     action: "planning_custom_field.deleted",
     entityType: "planning_custom_field",
     entityId: input.id,
+    before,
     metadata: { usageCount },
   });
 
@@ -124,6 +141,101 @@ export async function deleteUnusedCustomField(input: {
     reason: null,
     usageCount,
   };
+}
+
+function formatCustomFieldUsageValue(
+  row: Awaited<ReturnType<typeof listPlanningCustomFieldUsageRows>>[number]
+) {
+  if (row.planning_custom_field_options) {
+    return row.planning_custom_field_options.label;
+  }
+
+  if (row.value_text) {
+    return row.value_text;
+  }
+
+  if (row.value_number !== null) {
+    return String(row.value_number);
+  }
+
+  if (row.value_date) {
+    return row.value_date;
+  }
+
+  if (row.value_boolean !== null) {
+    return row.value_boolean ? "Si" : "No";
+  }
+
+  return Object.keys(row.value_json).length ? JSON.stringify(row.value_json) : "";
+}
+
+export async function getCustomFieldUsage(input: { fieldId?: number; slug?: string }) {
+  const field = await findPlanningCustomFieldRow(input);
+
+  if (!field) {
+    return null;
+  }
+
+  const rows = await listPlanningCustomFieldUsageRows(field.id);
+  const groupContexts = await listPlannedItemUsageContextsByActivityGroupIds(
+    rows.flatMap((row) => row.activity_group_id ? [row.activity_group_id] : [])
+  );
+  const groupContextById = new Map(
+    groupContexts.map((context) => [context.activity_group_id, context])
+  );
+  const records = rows.map((row): PlanningCustomFieldUsageRecordDto => {
+    const planningContext = row.planning_items;
+    const segmentContext = row.activity_execution_segments;
+    const groupContext = row.activity_group_id
+      ? groupContextById.get(row.activity_group_id)
+      : undefined;
+    const context = planningContext ?? segmentContext ?? groupContext ?? null;
+
+    return {
+      value_id: row.id,
+      planning_item_id:
+        row.planning_item_id ??
+        segmentContext?.planning_item_id ??
+        groupContext?.id ??
+        null,
+      execution_segment_id: row.execution_segment_id,
+      activity_group_id:
+        row.activity_group_id ??
+        segmentContext?.activity_group_id ??
+        null,
+      target_type: row.planning_item_id
+        ? "planning_item"
+        : row.execution_segment_id
+          ? "execution_segment"
+          : "activity_group",
+      item_date: context?.item_date ?? null,
+      shift: context?.shift ?? null,
+      activity: context?.description ?? null,
+      level: context?.level ?? null,
+      front: context?.front ?? null,
+      stored_value: formatCustomFieldUsageValue(row),
+    };
+  }).sort((left, right) => {
+    const byDate = (right.item_date ?? "").localeCompare(left.item_date ?? "");
+    return byDate || right.value_id - left.value_id;
+  });
+  const distinctPlanningItemIds = new Set(
+    records.flatMap((record) => record.planning_item_id ? [record.planning_item_id] : [])
+  );
+
+  return {
+    field: {
+      id: field.id,
+      slug: field.slug,
+      label: field.label,
+      input_type: field.input_type,
+      active: field.active,
+    },
+    total_usage_count: records.length,
+    distinct_planning_item_count: distinctPlanningItemIds.size,
+    has_historical_values: records.length > 0,
+    records,
+  } satisfies PlanningCustomFieldUsageDto;
 }
 
 export async function listCustomFieldOptions(fieldId?: number) {
@@ -165,6 +277,11 @@ export async function deleteUnusedCustomFieldOption(input: {
   actor: AuditActor;
   id: number;
 }) {
+  const before = await getPlanningCustomFieldOptionById(input.id);
+  if (!before) {
+    throw new Error("La opcion del campo configurable no existe.");
+  }
+
   const usageCount = await countPlanningCustomFieldValuesByOptionId(input.id);
 
   if (usageCount > 0) {
@@ -181,6 +298,7 @@ export async function deleteUnusedCustomFieldOption(input: {
     action: "planning_custom_field_option.deleted",
     entityType: "planning_custom_field_option",
     entityId: input.id,
+    before,
     metadata: { usageCount },
   });
 
@@ -197,6 +315,34 @@ export function getCustomFieldValues(target: PlanningCustomFieldValueTarget) {
 
 export function getCustomFieldValuesForPlanningItems(planningItemIds: number[]) {
   return listPlanningCustomFieldValuesByPlanningItemIds(planningItemIds);
+}
+
+function getCustomFieldTargetType(target: PlanningCustomFieldValueTarget) {
+  if (target.planningItemId) {
+    return "planning_item";
+  }
+
+  if (target.executionSegmentId) {
+    return "execution_segment";
+  }
+
+  return "activity_group";
+}
+
+function getCustomFieldAuditEntity(target: PlanningCustomFieldValueTarget) {
+  if (target.planningItemId) {
+    return { entityType: "planning_item", entityId: target.planningItemId };
+  }
+
+  if (target.executionSegmentId) {
+    return { entityType: "activity_execution_segment", entityId: target.executionSegmentId };
+  }
+
+  if (target.activityGroupId) {
+    return { entityType: "activity_group", entityId: target.activityGroupId };
+  }
+
+  return { entityType: "planning_custom_field_values", entityId: null };
 }
 
 export async function saveCustomFieldValues(input: {
@@ -297,7 +443,21 @@ export async function saveCustomFieldValues(input: {
     };
   });
 
+  const before = await listPlanningCustomFieldValues(input.target);
   const values = await replacePlanningCustomFieldValues(input.target, normalizedValues);
-  await writeAuditLog({ actor: input.actor, action: "planning_custom_field_values.saved", entityType: "planning_custom_field_values", entityId: null, after: values });
+  const auditEntity = getCustomFieldAuditEntity(input.target);
+  await writeAuditLog({
+    actor: input.actor,
+    action: "planning_custom_field_values.saved",
+    entityType: auditEntity.entityType,
+    entityId: auditEntity.entityId,
+    before,
+    after: values,
+    metadata: {
+      planningItemId: input.target.planningItemId ?? null,
+      targetType: getCustomFieldTargetType(input.target),
+      valueCount: values.length,
+    },
+  });
   return values;
 }

@@ -13,6 +13,19 @@ Incluye:
 
 No toca Gantt, reportes, offline/sync ni realtime en esta etapa.
 
+## Auditoria de uso
+
+Antes de retirar un campo, un administrador puede consultar sus referencias sin
+modificar datos:
+
+```text
+GET /api/planning-custom-field-usage?slug=equipos
+GET /api/planning-custom-field-usage?field_id=123
+```
+
+La respuesta incluye cantidad de filas de valor, programados distintos,
+referencia historica y contexto operacional ordenado por fecha descendente.
+
 ## Decision de modelo
 
 La implementacion previa `resource_*` no se sigue expandiendo para esta

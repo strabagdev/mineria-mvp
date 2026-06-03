@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, Clock3, Gauge, ListChecks, Settings, TimerReset, Users } from "lucide-react";
+import { BarChart3, Clock3, Gauge, ListChecks, ScrollText, Settings, TimerReset, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { readAdminUsersSnapshot, readReportSnapshot, type AdminUsersSnapshot } from "@/lib/reportsOfflineSnapshot";
 import {
@@ -14,7 +14,7 @@ import {
 } from "@/lib/reports";
 
 type OfflineRouteContentProps = {
-  view: "home" | "dashboard" | "reports" | "users" | "catalog";
+  view: "home" | "dashboard" | "reports" | "users" | "catalog" | "audit";
 };
 
 function OfflineNotice({ updatedAt }: { updatedAt: string | null }) {
@@ -290,6 +290,27 @@ function OfflineCatalog() {
   );
 }
 
+function OfflineAudit() {
+  return (
+    <div className="dashboard-stack">
+      <section className="surface-card hero padded">
+        <div className="reports-hero-copy">
+          <span className="reports-hero-icon" aria-hidden="true">
+            <ScrollText />
+          </span>
+          <div>
+            <p className="eyebrow">Disponible solo online</p>
+            <h2 className="section-title">Auditoría</h2>
+            <p className="body-copy">
+              La consulta de auditoría requiere conexión al servidor. No se muestran eventos locales en modo offline.
+            </p>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export function OfflineRouteContent({ view }: OfflineRouteContentProps) {
   if (view === "home") {
     return (
@@ -320,5 +341,9 @@ export function OfflineRouteContent({ view }: OfflineRouteContentProps) {
 
   if (view === "catalog") {
     return <OfflineCatalog />;
+  }
+
+  if (view === "audit") {
+    return <OfflineAudit />;
   }
 }

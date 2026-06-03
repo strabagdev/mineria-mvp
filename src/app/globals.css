@@ -1254,6 +1254,113 @@ textarea {
   margin-top: 0.25rem;
 }
 
+.audit-page {
+  align-items: stretch;
+}
+
+.audit-hero,
+.audit-filters-card,
+.audit-table-card,
+.audit-detail-card {
+  width: 100%;
+}
+
+.audit-filters {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.875rem;
+  align-items: end;
+}
+
+.audit-filter-actions {
+  grid-column: 1 / -1;
+}
+
+.audit-filter-actions .button svg,
+.audit-table .button svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.audit-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(20rem, 0.85fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.audit-table-wrap {
+  max-height: 42rem;
+}
+
+.audit-table {
+  min-width: 70rem;
+}
+
+.audit-table tbody tr.selected {
+  background: color-mix(in srgb, var(--accent-soft) 78%, transparent);
+}
+
+.audit-table code {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.78rem;
+  color: var(--foreground);
+}
+
+.audit-pagination {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 0.25rem;
+}
+
+.audit-detail-card {
+  position: sticky;
+  top: 1rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.audit-detail-stack {
+  display: grid;
+  gap: 1rem;
+}
+
+.audit-detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.audit-json-block {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.audit-json-block h4 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.audit-json-block pre {
+  max-height: 18rem;
+  margin: 0;
+  overflow: auto;
+  padding: 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--secondary) 72%, var(--panel-solid));
+  color: var(--foreground);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.78rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .dark .reports-hero,
 .dark .reports-filter-panel,
 .dark .reports-metric-card,
@@ -1284,6 +1391,15 @@ textarea {
 
 .dark .reports-table tbody tr:hover {
   background: color-mix(in srgb, var(--accent) 9%, var(--panel-solid));
+}
+
+.dark .audit-table tbody tr.selected {
+  background: color-mix(in srgb, var(--accent) 15%, var(--panel-solid));
+}
+
+.dark .audit-json-block pre {
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--secondary) 58%, var(--panel-solid));
 }
 
 .dark .ops-highlight,
@@ -3110,6 +3226,134 @@ select.field-input {
   overflow-wrap: anywhere;
 }
 
+.planning-audit-section {
+  padding: 0.92rem;
+  border: 1px solid var(--border);
+  border-radius: 0.78rem;
+  background: color-mix(in srgb, var(--background-soft) 72%, var(--panel-solid));
+}
+
+.planning-audit-timeline {
+  display: grid;
+  gap: 0.82rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.planning-audit-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 0.85rem minmax(0, 1fr);
+  gap: 0.7rem;
+}
+
+.planning-audit-item:not(:last-child)::before {
+  position: absolute;
+  top: 0.82rem;
+  bottom: -0.82rem;
+  left: 0.36rem;
+  width: 1px;
+  background: var(--border);
+  content: "";
+}
+
+.planning-audit-dot {
+  position: relative;
+  z-index: 1;
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-top: 0.24rem;
+  border: 2px solid var(--accent-border);
+  border-radius: 999px;
+  background: var(--panel-solid);
+}
+
+.planning-audit-content {
+  min-width: 0;
+  padding: 0.74rem 0.78rem;
+  border: 1px solid var(--border);
+  border-radius: 0.68rem;
+  background: color-mix(in srgb, var(--panel-solid) 90%, transparent);
+}
+
+.planning-audit-meta,
+.planning-audit-summary,
+.planning-audit-subsummary {
+  margin: 0;
+}
+
+.planning-audit-meta {
+  color: var(--muted-soft);
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.planning-audit-summary {
+  margin-top: 0.22rem;
+  color: var(--foreground);
+  font-size: 0.91rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.planning-audit-subsummary {
+  margin-top: 0.18rem;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.planning-audit-details {
+  margin-top: 0.5rem;
+}
+
+.planning-audit-details summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--accent-text);
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.planning-audit-details summary svg {
+  width: 0.82rem;
+  height: 0.82rem;
+}
+
+.planning-audit-json {
+  display: grid;
+  gap: 0.3rem;
+  margin-top: 0.58rem;
+}
+
+.planning-audit-json span {
+  color: var(--muted-soft);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.planning-audit-json pre {
+  max-height: 12rem;
+  margin: 0;
+  overflow: auto;
+  padding: 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  background: color-mix(in srgb, var(--secondary) 72%, var(--panel-solid));
+  color: var(--foreground);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .detail-modal-actions {
   padding: 0.95rem 1.35rem 1.1rem;
   border-top: 1px solid var(--border);
@@ -4081,12 +4325,21 @@ select.field-input {
     grid-template-columns: 1fr;
   }
 
+  .audit-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .audit-detail-card {
+    position: static;
+  }
+
   .assignments-admin-grid {
     grid-template-columns: 1fr;
   }
 
   .ops-grid,
-  .reports-filter-grid {
+  .reports-filter-grid,
+  .audit-filters {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -4239,6 +4492,7 @@ select.field-input {
   .dashboard-stack,
   .ops-grid,
   .reports-content-grid,
+  .audit-filters,
   .gantt-header,
   .gantt-row,
   .modal-grid,
@@ -4256,6 +4510,16 @@ select.field-input {
 
   .reports-filter-grid {
     grid-template-columns: 1fr;
+  }
+
+  .audit-filter-actions,
+  .audit-pagination {
+    justify-content: stretch;
+  }
+
+  .audit-filter-actions .button,
+  .audit-pagination .button {
+    flex: 1 1 100%;
   }
 
   .detail-location-grid,

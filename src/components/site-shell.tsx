@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { BarChart3, ChevronLeft, ChevronRight, Home, LayoutDashboard, LogOut, Settings, User, Users, Wifi, WifiOff } from "lucide-react";
+import { BarChart3, ChevronLeft, ChevronRight, Home, LayoutDashboard, LogOut, ScrollText, Settings, User, Users, Wifi, WifiOff } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { type ComponentType, type MouseEvent, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useAuth } from "@/providers/auth-provider";
@@ -13,7 +13,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { signOut as signOutAuthSession } from "@/modules/auth/application/auth-client";
 
 type ShellIcon = ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
-type OfflineView = null | "home" | "dashboard" | "reports" | "users" | "catalog";
+type OfflineView = null | "home" | "dashboard" | "reports" | "users" | "catalog" | "audit";
 type NavItem = {
   href: string;
   label: string;
@@ -156,6 +156,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
       ? [
           { href: "/catalog", label: "Catalogo", icon: Settings, offlineView: "catalog", onClick: openCatalog },
           { href: "/admin/users", label: "Usuarios", icon: Users, offlineView: "users" },
+          { href: "/admin/audit", label: "Auditoria", icon: ScrollText, offlineView: "audit" },
         ]
       : [];
 
