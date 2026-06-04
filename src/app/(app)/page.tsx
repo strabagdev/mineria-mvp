@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Tag } from "lucide-react";
+import { CirclePlus, Tag } from "lucide-react";
 import { useAuth } from "@/providers/auth-provider";
 import { CatalogSheet } from "@/components/planning/catalog-sheet";
 import { DeleteConfirmationDialog } from "@/components/planning/delete-confirmation-dialog";
@@ -1843,10 +1843,11 @@ export default function Home() {
         type="button"
         className="button gantt-meta-add-real"
         onClick={() => openCreatePlanningVariant(group, "real")}
-        aria-label={`Agregar evento real a ${buildEventTitle(group)}`}
-        title="Agregar evento real"
+        aria-label={`Agregar actividad asociada a ${buildEventTitle(group)}`}
+        title="Agregar actividad"
       >
-        <span aria-hidden="true">+</span>
+        <CirclePlus aria-hidden="true" />
+        <span>Actividad</span>
       </button>
     );
   }

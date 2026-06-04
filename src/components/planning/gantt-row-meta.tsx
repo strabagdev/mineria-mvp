@@ -32,8 +32,8 @@ export function GanttRowMeta({
         <div className="field-list">
           <span className={`category-pill ${categoryTone}`}>{categoryLabel}</span>
           <span className="field-chip">{typeLabel}</span>
-          {action}
         </div>
+        {action ? <div className="gantt-meta-actions">{action}</div> : null}
       </div>
     </div>
   );

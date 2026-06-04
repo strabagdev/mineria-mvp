@@ -2019,6 +2019,13 @@ textarea {
   width: 100%;
 }
 
+.gantt-meta-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  min-width: 0;
+}
+
 .gantt-meta-primary,
 .gantt-meta-secondary {
   display: flex;
@@ -2592,46 +2599,50 @@ textarea {
 
 .button.gantt-meta-add-real {
   flex: 0 0 auto;
-  min-width: 1.5rem;
-  width: 1.5rem;
-  min-height: 1.5rem;
-  height: 1.5rem;
-  padding: 0;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--success) 40%, var(--border));
-  background: color-mix(in srgb, var(--success) 16%, var(--panel-solid));
-  color: #3d7c36;
-  font-size: 1rem;
-  font-weight: 900;
+  min-height: 1.72rem;
+  padding: 0.22rem 0.54rem;
+  gap: 0.32rem;
+  border-radius: 0.52rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
+  background: color-mix(in srgb, var(--panel-solid) 92%, var(--secondary));
+  color: var(--accent-text);
+  font-size: 0.72rem;
+  font-weight: 800;
   line-height: 1;
   box-shadow: none;
 }
 
+.button.gantt-meta-add-real svg {
+  width: 0.92rem;
+  height: 0.92rem;
+  flex: 0 0 auto;
+}
+
 .dark .button.gantt-meta-add-real {
   border-color: var(--accent-border);
-  background: color-mix(in srgb, var(--accent) 14%, var(--panel-solid));
+  background: color-mix(in srgb, var(--panel-solid) 88%, transparent);
   color: var(--accent-text);
 }
 
 .dark .button.gantt-meta-add-real:hover,
 .dark .button.gantt-meta-add-real:active {
-  border-color: color-mix(in srgb, var(--accent) 46%, var(--border));
-  background: color-mix(in srgb, var(--accent) 22%, var(--panel-solid));
+  border-color: color-mix(in srgb, var(--accent) 56%, var(--border));
+  background: color-mix(in srgb, var(--accent) 18%, var(--panel-solid));
   color: var(--accent-text);
 }
 
 .button.gantt-meta-add-real:hover {
-  background: color-mix(in srgb, var(--success) 22%, var(--panel-solid));
-  border-color: color-mix(in srgb, var(--success) 62%, var(--border));
-  color: #346d2e;
-  transform: none;
-  box-shadow: none;
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel-solid));
+  border-color: color-mix(in srgb, var(--accent) 54%, var(--border));
+  color: var(--accent-text);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
 .button.gantt-meta-add-real:active {
-  background: color-mix(in srgb, var(--success) 32%, var(--panel-solid));
-  border-color: color-mix(in srgb, var(--success) 74%, var(--border));
-  color: var(--foreground);
+  background: color-mix(in srgb, var(--accent) 18%, var(--panel-solid));
+  border-color: color-mix(in srgb, var(--accent) 64%, var(--border));
+  transform: translateY(0);
 }
 
 .empty-state {
@@ -4211,6 +4222,7 @@ select.field-input {
   .button.gantt-meta-add-real {
     min-width: 0;
     min-height: 1.9rem;
+    padding-inline: 0.58rem;
     font-size: 0.75rem;
   }
 
@@ -4696,6 +4708,10 @@ select.field-input {
   }
 
   .gantt-meta-secondary {
+    width: 100%;
+  }
+
+  .gantt-meta-actions {
     width: 100%;
   }
 
