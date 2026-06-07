@@ -19,6 +19,12 @@ export type GanttScale = {
 
 export type ShiftKey = PlanningShiftDto;
 
+export type GanttCurrentTimeMarker = {
+  offsetPercent: number;
+  label: string;
+  timeLabel: string;
+};
+
 type PlanningTimelineItem = {
   item_date: string;
   start: string;
@@ -63,6 +69,8 @@ export const SHIFT_CONFIG: Record<
     wrapsMidnight: true,
   },
 };
+
+type ShiftWindowConfig = Record<ShiftKey, { start: string; end: string; wrapsMidnight: boolean }>;
 
 function toMinutes(time: string) {
   const normalized = time.slice(0, 5);
@@ -251,6 +259,65 @@ export function positionMinutesInScale(time: string, scale: GanttScale) {
   }
 
   return minutes;
+}
+
+function isMinuteInsideShift(minutes: number, shift: ShiftWindowConfig[ShiftKey]) {
+  const start = toMinutes(shift.start);
+  const end = toMinutes(shift.end);
+
+  if (shift.wrapsMidnight) {
+    return minutes >= start || minutes < end;
+  }
+
+  return minutes >= start && minutes < end;
+}
+
+export function getShiftForCurrentTime(
+  now = new Date(),
+  shiftConfig: ShiftWindowConfig = SHIFT_CONFIG,
+  fallback: ShiftKey = "Dia"
+): ShiftKey {
+  const minutes = now.getHours() * 60 + now.getMinutes();
+
+  if (isMinuteInsideShift(minutes, shiftConfig.Dia)) {
+    return "Dia";
+  }
+
+  if (isMinuteInsideShift(minutes, shiftConfig.Noche)) {
+    return "Noche";
+  }
+
+  return fallback;
+}
+
+export function buildGanttCurrentTimeMarker(
+  selectedDate: string,
+  scale: GanttScale,
+  now = new Date()
+): GanttCurrentTimeMarker | null {
+  if (selectedDate !== formatLocalDateIso(now)) {
+    return null;
+  }
+
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  let positionedMinutes = currentMinutes;
+
+  if (positionedMinutes < scale.startMinutes) {
+    positionedMinutes += 24 * 60;
+  }
+
+  if (positionedMinutes < scale.startMinutes || positionedMinutes >= scale.endMinutes) {
+    return null;
+  }
+
+  const scaleSpan = scale.endMinutes - scale.startMinutes;
+  const offsetPercent = ((positionedMinutes - scale.startMinutes) / scaleSpan) * 100;
+
+  return {
+    offsetPercent,
+    label: "Ahora",
+    timeLabel: toTimeLabel(currentMinutes),
+  };
 }
 
 export function getDefaultShiftTimes(shift: ShiftKey) {

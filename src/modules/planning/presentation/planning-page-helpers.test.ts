@@ -3,6 +3,7 @@ import {
   buildEventSubtitle,
   buildEventTitle,
   buildGanttBarLabel,
+  buildGanttCurrentTimeMarker,
   buildGanttScale,
   buildPlanningItemAriaLabel,
   formatDuration,
@@ -10,6 +11,7 @@ import {
   getCalendarDays,
   getDefaultRealEventTimes,
   getDefaultShiftTimes,
+  getShiftForCurrentTime,
   positionMinutesInScale,
   SHIFT_CONFIG,
 } from "./planning-page-helpers";
@@ -84,6 +86,57 @@ describe("planning page helpers", () => {
 
     expect(positionMinutesInScale("21:00", nightScale)).toBe(1260);
     expect(positionMinutesInScale("01:00", nightScale)).toBe(1500);
+  });
+
+  it("selects the operational shift from the current time", () => {
+    expect(getShiftForCurrentTime(new Date(2026, 4, 6, 9, 0))).toBe("Dia");
+    expect(getShiftForCurrentTime(new Date(2026, 4, 6, 13, 0))).toBe("Dia");
+    expect(getShiftForCurrentTime(new Date(2026, 4, 6, 19, 59))).toBe("Dia");
+    expect(getShiftForCurrentTime(new Date(2026, 4, 6, 20, 0))).toBe("Noche");
+    expect(getShiftForCurrentTime(new Date(2026, 4, 6, 1, 0))).toBe("Noche");
+    expect(getShiftForCurrentTime(new Date(2026, 4, 6, 7, 59))).toBe("Noche");
+    expect(getShiftForCurrentTime(new Date(2026, 4, 6, 8, 0))).toBe("Dia");
+  });
+
+  it("uses the fallback when no shift contains the current time", () => {
+    const shiftConfig = {
+      Dia: { start: "09:00", end: "17:00", wrapsMidnight: false },
+      Noche: { start: "21:00", end: "23:00", wrapsMidnight: false },
+    };
+
+    expect(getShiftForCurrentTime(new Date(2026, 4, 6, 18, 0), shiftConfig, "Noche")).toBe("Noche");
+  });
+
+  it("builds the current time marker only for the visible current shift", () => {
+    const dayScale = buildGanttScale("08:00", "20:00", false);
+    const marker = buildGanttCurrentTimeMarker(
+      "2026-05-06",
+      dayScale,
+      new Date(2026, 4, 6, 14, 0)
+    );
+
+    expect(marker).toEqual({
+      offsetPercent: 50,
+      label: "Ahora",
+      timeLabel: "14:00",
+    });
+    expect(buildGanttCurrentTimeMarker("2026-05-05", dayScale, new Date(2026, 4, 6, 14, 0))).toBeNull();
+    expect(buildGanttCurrentTimeMarker("2026-05-06", dayScale, new Date(2026, 4, 6, 21, 0))).toBeNull();
+    expect(buildGanttCurrentTimeMarker("2026-05-06", dayScale, new Date(2026, 4, 6, 20, 0))).toBeNull();
+  });
+
+  it("positions the current time marker inside an overnight shift", () => {
+    const nightScale = buildGanttScale("20:00", "08:00", true);
+
+    expect(buildGanttCurrentTimeMarker("2026-05-06", nightScale, new Date(2026, 4, 6, 23, 0))).toMatchObject({
+      offsetPercent: 25,
+      timeLabel: "23:00",
+    });
+    expect(buildGanttCurrentTimeMarker("2026-05-06", nightScale, new Date(2026, 4, 6, 2, 0))).toMatchObject({
+      offsetPercent: 50,
+      timeLabel: "02:00",
+    });
+    expect(buildGanttCurrentTimeMarker("2026-05-06", nightScale, new Date(2026, 4, 6, 10, 0))).toBeNull();
   });
 
   it("returns default shift times used by new planned and real events", () => {

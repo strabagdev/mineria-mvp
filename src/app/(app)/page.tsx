@@ -94,6 +94,7 @@ import { recordOperationalEvent } from "../../lib/observability/logger";
 import {
   buildEventSubtitle,
   buildEventTitle,
+  buildGanttCurrentTimeMarker,
   buildGanttBarLabel,
   buildGanttScale,
   buildPlanningItemAriaLabel,
@@ -106,6 +107,7 @@ import {
   getCalendarDays,
   getDefaultRealEventTimes,
   getDefaultShiftTimes,
+  getShiftForCurrentTime,
   isSameCalendarMonth,
   positionMinutesInScale,
   SHIFT_CONFIG,
@@ -237,6 +239,7 @@ export default function Home() {
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(() => new Date(`${todayIso}T00:00:00`));
   const [activeShift, setActiveShift] = useState<ShiftKey>("Dia");
+  const [currentTime, setCurrentTime] = useState<Date | null>(null);
   const [itemsLoading, setItemsLoading] = useState(true);
   const [itemsError, setItemsError] = useState("");
   const [pendingPlanningMutations, setPendingPlanningMutations] = useState<PendingPlanningMutation[]>([]);
@@ -278,6 +281,17 @@ export default function Home() {
 
   const selectActiveShift = useCallback((shift: ShiftKey) => {
     setActiveShift(shift);
+  }, []);
+
+  useEffect(() => {
+    const now = new Date();
+    setActiveShift(getShiftForCurrentTime(now));
+    setCurrentTime(now);
+    const intervalId = window.setInterval(() => {
+      setCurrentTime(new Date());
+    }, 60_000);
+
+    return () => window.clearInterval(intervalId);
   }, []);
 
   function syncAdminCatalogRefresh(nextCatalog: PlanningCatalog) {
@@ -1677,6 +1691,9 @@ export default function Home() {
       SHIFT_CONFIG.Noche.wrapsMidnight
     ),
   };
+  const currentTimeMarker = currentTime
+    ? buildGanttCurrentTimeMarker(selectedDate, ganttScales[activeShift], currentTime)
+    : null;
   const isHistoricalView = selectedDate !== todayIso;
   const isHistoricalReadOnly = isHistoricalView && !historicalEditingEnabled;
   const todayDate = new Date(`${todayIso}T00:00:00`);
@@ -1984,6 +2001,7 @@ export default function Home() {
                 shift={activeShift}
                 groups={planningGroupsByShift[activeShift]}
                 scale={ganttScales[activeShift]}
+                currentTimeMarker={currentTimeMarker}
                 renderBar={renderGanttBar}
                 renderCreateRealButton={renderCreateRealButton}
                 toDisplayCategory={toDisplayCategory}

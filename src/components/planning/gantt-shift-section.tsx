@@ -34,6 +34,12 @@ type GanttScale = {
   }[];
 };
 
+type GanttCurrentTimeMarker = {
+  offsetPercent: number;
+  label: string;
+  timeLabel: string;
+};
+
 type GanttShiftSectionProps<
   TItem extends GanttPlanningItem,
   TGroup extends GanttPlanningGroup<TItem>,
@@ -41,6 +47,7 @@ type GanttShiftSectionProps<
   shift: ShiftKey;
   groups: TGroup[];
   scale: GanttScale;
+  currentTimeMarker?: GanttCurrentTimeMarker | null;
   renderBar: (item: TItem | null, layer: "programado" | "real", scale: GanttScale) => ReactNode;
   renderCreateRealButton: (group: TGroup) => ReactNode;
   toDisplayCategory: (category: TGroup["category"]) => string;
@@ -53,6 +60,7 @@ export function GanttShiftSection<
   shift,
   groups,
   scale,
+  currentTimeMarker,
   renderBar,
   renderCreateRealButton,
   toDisplayCategory,
@@ -98,6 +106,18 @@ export function GanttShiftSection<
             <span className="gantt-end-label" aria-hidden="true">
               <span className="gantt-hour-label">{scale.endLabel}</span>
             </span>
+            {currentTimeMarker ? (
+              <span
+                className="gantt-now-header-marker"
+                style={{ left: `${currentTimeMarker.offsetPercent}%` }}
+                aria-hidden="true"
+              >
+                <span className="gantt-now-label">
+                  {currentTimeMarker.label}
+                  <span>{currentTimeMarker.timeLabel}</span>
+                </span>
+              </span>
+            ) : null}
           </div>
         </div>
       </div>
@@ -111,6 +131,14 @@ export function GanttShiftSection<
         }
       >
         <div className="gantt-rows-timeline-bg" aria-hidden="true" />
+        {currentTimeMarker ? (
+          <div className="gantt-now-overlay" aria-hidden="true">
+            <span
+              className="gantt-now-line"
+              style={{ left: `${currentTimeMarker.offsetPercent}%` }}
+            />
+          </div>
+        ) : null}
 
         {groupedRows.length ? (
           groupedRows.map((locationGroup) => (
@@ -141,6 +169,13 @@ export function GanttShiftSection<
 
                     <div className="gantt-track gantt-track-compare">
                       <div className="gantt-track-scale">
+                        {currentTimeMarker ? (
+                          <span
+                            className="gantt-now-track-line"
+                            style={{ left: `${currentTimeMarker.offsetPercent}%` }}
+                            aria-hidden="true"
+                          />
+                        ) : null}
                         <span className="gantt-lane-label programado" aria-hidden="true">
                           Plan
                         </span>
