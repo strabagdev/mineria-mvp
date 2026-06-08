@@ -1,6 +1,7 @@
 import "server-only";
 
 import { writeAuditLog } from "@/lib/auditLog";
+import { havePlanningCustomFieldValuesChanged } from "@/modules/planning-custom-fields/application/planning-custom-fields-audit";
 import type {
   PlanningCustomFieldAppliesTo,
   PlanningCustomFieldDto,
@@ -445,6 +446,10 @@ export async function saveCustomFieldValues(input: {
 
   const before = await listPlanningCustomFieldValues(input.target);
   const values = await replacePlanningCustomFieldValues(input.target, normalizedValues);
+  if (!havePlanningCustomFieldValuesChanged(before, values)) {
+    return values;
+  }
+
   const auditEntity = getCustomFieldAuditEntity(input.target);
   await writeAuditLog({
     actor: input.actor,

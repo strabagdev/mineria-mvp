@@ -1,6 +1,7 @@
 import "server-only";
 
 import { writeAuditLog } from "@/lib/auditLog";
+import { havePlanningAssignmentsChanged } from "@/modules/planning-assignments/application/planning-assignments-audit";
 import { normalizePlanningAssignments } from "@/modules/planning-assignments/application/planning-assignment-values";
 import type {
   AssignmentFieldDto,
@@ -326,6 +327,10 @@ export async function savePlanningAssignments(input: {
   const normalizedAssignments = normalizePlanningAssignments(types, input.assignments);
   await replacePlanningAssignmentRows(input.planningItemId, normalizedAssignments);
   const assignments = await getPlanningAssignments(input.planningItemId);
+  if (!havePlanningAssignmentsChanged(beforeAssignments, assignments)) {
+    return assignments;
+  }
+
   await writeAuditLog({
     actor: input.actor,
     action: "planning_assignments.replaced",

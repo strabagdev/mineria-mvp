@@ -49,6 +49,7 @@ type GanttShiftSectionProps<
   scale: GanttScale;
   currentTimeMarker?: GanttCurrentTimeMarker | null;
   renderBar: (item: TItem | null, layer: "programado" | "real", scale: GanttScale) => ReactNode;
+  renderAssignmentIndicators?: (item: TItem | null) => ReactNode;
   renderCreateRealButton: (group: TGroup) => ReactNode;
 };
 
@@ -61,6 +62,7 @@ export function GanttShiftSection<
   scale,
   currentTimeMarker,
   renderBar,
+  renderAssignmentIndicators,
   renderCreateRealButton,
 }: GanttShiftSectionProps<TItem, TGroup>) {
   const groupedRows = groups.reduce<Array<{ key: string; title: string; rows: TGroup[] }>>((accumulator, group) => {
@@ -158,6 +160,7 @@ export function GanttShiftSection<
                     <div className="gantt-meta">
                       <GanttRowMeta
                         title={activityName}
+                        assignmentIndicators={renderAssignmentIndicators?.(plannedItemForShift)}
                         action={renderCreateRealButton(group)}
                       />
                     </div>

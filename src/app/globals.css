@@ -2267,6 +2267,51 @@ textarea {
   min-width: 0;
 }
 
+.gantt-meta-assignments {
+  display: flex;
+  align-items: center;
+  gap: 0.32rem;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.gantt-meta-assignment-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.16rem;
+  min-width: 1.35rem;
+  height: 1.35rem;
+  padding: 0 0.34rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel-solid));
+  color: var(--accent-text);
+  font-size: 0.62rem;
+  font-weight: 850;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.gantt-meta-assignment-icon svg {
+  width: 0.82rem;
+  height: 0.82rem;
+  flex: 0 0 auto;
+}
+
+.gantt-meta-assignment-icon.more {
+  border-color: color-mix(in srgb, var(--border) 88%, transparent);
+  background: color-mix(in srgb, var(--secondary) 74%, transparent);
+  color: var(--muted);
+}
+
+.dark .gantt-meta-assignment-icon {
+  border-color: color-mix(in srgb, var(--accent) 44%, var(--border));
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel-solid));
+  color: var(--accent-text);
+}
+
 .gantt-meta h3 {
   margin: 0;
   font-size: 0.92rem;

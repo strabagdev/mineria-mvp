@@ -1736,6 +1736,49 @@ export default function Home() {
   const planningDeleteLabel = `Eliminar ${isRealForm ? "evento real" : "programacion"}`;
   const viewingContinuation = findSegmentContinuation(viewingPlanningItem, allPlanningGroups);
 
+  function renderGanttAssignmentIndicators(item: PlanningItem | null) {
+    if (!item || item.tracking_type !== "programado") {
+      return null;
+    }
+
+    const assignmentSummaries = getPlanningAssignmentTypeSummaries(
+      assignmentTypes,
+      getAssignmentsForItem(item)
+    );
+
+    if (!assignmentSummaries.length) {
+      return null;
+    }
+
+    const visibleAssignmentSummaries = assignmentSummaries.slice(0, 4);
+    const hiddenAssignmentSummaries = assignmentSummaries.slice(4);
+
+    return (
+      <div className="gantt-meta-assignments" aria-label="Asignaciones operacionales">
+        {visibleAssignmentSummaries.map(({ type, count }) => {
+          const TypeIcon = getAssignmentTypeIcon(type.icon_key);
+          const label = `${type.label}: ${count} ${count === 1 ? "asignada" : "asignadas"}`;
+
+          return (
+            <span key={type.id} className="gantt-meta-assignment-icon" title={label} aria-label={label}>
+              <TypeIcon aria-hidden="true" />
+              {count > 1 ? <span>{count}</span> : null}
+            </span>
+          );
+        })}
+        {hiddenAssignmentSummaries.length ? (
+          <span
+            className="gantt-meta-assignment-icon more"
+            title={hiddenAssignmentSummaries.map(({ type, count }) => `${type.label}: ${count}`).join(" · ")}
+            aria-label={`${hiddenAssignmentSummaries.length} tipos de asignacion adicionales`}
+          >
+            +{hiddenAssignmentSummaries.length}
+          </span>
+        ) : null}
+      </div>
+    );
+  }
+
   function renderGanttBar(item: PlanningItem | null, layer: "programado" | "real", scale: GanttScale) {
     if (!item) {
       return null;
@@ -2030,6 +2073,7 @@ export default function Home() {
                 scale={ganttScales[activeShift]}
                 currentTimeMarker={currentTimeMarker}
                 renderBar={renderGanttBar}
+                renderAssignmentIndicators={renderGanttAssignmentIndicators}
                 renderCreateRealButton={renderCreateRealButton}
               />
             ) : null}
