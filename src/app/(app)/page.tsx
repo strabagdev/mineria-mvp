@@ -1750,31 +1750,17 @@ export default function Home() {
       return null;
     }
 
-    const visibleAssignmentSummaries = assignmentSummaries.slice(0, 4);
-    const hiddenAssignmentSummaries = assignmentSummaries.slice(4);
-
     return (
       <div className="gantt-meta-assignments" aria-label="Asignaciones operacionales">
-        {visibleAssignmentSummaries.map(({ type, count }) => {
+        {assignmentSummaries.map(({ type }) => {
           const TypeIcon = getAssignmentTypeIcon(type.icon_key);
-          const label = `${type.label}: ${count} ${count === 1 ? "asignada" : "asignadas"}`;
 
           return (
-            <span key={type.id} className="gantt-meta-assignment-icon" title={label} aria-label={label}>
+            <span key={type.id} className="gantt-tooltip-custom-field assignment" aria-hidden="true">
               <TypeIcon aria-hidden="true" />
-              {count > 1 ? <span>{count}</span> : null}
             </span>
           );
         })}
-        {hiddenAssignmentSummaries.length ? (
-          <span
-            className="gantt-meta-assignment-icon more"
-            title={hiddenAssignmentSummaries.map(({ type, count }) => `${type.label}: ${count}`).join(" · ")}
-            aria-label={`${hiddenAssignmentSummaries.length} tipos de asignacion adicionales`}
-          >
-            +{hiddenAssignmentSummaries.length}
-          </span>
-        ) : null}
       </div>
     );
   }
@@ -1930,11 +1916,10 @@ export default function Home() {
         type="button"
         className="button gantt-meta-add-real"
         onClick={() => openCreatePlanningVariant(group, "real")}
-        aria-label={`Agregar actividad asociada a ${buildEventTitle(group)}`}
-        title="Agregar actividad"
+        aria-label={`Registrar actividad o interferencia asociada a ${buildEventTitle(group)}`}
+        title="Registrar actividad o interferencia"
       >
         <CirclePlus aria-hidden="true" />
-        <span>Actividad</span>
       </button>
     );
   }

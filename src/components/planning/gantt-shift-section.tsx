@@ -150,10 +150,11 @@ export function GanttShiftSection<
                 <div className="gantt-location-rule" aria-hidden="true" />
               </div>
 
-              {locationGroup.rows.map((group) => {
+              {locationGroup.rows.map((group, groupRowIndex) => {
                 const realSegmentsForShift = group.realSegments.filter((segment) => segment.shift === shift);
                 const plannedItemForShift = group.programado?.shift === shift ? group.programado : null;
                 const activityName = String(group.description ?? "").trim() || group.item_type;
+                const shouldShowLaneLabels = groupRowIndex === 0;
 
                 return (
                   <article key={group.key} className="gantt-row gantt-row-dual">
@@ -174,12 +175,16 @@ export function GanttShiftSection<
                             aria-hidden="true"
                           />
                         ) : null}
-                        <span className="gantt-lane-label programado" aria-hidden="true">
-                          Plan
-                        </span>
-                        <span className="gantt-lane-label real" aria-hidden="true">
-                          Eventos
-                        </span>
+                        {shouldShowLaneLabels ? (
+                          <>
+                            <span className="gantt-lane-label programado" aria-hidden="true">
+                              Plan
+                            </span>
+                            <span className="gantt-lane-label real" aria-hidden="true">
+                              Eventos
+                            </span>
+                          </>
+                        ) : null}
                         {renderBar(plannedItemForShift, "programado", scale)}
                         {realSegmentsForShift.map((segment) => (
                           <Fragment key={`real-segment-${segment.id}`}>
