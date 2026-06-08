@@ -105,9 +105,10 @@ import {
   formatLocalDateTime,
   formatMonthTitle,
   getCalendarDays,
+  getCurrentOperationalDate,
   getDefaultRealEventTimes,
   getDefaultShiftTimes,
-  getShiftForCurrentTime,
+  getInitialOperationalView,
   isSameCalendarMonth,
   positionMinutesInScale,
   SHIFT_CONFIG,
@@ -240,16 +241,17 @@ export default function Home() {
     () => "offline" as const
   );
   const canManageCatalog = profile?.role === "admin";
-  const todayIso = formatLocalDateIso();
+  const [currentTime, setCurrentTime] = useState(() => new Date());
+  const todayIso = getCurrentOperationalDate(currentTime);
+  const initialOperationalView = getInitialOperationalView(currentTime);
   const [planningItems, setPlanningItems] = useState<PlanningItem[]>([]);
   const [catalog, setCatalog] = useState<CatalogCategory[]>([]);
   const [levels, setLevels] = useState<CatalogLevel[]>([]);
-  const [selectedDate, setSelectedDate] = useState(todayIso);
+  const [selectedDate, setSelectedDate] = useState(initialOperationalView.selectedDate);
   const [historicalEditingEnabled, setHistoricalEditingEnabled] = useState(false);
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(() => new Date(`${todayIso}T00:00:00`));
-  const [activeShift, setActiveShift] = useState<ShiftKey>("Dia");
-  const [currentTime, setCurrentTime] = useState<Date | null>(null);
+  const [activeShift, setActiveShift] = useState<ShiftKey>(initialOperationalView.activeShift);
   const [itemsLoading, setItemsLoading] = useState(true);
   const [itemsError, setItemsError] = useState("");
   const [pendingPlanningMutations, setPendingPlanningMutations] = useState<PendingPlanningMutation[]>([]);
@@ -295,7 +297,9 @@ export default function Home() {
 
   useEffect(() => {
     const now = new Date();
-    setActiveShift(getShiftForCurrentTime(now));
+    const operationalView = getInitialOperationalView(now);
+    setActiveShift(operationalView.activeShift);
+    setSelectedDate(operationalView.selectedDate);
     setCurrentTime(now);
     const intervalId = window.setInterval(() => {
       setCurrentTime(new Date());

@@ -1825,6 +1825,7 @@ textarea {
 }
 
 .gantt-now-label {
+  --gantt-now-color: #22c55e;
   position: absolute;
   left: 0;
   top: -0.14rem;
@@ -1833,16 +1834,27 @@ textarea {
   gap: 0.28rem;
   min-height: 1.18rem;
   padding: 0.12rem 0.42rem;
-  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--gantt-now-color) 54%, var(--border));
   border-radius: 999px;
-  background: color-mix(in srgb, var(--panel-solid) 94%, transparent);
-  color: var(--accent-text);
+  background: color-mix(in srgb, var(--panel-solid) 92%, var(--gantt-now-color) 8%);
+  color: color-mix(in srgb, var(--gantt-now-color) 78%, var(--foreground));
   font-size: 0.62rem;
   font-weight: 850;
   line-height: 1;
   white-space: nowrap;
-  box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 10%, transparent);
+  box-shadow:
+    0 8px 18px color-mix(in srgb, var(--gantt-now-color) 14%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--gantt-now-color) 8%, transparent);
   transform: translateX(-50%);
+}
+
+.gantt-now-label::before {
+  content: "";
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 999px;
+  background: var(--gantt-now-color);
+  box-shadow: 0 0 0.5rem color-mix(in srgb, var(--gantt-now-color) 34%, transparent);
 }
 
 .gantt-now-label span {
@@ -1851,9 +1863,9 @@ textarea {
 }
 
 .dark .gantt-now-label {
-  background: color-mix(in srgb, var(--secondary) 88%, var(--panel-solid));
-  border-color: color-mix(in srgb, var(--accent) 52%, var(--border));
-  color: var(--accent-text);
+  background: color-mix(in srgb, var(--panel-solid) 80%, var(--gantt-now-color) 12%);
+  border-color: color-mix(in srgb, var(--gantt-now-color) 62%, var(--border));
+  color: color-mix(in srgb, var(--gantt-now-color) 84%, var(--foreground));
 }
 
 .gantt-body {
@@ -2075,15 +2087,17 @@ textarea {
 }
 
 .gantt-now-line {
+  --gantt-now-color: #22c55e;
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 1px;
+  width: 2px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 82%, transparent);
+  background: var(--gantt-now-color);
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--panel-solid) 82%, transparent),
-    0 0 18px color-mix(in srgb, var(--accent) 22%, transparent);
+    0 0 16px color-mix(in srgb, var(--gantt-now-color) 34%, transparent),
+    0 0 28px color-mix(in srgb, var(--gantt-now-color) 16%, transparent);
   transform: translateX(-50%);
   pointer-events: none;
 }
@@ -2096,9 +2110,11 @@ textarea {
   width: 0.42rem;
   height: 0.42rem;
   border-radius: 999px;
-  background: var(--accent);
+  background: var(--gantt-now-color);
   transform: translateX(-50%);
-  box-shadow: 0 0 0 0.14rem color-mix(in srgb, var(--accent) 18%, transparent);
+  box-shadow:
+    0 0 0 0.14rem color-mix(in srgb, var(--gantt-now-color) 18%, transparent),
+    0 0 0.7rem color-mix(in srgb, var(--gantt-now-color) 34%, transparent);
 }
 
 .gantt-now-line::before {
@@ -2114,10 +2130,11 @@ textarea {
 }
 
 .dark .gantt-now-line {
-  background: color-mix(in srgb, var(--accent) 92%, transparent);
+  background: var(--gantt-now-color);
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--panel-solid) 74%, transparent),
-    0 0 20px color-mix(in srgb, var(--accent) 34%, transparent);
+    0 0 18px color-mix(in srgb, var(--gantt-now-color) 42%, transparent),
+    0 0 30px color-mix(in srgb, var(--gantt-now-color) 18%, transparent);
 }
 
 .gantt-location-group {
@@ -5117,17 +5134,19 @@ select.field-input {
   }
 
   .gantt-now-track-line {
+    --gantt-now-color: #22c55e;
     position: absolute;
     top: 0;
     bottom: 0;
     z-index: 3;
     display: block;
-    width: 1px;
+    width: 2px;
     border-radius: 999px;
-    background: color-mix(in srgb, var(--accent) 82%, transparent);
+    background: var(--gantt-now-color);
     box-shadow:
       0 0 0 1px color-mix(in srgb, var(--panel-solid) 82%, transparent),
-      0 0 14px color-mix(in srgb, var(--accent) 18%, transparent);
+      0 0 14px color-mix(in srgb, var(--gantt-now-color) 34%, transparent),
+      0 0 24px color-mix(in srgb, var(--gantt-now-color) 14%, transparent);
     transform: translateX(-50%);
     pointer-events: none;
   }

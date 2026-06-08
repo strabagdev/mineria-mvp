@@ -9,8 +9,10 @@ import {
   formatDuration,
   formatLocalDateIso,
   getCalendarDays,
+  getCurrentOperationalDate,
   getDefaultRealEventTimes,
   getDefaultShiftTimes,
+  getInitialOperationalView,
   getShiftForCurrentTime,
   positionMinutesInScale,
   SHIFT_CONFIG,
@@ -98,6 +100,30 @@ describe("planning page helpers", () => {
     expect(getShiftForCurrentTime(new Date(2026, 4, 6, 8, 0))).toBe("Dia");
   });
 
+  it("selects the operational date from the shift start date", () => {
+    expect(getCurrentOperationalDate(new Date(2026, 5, 9, 0, 0))).toBe("2026-06-08");
+    expect(getCurrentOperationalDate(new Date(2026, 5, 9, 7, 59))).toBe("2026-06-08");
+    expect(getCurrentOperationalDate(new Date(2026, 5, 9, 8, 0))).toBe("2026-06-09");
+    expect(getCurrentOperationalDate(new Date(2026, 5, 9, 19, 59))).toBe("2026-06-09");
+    expect(getCurrentOperationalDate(new Date(2026, 5, 9, 20, 0))).toBe("2026-06-09");
+    expect(getCurrentOperationalDate(new Date(2026, 5, 9, 23, 59))).toBe("2026-06-09");
+  });
+
+  it("builds the initial operational view from the current shift window", () => {
+    expect(getInitialOperationalView(new Date(2026, 5, 9, 1, 0))).toEqual({
+      selectedDate: "2026-06-08",
+      activeShift: "Noche",
+    });
+    expect(getInitialOperationalView(new Date(2026, 5, 9, 8, 0))).toEqual({
+      selectedDate: "2026-06-09",
+      activeShift: "Dia",
+    });
+    expect(getInitialOperationalView(new Date(2026, 5, 9, 20, 0))).toEqual({
+      selectedDate: "2026-06-09",
+      activeShift: "Noche",
+    });
+  });
+
   it("uses the fallback when no shift contains the current time", () => {
     const shiftConfig = {
       Dia: { start: "09:00", end: "17:00", wrapsMidnight: false },
@@ -132,10 +158,11 @@ describe("planning page helpers", () => {
       offsetPercent: 25,
       timeLabel: "23:00",
     });
-    expect(buildGanttCurrentTimeMarker("2026-05-06", nightScale, new Date(2026, 4, 6, 2, 0))).toMatchObject({
+    expect(buildGanttCurrentTimeMarker("2026-05-05", nightScale, new Date(2026, 4, 6, 2, 0))).toMatchObject({
       offsetPercent: 50,
       timeLabel: "02:00",
     });
+    expect(buildGanttCurrentTimeMarker("2026-05-06", nightScale, new Date(2026, 4, 6, 2, 0))).toBeNull();
     expect(buildGanttCurrentTimeMarker("2026-05-06", nightScale, new Date(2026, 4, 6, 10, 0))).toBeNull();
   });
 

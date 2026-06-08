@@ -1,6 +1,9 @@
 import { createRef, isValidElement, type ReactElement, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { formatLocalDateIso } from "../../modules/planning/presentation/planning-page-helpers";
 import { OperationalHero } from "./operational-hero";
+
+type OperationalHeroProps = Parameters<typeof OperationalHero>[0];
 
 type SwitchElement = ReactElement<{
   "aria-label": string;
@@ -8,6 +11,13 @@ type SwitchElement = ReactElement<{
   className: string;
   onClick: () => void;
   role: string;
+}>;
+
+type ButtonElement = ReactElement<{
+  "aria-label"?: string;
+  children?: ReactNode;
+  disabled?: boolean;
+  onClick?: () => void;
 }>;
 
 function findSwitch(node: ReactNode): SwitchElement | null {
@@ -24,37 +34,89 @@ function findSwitch(node: ReactNode): SwitchElement | null {
   return children.map(findSwitch).find(Boolean) ?? null;
 }
 
-function renderHero(activeShift: "Dia" | "Noche", onSelectShift = vi.fn()) {
+function getNodeText(node: ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") {
+    return String(node);
+  }
+
+  if (Array.isArray(node)) {
+    return node.map(getNodeText).join("");
+  }
+
+  if (isValidElement<{ children?: ReactNode }>(node)) {
+    return getNodeText(node.props.children);
+  }
+
+  return "";
+}
+
+function findButton(
+  node: ReactNode,
+  predicate: (button: ButtonElement) => boolean
+): ButtonElement | null {
+  if (!isValidElement<{ children?: ReactNode; type?: string }>(node)) {
+    return null;
+  }
+
+  if (node.type === "button" && predicate(node as ButtonElement)) {
+    return node as ButtonElement;
+  }
+
+  const children = Array.isArray(node.props.children) ? node.props.children : [node.props.children];
+
+  return children.map((child) => findButton(child, predicate)).find(Boolean) ?? null;
+}
+
+function findButtonByLabel(node: ReactNode, label: string) {
+  return findButton(node, (button) => button.props["aria-label"] === label);
+}
+
+function findButtonByText(node: ReactNode, text: string) {
+  return findButton(node, (button) => getNodeText(button.props.children).trim() === text);
+}
+
+function renderHero(
+  activeShift: "Dia" | "Noche",
+  onSelectShift = vi.fn(),
+  overrides: Partial<OperationalHeroProps> = {}
+) {
+  const onSelectOperationalDate = overrides.onSelectOperationalDate ?? vi.fn();
+  const tree = OperationalHero({
+    activeShift,
+    onSelectShift,
+    shiftConfig: {
+      Dia: { title: "Turno Dia", description: "08:00 a 20:00" },
+      Noche: { title: "Turno Noche", description: "20:00 a 08:00" },
+    },
+    selectedDate: "2026-06-01",
+    todayIso: "2026-06-01",
+    todayDate: new Date("2026-06-01T00:00:00"),
+    calendarMonth: new Date("2026-06-01T00:00:00"),
+    calendarDays: [],
+    canGoNextMonth: false,
+    isDatePickerOpen: false,
+    setIsDatePickerOpen: vi.fn(),
+    setCalendarMonth: vi.fn(),
+    datePickerRef: createRef<HTMLDivElement>(),
+    isHistoricalView: false,
+    isCreateDisabled: false,
+    createTitle: "Nueva programacion",
+    formatDateTitle: (value) => value,
+    formatMonthTitle: () => "Junio",
+    formatLocalDateIso,
+    onSelectOperationalDate,
+    onCreatePlanning: vi.fn(),
+    ...overrides,
+  });
+
   return {
     onSelectShift,
-    shiftSwitch: findSwitch(
-      OperationalHero({
-        activeShift,
-        onSelectShift,
-        shiftConfig: {
-          Dia: { title: "Turno Dia", description: "08:00 a 20:00" },
-          Noche: { title: "Turno Noche", description: "20:00 a 08:00" },
-        },
-        selectedDate: "2026-06-01",
-        todayIso: "2026-06-01",
-        todayDate: new Date("2026-06-01T00:00:00"),
-        calendarMonth: new Date("2026-06-01T00:00:00"),
-        calendarDays: [],
-        canGoNextMonth: false,
-        isDatePickerOpen: false,
-        setIsDatePickerOpen: vi.fn(),
-        setCalendarMonth: vi.fn(),
-        datePickerRef: createRef<HTMLDivElement>(),
-        isHistoricalView: false,
-        isCreateDisabled: false,
-        createTitle: "Nueva programacion",
-        formatDateTitle: (value) => value,
-        formatMonthTitle: () => "Junio",
-        formatLocalDateIso: () => "2026-06-01",
-        onSelectOperationalDate: vi.fn(),
-        onCreatePlanning: vi.fn(),
-      })
-    ),
+    onSelectOperationalDate,
+    previousDayButton: findButtonByLabel(tree, "Dia anterior"),
+    nextDayButton: findButtonByLabel(tree, "Dia siguiente"),
+    shiftSwitch: findSwitch(tree),
+    todayButton: findButtonByText(tree, "Hoy"),
+    tree,
   };
 }
 
@@ -78,5 +140,54 @@ describe("OperationalHero shift selector", () => {
   it("exposes the current shift through the switch state", () => {
     expect(renderHero("Dia").shiftSwitch?.props["aria-checked"]).toBe(false);
     expect(renderHero("Noche").shiftSwitch?.props["aria-checked"]).toBe(true);
+  });
+});
+
+describe("OperationalHero operational date navigation", () => {
+  it("selects the current operational date from the Today button", () => {
+    const { onSelectOperationalDate, todayButton } = renderHero("Dia", vi.fn(), {
+      selectedDate: "2026-06-07",
+      todayIso: "2026-06-08",
+      todayDate: new Date("2026-06-08T00:00:00"),
+      isHistoricalView: true,
+    });
+
+    todayButton?.props.onClick?.();
+
+    expect(onSelectOperationalDate).toHaveBeenCalledWith("2026-06-08");
+  });
+
+  it("selects the previous operational date", () => {
+    const { onSelectOperationalDate, previousDayButton } = renderHero("Dia", vi.fn(), {
+      selectedDate: "2026-06-08",
+      todayIso: "2026-06-09",
+      todayDate: new Date("2026-06-09T00:00:00"),
+    });
+
+    previousDayButton?.props.onClick?.();
+
+    expect(onSelectOperationalDate).toHaveBeenCalledWith("2026-06-07");
+  });
+
+  it("selects the next operational date when it is not in the future", () => {
+    const { onSelectOperationalDate, nextDayButton } = renderHero("Dia", vi.fn(), {
+      selectedDate: "2026-06-08",
+      todayIso: "2026-06-09",
+      todayDate: new Date("2026-06-09T00:00:00"),
+    });
+
+    nextDayButton?.props.onClick?.();
+
+    expect(onSelectOperationalDate).toHaveBeenCalledWith("2026-06-09");
+  });
+
+  it("disables the next day button on the current operational date", () => {
+    const { nextDayButton } = renderHero("Dia", vi.fn(), {
+      selectedDate: "2026-06-08",
+      todayIso: "2026-06-08",
+      todayDate: new Date("2026-06-08T00:00:00"),
+    });
+
+    expect(nextDayButton?.props.disabled).toBe(true);
   });
 });

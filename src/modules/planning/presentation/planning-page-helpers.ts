@@ -25,6 +25,11 @@ export type GanttCurrentTimeMarker = {
   timeLabel: string;
 };
 
+export type OperationalView = {
+  selectedDate: string;
+  activeShift: ShiftKey;
+};
+
 type PlanningTimelineItem = {
   item_date: string;
   start: string;
@@ -90,6 +95,12 @@ export function formatLocalDateIso(date = new Date()) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function addLocalDays(date: Date, days: number) {
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + days);
+  return nextDate;
 }
 
 export function formatDateLabel(value: string) {
@@ -290,12 +301,38 @@ export function getShiftForCurrentTime(
   return fallback;
 }
 
+export function getCurrentOperationalDate(
+  now = new Date(),
+  shiftConfig: ShiftWindowConfig = SHIFT_CONFIG
+) {
+  const activeShift = getShiftForCurrentTime(now, shiftConfig);
+  const activeShiftConfig = shiftConfig[activeShift];
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const shiftEndMinutes = toMinutes(activeShiftConfig.end);
+
+  if (activeShiftConfig.wrapsMidnight && currentMinutes < shiftEndMinutes) {
+    return formatLocalDateIso(addLocalDays(now, -1));
+  }
+
+  return formatLocalDateIso(now);
+}
+
+export function getInitialOperationalView(
+  now = new Date(),
+  shiftConfig: ShiftWindowConfig = SHIFT_CONFIG
+): OperationalView {
+  return {
+    selectedDate: getCurrentOperationalDate(now, shiftConfig),
+    activeShift: getShiftForCurrentTime(now, shiftConfig),
+  };
+}
+
 export function buildGanttCurrentTimeMarker(
   selectedDate: string,
   scale: GanttScale,
   now = new Date()
 ): GanttCurrentTimeMarker | null {
-  if (selectedDate !== formatLocalDateIso(now)) {
+  if (selectedDate !== getCurrentOperationalDate(now)) {
     return null;
   }
 
