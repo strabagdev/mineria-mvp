@@ -2082,13 +2082,19 @@ textarea {
   z-index: 1;
   padding: 0;
   align-items: center;
-  min-height: 4.25rem;
-  border-top: 1px solid var(--border);
+  min-height: 4.55rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 68%, transparent);
+  transition: background 140ms ease;
 }
 
 .gantt-row:has(.gantt-bar:hover),
 .gantt-row:focus-within {
   z-index: 30;
+}
+
+.gantt-row:hover,
+.gantt-row:focus-within {
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
 }
 
 .gantt-row-dual {
@@ -2111,13 +2117,19 @@ textarea {
   display: grid;
   gap: 0.42rem;
   width: 100%;
-  min-height: 4.25rem;
-  padding: 0.72rem 0.78rem;
+  min-height: 4.55rem;
+  padding: 0.86rem 0.78rem;
   border: 0;
   border-right: 1px solid var(--border);
   border-radius: 0;
   background: color-mix(in srgb, var(--secondary) 62%, transparent);
   box-shadow: none;
+  transition: background 140ms ease;
+}
+
+.gantt-row:hover .gantt-meta-card,
+.gantt-row:focus-within .gantt-meta-card {
+  background: color-mix(in srgb, var(--secondary) 70%, var(--panel-solid));
 }
 
 .gantt-meta-heading {
@@ -2227,14 +2239,14 @@ textarea {
 
 .gantt-track {
   position: relative;
-  min-height: 4.25rem;
+  min-height: 4.55rem;
   align-items: center;
   padding: 0;
 }
 
 .gantt-track-compare {
   position: relative;
-  min-height: 4.25rem;
+  min-height: 4.55rem;
   overflow: visible;
 }
 

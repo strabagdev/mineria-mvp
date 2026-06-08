@@ -2004,7 +2004,6 @@ export default function Home() {
                 currentTimeMarker={currentTimeMarker}
                 renderBar={renderGanttBar}
                 renderCreateRealButton={renderCreateRealButton}
-                toDisplayCategory={toDisplayCategory}
               />
             ) : null}
           </div>

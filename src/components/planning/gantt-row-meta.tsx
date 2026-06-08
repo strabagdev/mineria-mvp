@@ -3,18 +3,12 @@ import type { ReactNode } from "react";
 type GanttRowMetaProps = {
   title: string;
   subtitle?: string;
-  categoryLabel: string;
-  categoryTone: "success" | "warning";
-  typeLabel: string;
   action?: ReactNode;
 };
 
 export function GanttRowMeta({
   title,
   subtitle,
-  categoryLabel,
-  categoryTone,
-  typeLabel,
   action,
 }: GanttRowMetaProps) {
   return (
@@ -29,10 +23,6 @@ export function GanttRowMeta({
       </div>
 
       <div className="gantt-meta-line">
-        <div className="field-list">
-          <span className={`category-pill ${categoryTone}`}>{categoryLabel}</span>
-          <span className="field-chip">{typeLabel}</span>
-        </div>
         {action ? <div className="gantt-meta-actions">{action}</div> : null}
       </div>
     </div>

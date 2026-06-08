@@ -50,7 +50,6 @@ type GanttShiftSectionProps<
   currentTimeMarker?: GanttCurrentTimeMarker | null;
   renderBar: (item: TItem | null, layer: "programado" | "real", scale: GanttScale) => ReactNode;
   renderCreateRealButton: (group: TGroup) => ReactNode;
-  toDisplayCategory: (category: TGroup["category"]) => string;
 };
 
 export function GanttShiftSection<
@@ -63,7 +62,6 @@ export function GanttShiftSection<
   currentTimeMarker,
   renderBar,
   renderCreateRealButton,
-  toDisplayCategory,
 }: GanttShiftSectionProps<TItem, TGroup>) {
   const groupedRows = groups.reduce<Array<{ key: string; title: string; rows: TGroup[] }>>((accumulator, group) => {
     const level = String(group.level ?? "").trim();
@@ -160,9 +158,6 @@ export function GanttShiftSection<
                     <div className="gantt-meta">
                       <GanttRowMeta
                         title={activityName}
-                        categoryLabel={toDisplayCategory(group.category)}
-                        categoryTone={group.category === "interferencia" ? "warning" : "success"}
-                        typeLabel={group.item_type}
                         action={renderCreateRealButton(group)}
                       />
                     </div>
