@@ -11,6 +11,7 @@ import { buildOperationalState } from "@/lib/operationalState";
 import { OfflineRouteContent } from "@/components/offline-route-content";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { signOut as signOutAuthSession } from "@/modules/auth/application/auth-client";
+import { loadPendingPlanningMutations } from "@/modules/planning/sync/planning-mutation-queue-store";
 
 type ShellIcon = ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
 type OfflineView = null | "home" | "dashboard" | "reports" | "users" | "catalog" | "audit";
@@ -22,6 +23,34 @@ type NavItem = {
   onClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
 };
 
+type PlanningSyncStatusDetail = {
+  pendingCount?: number;
+  conflictCount?: number;
+  syncing?: boolean;
+  lastSyncLabel?: string;
+  errorMessage?: string;
+};
+
+type PlanningSyncSummary = Required<PlanningSyncStatusDetail>;
+
+const EMPTY_SYNC_SUMMARY: PlanningSyncSummary = {
+  pendingCount: 0,
+  conflictCount: 0,
+  syncing: false,
+  lastSyncLabel: "",
+  errorMessage: "",
+};
+
+function normalizeSyncSummary(detail: PlanningSyncStatusDetail): PlanningSyncSummary {
+  return {
+    pendingCount: Number(detail.pendingCount ?? 0),
+    conflictCount: Number(detail.conflictCount ?? 0),
+    syncing: Boolean(detail.syncing),
+    lastSyncLabel: String(detail.lastSyncLabel ?? ""),
+    errorMessage: String(detail.errorMessage ?? ""),
+  };
+}
+
 export function SiteShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -29,6 +58,8 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
   const hasOfflineProfile = Boolean(profile && !session);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [offlineView, setOfflineView] = useState<OfflineView>(null);
+  const [connectivityPopoverOpen, setConnectivityPopoverOpen] = useState(false);
+  const [planningSyncSummary, setPlanningSyncSummary] = useState<PlanningSyncSummary>(EMPTY_SYNC_SUMMARY);
   const operationalStatus = useSyncExternalStore(
     subscribeNetworkStatus,
     getNetworkStatusSnapshot,
@@ -39,6 +70,10 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
     network: operationalStatus,
     hasSession: Boolean(session),
     hasOfflineProfile,
+    pendingSyncCount: planningSyncSummary.pendingCount,
+    conflictCount: planningSyncSummary.conflictCount,
+    syncing: planningSyncSummary.syncing,
+    refreshFailed: Boolean(planningSyncSummary.errorMessage),
   });
   const previousOperationalStatusRef = useRef(operationalStatus);
 
@@ -63,6 +98,38 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
       setOfflineView(null);
     }
   }, [operationalStatus, pathname]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadQueueSummary() {
+      const mutations = await loadPendingPlanningMutations().catch(() => []);
+
+      if (!active) {
+        return;
+      }
+
+      setPlanningSyncSummary((current) => ({
+        ...current,
+        pendingCount: mutations.filter((mutation) => mutation.status !== "conflict").length,
+        conflictCount: mutations.filter((mutation) => mutation.status === "conflict").length,
+        errorMessage: current.errorMessage || mutations.find((mutation) => mutation.lastError)?.lastError || "",
+      }));
+    }
+
+    function handlePlanningSyncStatus(event: Event) {
+      const detail = (event as CustomEvent<PlanningSyncStatusDetail>).detail ?? {};
+      setPlanningSyncSummary(normalizeSyncSummary(detail));
+    }
+
+    void loadQueueSummary();
+    window.addEventListener("planning-sync-status", handlePlanningSyncStatus);
+
+    return () => {
+      active = false;
+      window.removeEventListener("planning-sync-status", handlePlanningSyncStatus);
+    };
+  }, []);
 
   useEffect(() => {
     if (previousOperationalStatusRef.current === operationalStatus) {
@@ -167,6 +234,31 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
     ...adminNavItems,
   ];
   const sessionDisplayName = effectiveProfile.full_name?.trim() || effectiveProfile.email || user?.email || "Sesion activa";
+  const connectivityLabel = planningSyncSummary.conflictCount
+    ? "Cambios pendientes"
+    : planningSyncSummary.syncing
+      ? "Sincronizando"
+      : planningSyncSummary.pendingCount
+        ? "Cambios pendientes"
+        : isOffline
+          ? "Offline"
+          : "Online";
+  const connectivityDescription = planningSyncSummary.conflictCount
+    ? "Hay cambios con conflicto que requieren revision."
+    : planningSyncSummary.syncing
+      ? "Enviando cambios locales al servidor."
+      : planningSyncSummary.pendingCount
+        ? "Hay cambios operacionales esperando sincronizacion."
+        : isOffline
+          ? "Operando con informacion local."
+          : "Conexion disponible.";
+  const connectivityTitle = [
+    connectivityLabel,
+    planningSyncSummary.pendingCount ? `${planningSyncSummary.pendingCount} cambio(s) pendiente(s)` : "",
+    planningSyncSummary.conflictCount ? `${planningSyncSummary.conflictCount} conflicto(s)` : "",
+    planningSyncSummary.lastSyncLabel ? `Ultima sincronizacion: ${planningSyncSummary.lastSyncLabel}` : "",
+    planningSyncSummary.errorMessage,
+  ].filter(Boolean).join(" · ");
 
   const renderNavItems = () =>
     navItems.map((item) => {
@@ -224,15 +316,65 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
 
         <div className="app-sidebar-footer">
           <ThemeToggle />
-          <span
-            className={`session-pill connectivity-pill ${isOffline ? "offline" : "online"}`}
-            data-operational-state={shellOperationalState.primary}
-            data-operational-severity={shellOperationalState.severity}
-            title={isOffline ? "Trabajando con datos locales" : "Conexion disponible"}
-          >
-            {isOffline ? <WifiOff aria-hidden className="app-nav-icon" /> : <Wifi aria-hidden className="app-nav-icon" />}
-            <span>{isOffline ? "Modo offline" : "Online"}</span>
-          </span>
+          <div className={`connectivity-control ${connectivityPopoverOpen ? "open" : ""}`}>
+            <button
+              type="button"
+              className={`session-pill connectivity-pill ${isOffline ? "offline" : "online"}`}
+              data-operational-state={shellOperationalState.primary}
+              data-operational-severity={shellOperationalState.severity}
+              aria-expanded={connectivityPopoverOpen}
+              aria-label={`Estado de conexion: ${connectivityLabel}`}
+              title={connectivityTitle || connectivityDescription}
+              onClick={() => setConnectivityPopoverOpen((current) => !current)}
+              onBlur={(event) => {
+                if (!event.currentTarget.parentElement?.contains(event.relatedTarget as Node | null)) {
+                  setConnectivityPopoverOpen(false);
+                }
+              }}
+            >
+              {isOffline ? <WifiOff aria-hidden className="app-nav-icon" /> : <Wifi aria-hidden className="app-nav-icon" />}
+              <span>{connectivityLabel}</span>
+              {planningSyncSummary.pendingCount || planningSyncSummary.conflictCount ? (
+                <span className="connectivity-count-badge" aria-label={`${planningSyncSummary.pendingCount + planningSyncSummary.conflictCount} cambios pendientes`}>
+                  {planningSyncSummary.pendingCount + planningSyncSummary.conflictCount}
+                </span>
+              ) : null}
+            </button>
+            <div className="connectivity-popover" role="status">
+              <strong>{connectivityLabel}</strong>
+              <span>{connectivityDescription}</span>
+              <dl>
+                <div>
+                  <dt>Cambios pendientes</dt>
+                  <dd>{planningSyncSummary.pendingCount}</dd>
+                </div>
+                {planningSyncSummary.conflictCount ? (
+                  <div>
+                    <dt>Conflictos</dt>
+                    <dd>{planningSyncSummary.conflictCount}</dd>
+                  </div>
+                ) : null}
+                {planningSyncSummary.lastSyncLabel ? (
+                  <div>
+                    <dt>Ultima sincronizacion</dt>
+                    <dd>{planningSyncSummary.lastSyncLabel}</dd>
+                  </div>
+                ) : null}
+                {planningSyncSummary.errorMessage ? (
+                  <div>
+                    <dt>Estado</dt>
+                    <dd>{planningSyncSummary.errorMessage}</dd>
+                  </div>
+                ) : null}
+                {isOffline ? (
+                  <div>
+                    <dt>Modo offline</dt>
+                    <dd>Operando con informacion local</dd>
+                  </div>
+                ) : null}
+              </dl>
+            </div>
+          </div>
           <span className="session-pill" title={effectiveProfile.email || user?.email || sessionDisplayName}>
             <User aria-hidden className="app-nav-icon" />
             <span>{sessionDisplayName}</span>

@@ -222,6 +222,16 @@ function isTransientConnectivityMessage(message: string) {
   );
 }
 
+function extractLastSyncLabel(...messages: string[]) {
+  const source = messages.find((message) => /Ultima sincronizacion:/i.test(message));
+
+  if (!source) {
+    return "";
+  }
+
+  return source.replace(/^.*Ultima sincronizacion:\s*/i, "").replace(/\.$/, "").trim();
+}
+
 export default function Home() {
   const { session, profile } = useAuth();
   const networkStatus = useSyncExternalStore(
@@ -1665,6 +1675,23 @@ export default function Home() {
     (mutation) => mutation.status === "conflict"
   );
   const retryablePlanningMutations = getRetryablePlanningMutations(pendingPlanningMutations);
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("planning-sync-status", {
+      detail: {
+        pendingCount: retryablePlanningMutations.length,
+        conflictCount: conflictedPlanningMutations.length,
+        syncing: queueSyncing,
+        lastSyncLabel: extractLastSyncLabel(itemsError, catalogError),
+        errorMessage: [itemsError, catalogError].find((message) => message && !isTransientConnectivityMessage(message)) ?? "",
+      },
+    }));
+  }, [
+    catalogError,
+    conflictedPlanningMutations.length,
+    itemsError,
+    queueSyncing,
+    retryablePlanningMutations.length,
+  ]);
   const visiblePlanningItems = applyPendingPlanningMutations(
     planningItems,
     pendingPlanningMutations,
