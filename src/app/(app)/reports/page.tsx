@@ -1,7 +1,8 @@
 "use client";
 
-import { BarChart3, Download, Filter } from "lucide-react";
+import { BarChart3, Download, Eye, FileSpreadsheet, Filter } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { PlanningDetailDialog } from "@/components/planning/planning-detail-dialog";
 import { useAuth } from "@/providers/auth-provider";
 import { NETWORK_ERROR_MESSAGE, isBrowserOffline, subscribeNetworkStatus } from "@/lib/networkStatus";
 import {
@@ -25,16 +26,82 @@ import {
   type ReportResponse,
   type ReportRow,
 } from "@/lib/reports";
+import { getAssignmentTypeIcon } from "@/modules/planning-assignments/presentation/planning-assignment-type-icons";
+import {
+  buildReportXlsxWorkbook,
+  getReportXlsxFilename,
+} from "@/modules/reporting/presentation/reporting-xlsx-export";
 
 type CatalogResponse = ReportsCatalog;
+type ReportBreakdownItem = ReportResponse["breakdowns"][keyof ReportResponse["breakdowns"]][number];
+type ReportAssignmentRow = NonNullable<ReportResponse["assignment_rows"]>[number];
+type ReportCustomFieldColumn = NonNullable<ReportResponse["custom_field_columns"]>[number];
+type ReportAssignmentTypeSummary = {
+  assignment_type_id: number;
+  assignment_type_label: string;
+  assignment_type_icon_key: ReportAssignmentRow["assignment_type_icon_key"];
+  count: number;
+};
+type ReportDetailItem = {
+  tracking_type: ReportRow["tracking_type"];
+  category: ReportRow["category"];
+  item_type: string;
+  item_date: string;
+  shift: string;
+  start: string;
+  end: string;
+  level: string;
+  front: string;
+  notes?: string | null;
+};
 
 function escapeCsvValue(value: unknown) {
   const rawValue = String(value ?? "");
   return `"${rawValue.replace(/"/g, '""')}"`;
 }
 
-function downloadFilteredRows(rows: ReportRow[], filters: ReportFilters) {
-  const headers = [
+function buildUniqueCsvHeaders(headers: string[]) {
+  const seen = new Map<string, number>();
+
+  return headers.map((header) => {
+    const count = seen.get(header) ?? 0;
+    seen.set(header, count + 1);
+    return count > 0 ? `${header} (${count + 1})` : header;
+  });
+}
+
+function getCustomFieldCsvHeaders(columns: ReportCustomFieldColumn[]) {
+  const coreHeaders = new Set([
+    "ID",
+    "Fuente",
+    "Grupo actividad",
+    "Fecha",
+    "Vista",
+    "Turno",
+    "Nivel",
+    "Frente",
+    "Categoria",
+    "Tipo",
+    "Detalle",
+    "Hora inicio",
+    "Hora termino",
+    "Horas",
+    "Notas",
+  ]);
+  const seenCustomLabels = new Map<string, number>();
+
+  return columns.map((column) => {
+    const count = seenCustomLabels.get(column.label) ?? 0;
+    seenCustomLabels.set(column.label, count + 1);
+    return coreHeaders.has(column.label) || count > 0 ? `${column.label} (${column.slug})` : column.label;
+  });
+}
+
+function downloadFilteredRows(rows: ReportRow[], filters: ReportFilters, customFieldColumns: ReportCustomFieldColumn[]) {
+  const coreHeaders = [
+    "ID",
+    "Fuente",
+    "Grupo actividad",
     "Fecha",
     "Vista",
     "Turno",
@@ -48,10 +115,17 @@ function downloadFilteredRows(rows: ReportRow[], filters: ReportFilters) {
     "Horas",
     "Notas",
   ];
+  const headers = buildUniqueCsvHeaders([
+    ...coreHeaders,
+    ...getCustomFieldCsvHeaders(customFieldColumns),
+  ]);
   const csvRows = [
     headers.map(escapeCsvValue).join(";"),
     ...rows.map((row) =>
       [
+        row.id,
+        row.source_table,
+        row.activity_group_id,
         row.item_date,
         toTrackingLabel(row.tracking_type),
         row.shift,
@@ -64,6 +138,7 @@ function downloadFilteredRows(rows: ReportRow[], filters: ReportFilters) {
         row.end_time,
         formatHours(row.duration_minutes / 60),
         row.notes ?? "",
+        ...customFieldColumns.map((column) => row.custom_fields?.[column.slug]?.value ?? ""),
       ]
         .map(escapeCsvValue)
         .join(";")
@@ -85,6 +160,194 @@ function downloadFilteredRows(rows: ReportRow[], filters: ReportFilters) {
   URL.revokeObjectURL(url);
 }
 
+async function downloadReportWorkbook(report: ReportResponse, filters: ReportFilters) {
+  const xlsx = await import("xlsx");
+  const workbook = buildReportXlsxWorkbook(xlsx, report);
+
+  xlsx.writeFile(workbook, getReportXlsxFilename(filters));
+}
+
+function BreakdownList({ title, rows }: { title: string; rows: ReportBreakdownItem[] }) {
+  const visibleRows = rows.slice(0, 8);
+
+  return (
+    <div className="reports-breakdown-group">
+      <h3>{title}</h3>
+
+      {visibleRows.length ? (
+        <div className="reports-breakdown-list">
+          {visibleRows.map((row) => (
+            <div key={row.label || "sin-valor"} className="reports-breakdown-chip">
+              <strong>{row.label || "Sin valor"}</strong>
+              <span>{row.count}</span>
+              <span>{formatHours(row.hours)} h</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="reports-breakdown-empty">Sin datos</p>
+      )}
+    </div>
+  );
+}
+
+function toMinutes(time: string) {
+  const [hours, minutes] = time.slice(0, 5).split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+function getReportDetailDurationMinutes(startTime: string, endTime: string) {
+  const start = toMinutes(startTime);
+  let end = toMinutes(endTime);
+
+  if (end <= start) {
+    end += 24 * 60;
+  }
+
+  return Math.max(0, end - start);
+}
+
+function formatReportDetailDuration(startTime: string, endTime: string) {
+  return `${formatHours(getReportDetailDurationMinutes(startTime, endTime) / 60)} h`;
+}
+
+function mapReportRowToPlanningDetailItem(row: ReportRow): ReportDetailItem {
+  return {
+    tracking_type: row.tracking_type,
+    category: row.category,
+    item_type: row.item_type,
+    item_date: row.item_date,
+    shift: row.shift,
+    start: row.start_time,
+    end: row.end_time,
+    level: row.level,
+    front: row.front,
+    notes: row.notes,
+  };
+}
+
+function getReportAssignmentTypeSummaries(assignmentRows: ReportAssignmentRow[]) {
+  const summariesByType = new Map<number, ReportAssignmentTypeSummary>();
+
+  for (const assignment of assignmentRows) {
+    const current = summariesByType.get(assignment.assignment_type_id);
+    summariesByType.set(assignment.assignment_type_id, {
+      assignment_type_id: assignment.assignment_type_id,
+      assignment_type_label: assignment.assignment_type_label,
+      assignment_type_icon_key: assignment.assignment_type_icon_key,
+      count: (current?.count ?? 0) + 1,
+    });
+  }
+
+  return Array.from(summariesByType.values()).sort((left, right) =>
+    left.assignment_type_label.localeCompare(right.assignment_type_label)
+  );
+}
+
+function ReportCustomFieldsSummary({ row }: { row: ReportRow }) {
+  const values = Object.values(row.custom_fields ?? {})
+    .filter((value) => value.value)
+    .sort((left, right) => left.label.localeCompare(right.label));
+
+  if (!values.length) {
+    return null;
+  }
+
+  return (
+    <section className="custom-fields-detail-section">
+      <p className="eyebrow">Datos adicionales</p>
+      <div className="custom-fields-detail-grid">
+        {values.map((field) => (
+          <article key={field.field_id} className="custom-field-detail-card">
+            <div className="detail-highlight-label">
+              <p className="detail-label">{field.label}</p>
+            </div>
+            <p className="detail-highlight-value">{field.value}</p>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ReportAssignmentsSummary({ assignments }: { assignments: ReportAssignmentRow[] }) {
+  if (!assignments.length) {
+    return (
+      <section className="detail-content-section assignments-detail-section">
+        <p className="eyebrow">Asignaciones</p>
+        <p className="assignment-detail-status">Sin asignaciones vinculadas.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="detail-content-section assignments-detail-section">
+      <p className="eyebrow">Asignaciones</p>
+      <div className="assignments-detail-grid">
+        {assignments.map((assignment) => {
+          const TypeIcon = getAssignmentTypeIcon(
+            assignment.assignment_type_icon_key as Parameters<typeof getAssignmentTypeIcon>[0]
+          );
+          const valueSummary = assignment.values
+            .map((value) => value.value)
+            .filter(Boolean)
+            .join(" · ");
+
+          return (
+            <article className="assignment-detail-card" key={assignment.assignment_id}>
+              <span className="assignment-detail-icon">
+                <TypeIcon aria-hidden="true" />
+              </span>
+              <div className="assignment-detail-copy">
+                <p className="assignment-detail-label">
+                  {assignment.assignment_type_label} · Instancia {assignment.instance_order}
+                </p>
+                <p className="assignment-detail-value">{valueSummary || "Sin valores"}</p>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function ReportAssignmentSummaryCell({
+  summaries,
+}: {
+  summaries: ReportAssignmentTypeSummary[];
+}) {
+  if (!summaries.length) {
+    return <span className="reports-assignment-muted">-</span>;
+  }
+
+  return (
+    <div className="reports-assignment-summary-icons" aria-label="Asignaciones vinculadas">
+      {summaries.map((summary) => {
+        const TypeIcon = getAssignmentTypeIcon(
+          summary.assignment_type_icon_key as Parameters<typeof getAssignmentTypeIcon>[0]
+        );
+        const tooltip = `${summary.assignment_type_label}: ${summary.count} ${
+          summary.count === 1 ? "asignada" : "asignadas"
+        }`;
+
+        return (
+          <span
+            key={summary.assignment_type_id}
+            className="reports-assignment-summary-icon gantt-tooltip-custom-field assignment"
+            data-tooltip={tooltip}
+            title={tooltip}
+            aria-label={tooltip}
+          >
+            <TypeIcon aria-hidden="true" />
+            <span aria-hidden="true">×{summary.count}</span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function ReportsPage() {
   const { session } = useAuth();
   const [filters, setFilters] = useState<ReportFilters>(() => getInitialReportFilters());
@@ -94,6 +357,8 @@ export default function ReportsPage() {
   const [error, setError] = useState("");
   const [offlineUpdatedAt, setOfflineUpdatedAt] = useState<string | null>(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [selectedReportRow, setSelectedReportRow] = useState<ReportRow | null>(null);
+  const [exportingExcel, setExportingExcel] = useState(false);
 
   useEffect(() => {
     function refreshWhenOnline() {
@@ -121,7 +386,41 @@ export default function ReportsPage() {
     return Array.from(values).sort((left, right) => left.localeCompare(right));
   }, [catalog.categories]);
 
-  const visibleRows = report?.rows ?? [];
+  const reportRows = report?.rows;
+  const visibleRows = useMemo(() => reportRows ?? [], [reportRows]);
+  const customFieldColumns = report?.custom_field_columns ?? [];
+  const reportAssignmentRows = report?.assignment_rows;
+  const assignmentRows = useMemo(() => reportAssignmentRows ?? [], [reportAssignmentRows]);
+  const breakdowns = report?.breakdowns;
+  const assignmentSummariesByPlanningItemId = useMemo(() => {
+    const rowsByPlanningItemId = new Map<number, ReportAssignmentRow[]>();
+
+    for (const assignment of assignmentRows) {
+      rowsByPlanningItemId.set(assignment.planning_item_id, [
+        ...(rowsByPlanningItemId.get(assignment.planning_item_id) ?? []),
+        assignment,
+      ]);
+    }
+
+    return new Map(
+      Array.from(rowsByPlanningItemId.entries()).map(([planningItemId, rows]) => [
+        planningItemId,
+        getReportAssignmentTypeSummaries(rows),
+      ])
+    );
+  }, [assignmentRows]);
+  const assignmentRowsByPlanningItemId = useMemo(() => {
+    const rowsByPlanningItemId = new Map<number, ReportAssignmentRow[]>();
+
+    for (const assignment of assignmentRows) {
+      rowsByPlanningItemId.set(assignment.planning_item_id, [
+        ...(rowsByPlanningItemId.get(assignment.planning_item_id) ?? []),
+        assignment,
+      ]);
+    }
+
+    return rowsByPlanningItemId;
+  }, [assignmentRows]);
 
   useEffect(() => {
     let active = true;
@@ -301,6 +600,22 @@ export default function ReportsPage() {
     setFilters(getInitialReportFilters());
   }
 
+  async function handleDownloadExcel() {
+    if (!report || exportingExcel) {
+      return;
+    }
+
+    setExportingExcel(true);
+    setError("");
+    try {
+      await downloadReportWorkbook(report, filters);
+    } catch {
+      setError("No se pudo exportar el archivo Excel.");
+    } finally {
+      setExportingExcel(false);
+    }
+  }
+
   return (
     <div className="reports-stack">
       <section className="surface-card hero padded reports-hero">
@@ -441,6 +756,14 @@ export default function ReportsPage() {
         </p>
       ) : null}
 
+      <section className="reports-breakdown-grid">
+        <BreakdownList title="Por turno" rows={breakdowns?.by_shift ?? []} />
+        <BreakdownList title="Por nivel" rows={breakdowns?.by_level ?? []} />
+        <BreakdownList title="Por frente" rows={breakdowns?.by_front ?? []} />
+        <BreakdownList title="Por categoría" rows={breakdowns?.by_category ?? []} />
+        <BreakdownList title="Por tipo" rows={breakdowns?.by_item_type ?? []} />
+      </section>
+
       <section className="reports-content-grid">
         <article className="surface-card padded reports-table-card">
           <div className="reports-section-header">
@@ -448,50 +771,89 @@ export default function ReportsPage() {
               <p className="eyebrow">Detalle</p>
               <h3 className="card-title">{loading ? "Cargando registros" : `${visibleRows.length} registros`}</h3>
             </div>
-            <button
-              type="button"
-              className="button primary"
-              disabled={loading || !visibleRows.length}
-              onClick={() => downloadFilteredRows(visibleRows, filters)}
-            >
-              <Download aria-hidden className="button-icon" />
-              Exportar Excel
-            </button>
+            <div className="reports-export-actions">
+              <button
+                type="button"
+                className="button"
+                disabled={loading || !visibleRows.length}
+                onClick={() => downloadFilteredRows(visibleRows, filters, customFieldColumns)}
+              >
+                <Download aria-hidden className="button-icon" />
+                Exportar CSV
+              </button>
+              <button
+                type="button"
+                className="button primary"
+                disabled={loading || !report || exportingExcel}
+                onClick={() => void handleDownloadExcel()}
+              >
+                <FileSpreadsheet aria-hidden className="button-icon" />
+                {exportingExcel ? "Exportando..." : "Exportar Excel"}
+              </button>
+            </div>
           </div>
 
           <div className="reports-table-wrap">
             <table className="reports-table">
               <thead>
-                <tr>
-                  <th>Fecha</th>
-                  <th>Vista</th>
-                  <th>Turno</th>
-                  <th>Nivel</th>
-                  <th>Frente</th>
-                  <th>Categoria</th>
-                  <th>Tipo</th>
-                  <th>Detalle</th>
-                  <th>Horario</th>
-                  <th>Horas</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleRows.map((row) => (
-                  <tr key={`${row.source_table}-${row.id}`}>
-                    <td>{formatReportDate(row.item_date)}</td>
-                    <td>{toTrackingLabel(row.tracking_type)}</td>
-                    <td>{row.shift}</td>
-                    <td>{row.level}</td>
-                    <td>{row.front}</td>
-                    <td>{toDisplayCategory(row.category)}</td>
-                    <td>{row.item_type}</td>
-                    <td>{row.description}</td>
-                    <td>
-                      {row.start_time} - {row.end_time}
-                    </td>
-                    <td>{formatHours(row.duration_minutes / 60)}</td>
-                  </tr>
-                ))}
+	                <tr>
+	                  <th>Fecha</th>
+	                  <th>Horario</th>
+	                  <th>Horas</th>
+	                  <th>Vista</th>
+	                  <th>Turno</th>
+	                  <th>Nivel</th>
+	                  <th>Frente</th>
+	                  <th>Categoria</th>
+	                  <th>Tipo</th>
+	                  <th>Detalle</th>
+	                  <th>Notas</th>
+	                  {customFieldColumns.map((column) => (
+	                    <th key={column.id}>{column.label}</th>
+	                  ))}
+	                  <th>Asignaciones</th>
+	                  <th>Acción</th>
+	                </tr>
+	              </thead>
+	              <tbody>
+	                {visibleRows.map((row) => (
+	                  <tr key={`${row.source_table}-${row.id}`}>
+	                    <td>{formatReportDate(row.item_date)}</td>
+	                    <td>
+	                      {row.start_time} - {row.end_time}
+	                    </td>
+	                    <td>{formatHours(row.duration_minutes / 60)}</td>
+	                    <td>{toTrackingLabel(row.tracking_type)}</td>
+	                    <td>{row.shift}</td>
+	                    <td>{row.level}</td>
+	                    <td>{row.front}</td>
+	                    <td>{toDisplayCategory(row.category)}</td>
+	                    <td>{row.item_type}</td>
+	                    <td>{row.description}</td>
+	                    <td>{row.notes ?? ""}</td>
+	                    {customFieldColumns.map((column) => (
+	                      <td key={column.id}>{row.custom_fields?.[column.slug]?.value ?? ""}</td>
+	                    ))}
+	                    <td>
+	                      {row.source_table === "planning_items" ? (
+                        <ReportAssignmentSummaryCell
+                          summaries={assignmentSummariesByPlanningItemId.get(row.id) ?? []}
+	                        />
+	                      ) : null}
+	                    </td>
+	                    <td className="reports-action-cell">
+	                      <button
+	                        type="button"
+	                        className="button icon-button small reports-detail-button"
+	                        title="Ver detalle"
+	                        aria-label={`Ver detalle de ${row.description}`}
+	                        onClick={() => setSelectedReportRow(row)}
+	                      >
+	                        <Eye aria-hidden="true" />
+	                      </button>
+	                    </td>
+	                  </tr>
+	                ))}
               </tbody>
             </table>
           </div>
@@ -502,7 +864,31 @@ export default function ReportsPage() {
             </div>
           ) : null}
         </article>
+
       </section>
+      {selectedReportRow ? (
+        <PlanningDetailDialog
+          item={mapReportRowToPlanningDetailItem(selectedReportRow)}
+          title={selectedReportRow.description}
+          continuation={null}
+          readOnly={true}
+          formatDateLabel={formatReportDate}
+          formatDuration={formatReportDetailDuration}
+          toDisplayCategory={toDisplayCategory}
+          toTrackingTypeLabel={toTrackingLabel}
+          customFieldsSlot={<ReportCustomFieldsSummary row={selectedReportRow} />}
+          assignmentsSlot={
+            selectedReportRow.source_table === "planning_items" ? (
+              <ReportAssignmentsSummary
+                assignments={assignmentRowsByPlanningItemId.get(selectedReportRow.id) ?? []}
+              />
+            ) : null
+          }
+          historySlot={null}
+          onClose={() => setSelectedReportRow(null)}
+          onEdit={() => undefined}
+        />
+      ) : null}
     </div>
   );
 }

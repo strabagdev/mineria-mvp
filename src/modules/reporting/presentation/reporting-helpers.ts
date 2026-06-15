@@ -2,6 +2,13 @@ import type { ReportFilters, ReportRow, ReportSummary } from "../contracts/repor
 
 export const emptyReportSummary: ReportSummary = {
   total_records: 0,
+  total_programados: 0,
+  total_reales: 0,
+  total_interferencias: 0,
+  horas_programadas: 0,
+  horas_reales: 0,
+  horas_interferencias: 0,
+  diferencia_horas_real_vs_programado: 0,
   planned_records: 0,
   real_records: 0,
   interference_records: 0,

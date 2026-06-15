@@ -354,6 +354,52 @@ export async function listPlanningCustomFieldValuesByPlanningItemIds(planningIte
   return (data ?? []) as PlanningCustomFieldValueRow[];
 }
 
+export async function listPlanningCustomFieldValuesByExecutionSegmentIds(executionSegmentIds: number[]) {
+  const ids = [...new Set(executionSegmentIds.filter((id) => Number.isFinite(id) && id > 0))];
+
+  if (!ids.length) {
+    return [];
+  }
+
+  const db = getSupabaseServerClient();
+  const { data, error } = await db
+    .from("planning_custom_field_values")
+    .select(valueSelect)
+    .in("execution_segment_id", ids)
+    .order("execution_segment_id", { ascending: true })
+    .order("id", { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []) as PlanningCustomFieldValueRow[];
+}
+
+export async function listPlanningCustomFieldValuesByActivityGroupIds(activityGroupIds: string[]) {
+  const ids = [...new Set(activityGroupIds.map((id) => id.trim()).filter(Boolean))];
+
+  if (!ids.length) {
+    return [];
+  }
+
+  const db = getSupabaseServerClient();
+  const { data, error } = await db
+    .from("planning_custom_field_values")
+    .select(valueSelect)
+    .in("activity_group_id", ids)
+    .is("planning_item_id", null)
+    .is("execution_segment_id", null)
+    .order("activity_group_id", { ascending: true })
+    .order("id", { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []) as PlanningCustomFieldValueRow[];
+}
+
 export async function replacePlanningCustomFieldValues(
   target: PlanningCustomFieldValueTarget,
   values: PlanningCustomFieldValueInputDto[]
