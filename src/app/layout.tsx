@@ -4,7 +4,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
 
 export const metadata = {
-  title: "OPSAHEAD",
+  title: "OpsAhead - Minería",
   description: "Carta gantt operacional para actividades e interferencias mineras",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
