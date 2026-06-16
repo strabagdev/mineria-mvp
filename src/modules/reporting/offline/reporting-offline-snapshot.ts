@@ -87,7 +87,7 @@ export type AdminUsersSnapshot = Array<{
   user_id: string;
   email: string;
   full_name: string | null;
-  role: "admin" | "viewer";
+  role: "admin" | "operator" | "viewer";
   active: boolean;
   approval_status: "pending" | "approved" | "rejected";
   created_at?: string;

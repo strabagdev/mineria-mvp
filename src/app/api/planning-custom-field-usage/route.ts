@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdminUser } from "@/lib/accessControl";
-import { getErrorMessage } from "@/lib/errorMessage";
+import { getErrorMessage, getErrorStatus } from "@/lib/errorMessage";
 import { slugifyPlanningCustomField } from "@/server/services/planning-custom-fields.service";
 import { getCustomFieldUsage } from "@/server/services/planning-custom-fields.service";
 
@@ -34,6 +34,6 @@ export async function GET(req: Request) {
 
     return NextResponse.json({ usage });
   } catch (error: unknown) {
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: getErrorStatus(error) });
   }
 }

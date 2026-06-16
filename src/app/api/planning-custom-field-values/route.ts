@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { requireApprovedUser } from "@/lib/accessControl";
-import { getErrorMessage } from "@/lib/errorMessage";
+import { requireApprovedUser, requireOperationalUser } from "@/lib/accessControl";
+import { getErrorMessage, getErrorStatus } from "@/lib/errorMessage";
 import type { PlanningCustomFieldValuesSaveRequestDto } from "@/modules/planning-custom-fields/contracts/planning-custom-fields";
 import {
   getCustomFieldValues,
@@ -79,7 +79,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const { user, profile } = await requireApprovedUser(req);
+    const { user, profile } = await requireOperationalUser(req);
     const body = (await req.json()) as PlanningCustomFieldValuesSaveRequestDto;
     const parsed = toTarget(body);
 
@@ -96,6 +96,6 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ values: savedValues });
   } catch (error: unknown) {
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: getErrorStatus(error) });
   }
 }

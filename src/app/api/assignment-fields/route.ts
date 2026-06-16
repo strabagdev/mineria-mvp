@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdminUser, requireApprovedUser } from "@/lib/accessControl";
-import { getErrorMessage } from "@/lib/errorMessage";
+import { getErrorMessage, getErrorStatus } from "@/lib/errorMessage";
 import type {
   AssignmentFieldCreateRequestDto,
   AssignmentFieldUpdateRequestDto,
@@ -34,7 +34,7 @@ export async function GET(req: Request) {
     }
     return NextResponse.json({ fields: await listAssignmentFields({ assignmentTypeId, activeOnly: searchParams.get("active") !== "false" }) });
   } catch (error: unknown) {
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: getErrorStatus(error) });
   }
 }
 
@@ -62,7 +62,7 @@ export async function POST(req: Request) {
     });
     return NextResponse.json({ field }, { status: 201 });
   } catch (error: unknown) {
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: getErrorStatus(error) });
   }
 }
 
@@ -101,7 +101,7 @@ export async function PATCH(req: Request) {
 
     return NextResponse.json({ field: await updateAssignmentCatalogField({ actor: { user, profile }, id, updates }) });
   } catch (error: unknown) {
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: getErrorStatus(error) });
   }
 }
 
@@ -117,6 +117,6 @@ export async function DELETE(req: Request) {
     }
     return NextResponse.json({ deleted: true });
   } catch (error: unknown) {
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: getErrorStatus(error) });
   }
 }

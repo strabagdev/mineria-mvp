@@ -130,7 +130,7 @@ export function OperationalCatalogPage() {
           <p className="eyebrow">Catalogo operacional</p>
           <h1 className="section-title">Acceso restringido</h1>
           <p className="body-copy">
-            Necesitas permisos de administrador para modificar el catalogo operacional.
+            Puedes seguir usando la operación, pero la administración del catálogo está restringida a administradores.
           </p>
         </div>
       </section>

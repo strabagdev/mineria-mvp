@@ -12,6 +12,7 @@ import {
 
 export const USER_ROLES = {
   ADMIN: "admin",
+  OPERATOR: "operator",
   VIEWER: "viewer",
 } as const;
 
@@ -65,7 +66,11 @@ export function isMissingAccessColumns(error: unknown) {
 }
 
 export function resolveRole(value: string): UserRole {
-  return value === USER_ROLES.ADMIN ? USER_ROLES.ADMIN : USER_ROLES.VIEWER;
+  if (value === USER_ROLES.ADMIN || value === USER_ROLES.OPERATOR || value === USER_ROLES.VIEWER) {
+    return value;
+  }
+
+  return USER_ROLES.VIEWER;
 }
 
 export function resolveApprovalStatus(value: string): ApprovalStatus {
@@ -218,6 +223,16 @@ export async function requireAdminUser(req: Request) {
 
   if (auth.profile.role !== USER_ROLES.ADMIN) {
     throw new Error("Necesitas permisos de administrador.");
+  }
+
+  return auth;
+}
+
+export async function requireOperationalUser(req: Request) {
+  const auth = await requireApprovedUser(req);
+
+  if (auth.profile.role !== USER_ROLES.ADMIN && auth.profile.role !== USER_ROLES.OPERATOR) {
+    throw new Error("Necesitas permisos operativos.");
   }
 
   return auth;

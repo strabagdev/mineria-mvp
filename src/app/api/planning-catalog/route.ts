@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdminUser, requireApprovedUser } from "@/lib/accessControl";
-import { getErrorMessage } from "@/lib/errorMessage";
+import { getErrorMessage, getErrorStatus } from "@/lib/errorMessage";
 import type {
   PlanningCatalogCreateRequestDto,
   PlanningCatalogDeleteRequestDto,
@@ -26,7 +26,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json(await getPlanningCatalog());
   } catch (error: unknown) {
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: getErrorStatus(error) });
   }
 }
 
@@ -118,7 +118,7 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   } catch (error: unknown) {
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: getErrorStatus(error) });
   }
 }
 
@@ -216,7 +216,7 @@ export async function PATCH(req: Request) {
       { status: 400 }
     );
   } catch (error: unknown) {
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: getErrorStatus(error) });
   }
 }
 
@@ -250,6 +250,6 @@ export async function DELETE(req: Request) {
       { status: 400 }
     );
   } catch (error: unknown) {
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: getErrorStatus(error) });
   }
 }

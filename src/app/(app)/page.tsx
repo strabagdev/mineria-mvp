@@ -241,6 +241,7 @@ export default function Home() {
     () => "offline" as const
   );
   const canManageCatalog = profile?.role === "admin";
+  const canOperatePlanning = profile?.role === "admin" || profile?.role === "operator";
   const [currentTime, setCurrentTime] = useState(() => new Date());
   const todayIso = getCurrentOperationalDate(currentTime);
   const initialOperationalView = getInitialOperationalView(currentTime);
@@ -1142,6 +1143,15 @@ export default function Home() {
   }
 
   async function loadAssignmentTypesForCreate() {
+    if (!canOperatePlanning) {
+      setFormAssignmentTypes([]);
+      setPlanningAssignmentsFormState({});
+      setFormAssignmentsReady(false);
+      setFormAssignmentsError("");
+      setFormAssignmentsLoading(false);
+      return;
+    }
+
     if (!session?.access_token || isBrowserOffline()) {
       const cachedTypes = await readAssignmentTypesCache().catch(() => null);
       const operationalTypes = toOperationalAssignmentTypes(cachedTypes ?? []);
@@ -1175,6 +1185,15 @@ export default function Home() {
   }
 
   async function loadAssignmentsForEdit(planningItemId: number) {
+    if (!canOperatePlanning) {
+      setFormAssignmentTypes([]);
+      setPlanningAssignmentsFormState({});
+      setFormAssignmentsReady(false);
+      setFormAssignmentsError("");
+      setFormAssignmentsLoading(false);
+      return;
+    }
+
     const pendingMutation = findPendingPlanningMutationForItemId(planningItemId);
     const pendingAssignments = pendingMutation?.assignmentPayload !== undefined
       ? toDisplayPlanningAssignments(pendingMutation.assignmentPayload, planningItemId)
@@ -1274,12 +1293,20 @@ export default function Home() {
       syncedPlanningItemId?: number;
     } = {}
   ) {
+    if (!canOperatePlanning) {
+      throw new Error("Solo los usuarios operativos pueden modificar la planificacion.");
+    }
+
     const pendingMutation = makePendingPlanningMutation(method, payload, input);
     setPendingPlanningMutations((current) => [...current, pendingMutation]);
     return pendingMutation;
   }
 
   async function syncPendingPlanningMutations() {
+    if (!canOperatePlanning) {
+      return;
+    }
+
     const retryableMutations = getRetryablePlanningMutations(pendingPlanningMutations);
 
     if (!session?.access_token || queueSyncing || !retryableMutations.length) {
@@ -1387,6 +1414,11 @@ export default function Home() {
   async function handleCreateItem(event: React.FormEvent) {
     event.preventDefault();
     setFormError("");
+
+    if (!canOperatePlanning) {
+      setFormError("Solo los usuarios operativos pueden modificar la planificacion.");
+      return;
+    }
 
     const method = editingPlanningItem ? "PATCH" : "POST";
     const payload: PlanningItemMutationPayload = editingPlanningItem
@@ -1512,6 +1544,10 @@ export default function Home() {
   }
 
   function openEditPlanningItem(item: PlanningItem) {
+    if (!canOperatePlanning) {
+      return;
+    }
+
     if (selectedDate !== todayIso && !historicalEditingEnabled) {
       return;
     }
@@ -1597,6 +1633,12 @@ export default function Home() {
 
   async function handleDeletePlanningItem(id: number, trackingType: PlanningItem["tracking_type"]) {
     setFormError("");
+
+    if (!canOperatePlanning) {
+      setFormError("Solo los usuarios operativos pueden eliminar registros.");
+      return;
+    }
+
     const payload = { id, tracking_type: trackingType };
 
     if (!session?.access_token) {
@@ -1652,6 +1694,10 @@ export default function Home() {
   }
 
   function requestDeletePlanningItem() {
+    if (!canOperatePlanning) {
+      return;
+    }
+
     if (!editingPlanningItem) {
       return;
     }
@@ -1911,7 +1957,7 @@ export default function Home() {
   }
 
   function renderCreateRealButton(group: PlanningGroup) {
-    if (isHistoricalReadOnly || !group.programado) {
+    if (!canOperatePlanning || isHistoricalReadOnly || !group.programado) {
       return null;
     }
 
@@ -1936,6 +1982,10 @@ export default function Home() {
   }
 
   function openCreatePlanningVariant(group: PlanningGroup, trackingType: "programado" | "real") {
+    if (!canOperatePlanning) {
+      return;
+    }
+
     if (isHistoricalReadOnly) {
       return;
     }
@@ -2003,13 +2053,23 @@ export default function Home() {
         setCalendarMonth={setCalendarMonth}
         datePickerRef={datePickerRef}
         isHistoricalView={isHistoricalView}
-        isCreateDisabled={!session || catalogLoading || !catalog.length || isHistoricalReadOnly}
-        createTitle={isHistoricalReadOnly ? "Habilita la edicion historica para crear registros" : "Nueva programacion"}
+        isCreateDisabled={!canOperatePlanning || !session || catalogLoading || !catalog.length || isHistoricalReadOnly}
+        createTitle={
+          !canOperatePlanning
+            ? "Solo lectura: no puedes crear registros"
+            : isHistoricalReadOnly
+              ? "Habilita la edicion historica para crear registros"
+              : "Nueva programacion"
+        }
         formatDateTitle={formatDateTitle}
         formatMonthTitle={formatMonthTitle}
         formatLocalDateIso={formatLocalDateIso}
         onSelectOperationalDate={selectOperationalDate}
         onCreatePlanning={() => {
+          if (!canOperatePlanning) {
+            return;
+          }
+
           resetPlanningForm();
           setFormState((current) => ({ ...current, tracking_type: "programado" }));
           setFormCustomFieldsLoading(true);
@@ -2125,7 +2185,7 @@ export default function Home() {
           item={viewingPlanningItem}
           title={buildEventTitle(viewingPlanningItem)}
           continuation={viewingContinuation}
-          readOnly={isHistoricalReadOnly}
+          readOnly={isHistoricalReadOnly || !canOperatePlanning}
           formatDateLabel={formatDateLabel}
           formatDuration={formatDuration}
           toDisplayCategory={toDisplayCategory}

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { requireApprovedUser } from "@/lib/accessControl";
-import { getErrorMessage } from "@/lib/errorMessage";
+import { requireApprovedUser, requireOperationalUser } from "@/lib/accessControl";
+import { getErrorMessage, getErrorStatus } from "@/lib/errorMessage";
 import type { PlanningAssignmentsReplaceRequestDto } from "@/modules/planning-assignments/contracts/planning-assignments";
 import { getPlanningAssignments, getPlanningAssignmentsForPlanningItems, savePlanningAssignments } from "@/server/services/planning-assignments.service";
 
@@ -34,7 +34,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const { user, profile } = await requireApprovedUser(req);
+    const { user, profile } = await requireOperationalUser(req);
     const body = (await req.json()) as PlanningAssignmentsReplaceRequestDto;
     const planningItemId = toPlanningItemId(body.planning_item_id);
     if (!planningItemId || !Array.isArray(body.assignments)) {
@@ -48,6 +48,6 @@ export async function POST(req: Request) {
       }),
     });
   } catch (error: unknown) {
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: getErrorStatus(error) });
   }
 }

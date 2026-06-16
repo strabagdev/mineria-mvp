@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdminUser, requireApprovedUser } from "@/lib/accessControl";
-import { getErrorMessage } from "@/lib/errorMessage";
+import { getErrorMessage, getErrorStatus } from "@/lib/errorMessage";
 import type {
   PlanningCustomFieldCreateRequestDto,
   PlanningCustomFieldUpdateRequestDto,
@@ -49,7 +49,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json({ fields: await listPlanningCustomFields({ activeOnly }) });
   } catch (error: unknown) {
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: getErrorStatus(error) });
   }
 }
 
@@ -89,7 +89,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ field }, { status: 201 });
   } catch (error: unknown) {
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: getErrorStatus(error) });
   }
 }
 
@@ -153,7 +153,7 @@ export async function PATCH(req: Request) {
     const field = await updateCustomField({ actor: { user, profile }, id, updates });
     return NextResponse.json({ field });
   } catch (error: unknown) {
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: getErrorStatus(error) });
   }
 }
 
@@ -182,6 +182,6 @@ export async function DELETE(req: Request) {
 
     return NextResponse.json({ deleted: true });
   } catch (error: unknown) {
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: getErrorStatus(error) });
   }
 }

@@ -68,18 +68,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return null;
       }
 
-      // Preferimos cache local para evitar intentos de sync agresivos en redes inestables.
-      if (profileRef.current) {
-        return profileRef.current;
-      }
-
       const cachedProfile = await readProfileCache<AuthContextValue["profile"]>().catch(() => null);
-      if (cachedProfile?.value) {
-        return cachedProfile.value;
-      }
 
       if (isBrowserOffline()) {
-        return null;
+        return profileRef.current ?? cachedProfile?.value ?? null;
       }
 
       try {
@@ -108,14 +100,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         return nextProfile;
       } catch (error: unknown) {
-        isNetworkRequestError(error);
+        const isNetworkError = isNetworkRequestError(error);
         recordOperationalEvent({
-          level: "warn",
-          name: "auth.profile_sync_failed",
+          level: isNetworkError ? "warn" : "error",
+          name: isNetworkError ? "auth.network_fallback" : "auth.profile_sync_failed",
           source: "AuthProvider",
-          metadata: { reason: "profile-sync-request-error" },
+          metadata: {
+            reason: isNetworkError
+              ? "profile-sync-network-fallback"
+              : "profile-sync-request-error",
+          },
         });
-        return null;
+
+        return isNetworkError ? profileRef.current ?? cachedProfile?.value ?? null : null;
       }
     }
 
@@ -263,7 +260,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (hasResolvedSession && nextSession?.user.id === previousSession?.user.id) {
         setLoading(false);
-        return;
       }
 
       void syncProfile(nextSession ?? null)

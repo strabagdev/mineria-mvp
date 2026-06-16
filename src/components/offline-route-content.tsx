@@ -3,6 +3,7 @@
 import { BarChart3, Clock3, Gauge, ListChecks, ScrollText, Settings, TimerReset, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { readAdminUsersSnapshot, readReportSnapshot, type AdminUsersSnapshot } from "@/lib/reportsOfflineSnapshot";
+import { toRoleLabel } from "@/modules/auth/presentation/role-labels";
 import {
   emptyReportSummary,
   formatHours,
@@ -250,7 +251,7 @@ function OfflineUsers() {
                   <p className="muted-inline">{account.email}</p>
                 </div>
                 <div className="admin-user-badges">
-                  <span className="session-pill">{account.role}</span>
+                  <span className="session-pill">{toRoleLabel(account.role)}</span>
                   <span className="session-pill">{account.active ? "Activo" : "Inactivo"}</span>
                   <span className="session-pill">{account.approval_status}</span>
                 </div>

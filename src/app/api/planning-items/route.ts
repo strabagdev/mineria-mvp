@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { requireApprovedUser } from "@/lib/accessControl";
-import { getErrorMessage } from "@/lib/errorMessage";
+import { requireApprovedUser, requireOperationalUser } from "@/lib/accessControl";
+import { getErrorMessage, getErrorStatus } from "@/lib/errorMessage";
 import {
   isPlanningCategoryDto,
   isPlanningShiftDto,
@@ -281,7 +281,7 @@ async function validateAndNormalizePlanningItem(
   req: Request,
   body: PlanningItemMutationPayloadDto
 ) {
-  const { user, profile } = await requireApprovedUser(req);
+  const { user, profile } = await requireOperationalUser(req);
   const payload = normalizePlanningItemMutationPayload(body);
 
   if (
@@ -412,7 +412,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json(await listPlanningItems(date));
   } catch (error: unknown) {
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: getErrorStatus(error) });
   }
 }
 
@@ -473,7 +473,7 @@ export async function POST(req: Request) {
       { status: realResult.status === "existing" ? 200 : 201 }
     );
   } catch (error: unknown) {
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: getErrorStatus(error) });
   }
 }
 
@@ -549,13 +549,13 @@ export async function PATCH(req: Request) {
 
     return NextResponse.json({ item: realResult.item });
   } catch (error: unknown) {
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: getErrorStatus(error) });
   }
 }
 
 export async function DELETE(req: Request) {
   try {
-    const { user, profile } = await requireApprovedUser(req);
+    const { user, profile } = await requireOperationalUser(req);
     const body = (await req.json()) as PlanningItemDeleteRequestDto;
     const id = Number(body.id);
     const trackingType = String(body.tracking_type ?? "").trim().toLowerCase();
@@ -583,6 +583,6 @@ export async function DELETE(req: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (error: unknown) {
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: getErrorStatus(error) });
   }
 }

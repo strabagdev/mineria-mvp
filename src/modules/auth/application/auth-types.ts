@@ -14,10 +14,12 @@ export type AppAuthProfile = {
   user_id: string;
   email: string;
   full_name: string | null;
-  role: "admin" | "viewer";
+  role: "admin" | "operator" | "viewer";
   active: boolean;
   approval_status: "pending" | "approved" | "rejected";
 };
+
+export type UserRole = AppAuthProfile["role"];
 
 export type AppAuthError = {
   message: string;

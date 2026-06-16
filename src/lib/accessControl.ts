@@ -3,6 +3,7 @@ export {
   USER_ROLES,
   requireAdminUser,
   requireApprovedUser,
+  requireOperationalUser,
   resolveApprovalStatus,
   resolveRole,
   syncProfileForAuthUser,

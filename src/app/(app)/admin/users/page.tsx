@@ -4,6 +4,9 @@ import React from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/providers/auth-provider";
 import { NETWORK_ERROR_MESSAGE, isBrowserOffline, subscribeNetworkStatus } from "@/lib/networkStatus";
+import type { UserRole } from "@/modules/auth/application/auth-types";
+import { USER_ROLE_OPTIONS, toUserRole } from "@/modules/auth/presentation/role-options";
+import { toRoleLabel } from "@/modules/auth/presentation/role-labels";
 import {
   canUseOfflineSnapshot,
   markSnapshotRefreshSucceeded,
@@ -16,7 +19,7 @@ type AdminUser = {
   user_id: string;
   email: string;
   full_name: string | null;
-  role: "admin" | "viewer";
+  role: UserRole;
   active: boolean;
   approval_status: "pending" | "approved" | "rejected";
   created_at?: string;
@@ -26,14 +29,14 @@ type CreateUserForm = {
   name: string;
   email: string;
   password: string;
-  role: "admin" | "viewer";
+  role: UserRole;
 };
 
 const emptyCreateForm: CreateUserForm = {
   name: "",
   email: "",
   password: "",
-  role: "viewer",
+  role: "operator",
 };
 
 function approvalLabel(status: AdminUser["approval_status"]) {
@@ -253,12 +256,15 @@ export default function AdminUsersPage() {
                 onChange={(event) =>
                   setCreateForm((current) => ({
                     ...current,
-                    role: event.target.value === "admin" ? "admin" : "viewer",
+                    role: toUserRole(event.target.value),
                   }))
                 }
               >
-                <option value="viewer">Visualizador</option>
-                <option value="admin">Administrador</option>
+                {USER_ROLE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
               </select>
             </label>
 
@@ -288,7 +294,7 @@ export default function AdminUsersPage() {
                     <p className="muted-inline">{account.email}</p>
                   </div>
                   <div className="admin-user-badges">
-                    <span className="session-pill">{account.role}</span>
+                    <span className="session-pill">{toRoleLabel(account.role)}</span>
                     <span className="session-pill">{account.active ? "Activo" : "Inactivo"}</span>
                     <span className="session-pill">{approvalLabel(account.approval_status)}</span>
                   </div>
@@ -321,12 +327,15 @@ export default function AdminUsersPage() {
                         void updateUser({
                           action: "update-role",
                           user_id: account.user_id,
-                          role: event.target.value,
+                          role: toUserRole(event.target.value),
                         })
                       }
                     >
-                      <option value="viewer">Visualizador</option>
-                      <option value="admin">Administrador</option>
+                      {USER_ROLE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
                     </select>
                   </label>
 
