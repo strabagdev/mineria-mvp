@@ -82,7 +82,7 @@ export function normalizePlanningItemMutationPayload(
     front: String(body.front ?? "").trim(),
     category: String(body.category ?? "").trim().toLowerCase(),
     tracking_type: String(body.tracking_type ?? "").trim().toLowerCase(),
-    item_type: String(body.item_type ?? "").trim().toLowerCase(),
+    item_type: String(body.item_type ?? "").trim(),
     description: String(body.description ?? "").trim(),
     notes: String(body.notes ?? "").trim() || null,
   };

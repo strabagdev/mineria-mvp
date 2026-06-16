@@ -127,6 +127,8 @@ import type {
 } from "@/modules/planning/presentation/planning-page-models";
 import {
   findSegmentContinuation,
+  getProgrammablePlanningCategories,
+  getProgrammablePlanningTypes,
   groupPlanningItems,
   syncDetailAdminForm,
   syncPlanningForm,
@@ -883,17 +885,23 @@ export default function Home() {
   }, [preloadCustomFieldValuesForItems, preloadPlanningAssignmentsForItems, selectedDate, session?.access_token]);
 
   useEffect(() => {
-    if (formState.tracking_type !== "programado" || formState.category === "actividad") {
+    if (formState.tracking_type !== "programado") {
       return;
     }
 
-    const activityCategory = catalog.find((category) => category.slug === "actividad") ?? null;
-    const nextType = activityCategory?.types[0] ?? null;
+    const programmableCategories = getProgrammablePlanningCategories(catalog);
+
+    if (programmableCategories.some((category) => category.slug === formState.category)) {
+      return;
+    }
+
+    const nextCategory = programmableCategories[0] ?? null;
+    const nextType = getProgrammablePlanningTypes(nextCategory)[0] ?? null;
     const nextDetail = nextType?.details[0] ?? null;
 
     setFormState((current) => ({
       ...current,
-      category: "actividad",
+      category: nextCategory?.slug ?? "actividad",
       item_type: nextType?.label ?? "",
       description: nextDetail?.label ?? "",
     }));
@@ -1554,7 +1562,11 @@ export default function Home() {
 
     const nextCategory =
       catalog.find((category) => category.slug === item.category) ?? null;
-    const nextType = nextCategory?.types.find((type) => type.label === item.item_type) ?? nextCategory?.types[0] ?? null;
+    const nextAvailableTypes =
+      item.tracking_type === "programado"
+        ? getProgrammablePlanningTypes(nextCategory)
+        : nextCategory?.types ?? [];
+    const nextType = nextAvailableTypes.find((type) => type.label === item.item_type) ?? nextAvailableTypes[0] ?? null;
     const nextDetail = nextType?.details.find((detail) => detail.label === item.description) ?? nextType?.details[0] ?? null;
 
     setFormState({
@@ -1712,7 +1724,10 @@ export default function Home() {
   const isRealForm = formState.tracking_type === "real";
   const availableFormCategories = isRealForm
     ? catalog
-    : catalog.filter((category) => category.slug === "actividad");
+    : getProgrammablePlanningCategories(catalog).map((category) => ({
+        ...category,
+        types: getProgrammablePlanningTypes(category),
+      }));
   const selectedCategory =
     availableFormCategories.find((category) => category.slug === formState.category) ??
     availableFormCategories[0] ??
@@ -1996,7 +2011,11 @@ export default function Home() {
         ? lastRealSegment ?? group.programado
         : group.programado ?? lastRealSegment;
     const nextCategory = catalog.find((category) => category.slug === group.category) ?? null;
-    const nextType = nextCategory?.types.find((type) => type.label === group.item_type) ?? nextCategory?.types[0] ?? null;
+    const nextAvailableTypes =
+      trackingType === "programado"
+        ? getProgrammablePlanningTypes(nextCategory)
+        : nextCategory?.types ?? [];
+    const nextType = nextAvailableTypes.find((type) => type.label === group.item_type) ?? nextAvailableTypes[0] ?? null;
     const nextDetail =
       nextType?.details.find((detail) => detail.label === group.description) ?? nextType?.details[0] ?? null;
     const defaultTimes =
@@ -2135,10 +2154,8 @@ export default function Home() {
           titleId="planning-modal-title"
           eyebrow={formContextLabel}
           title={planningModalTitle}
-          isRealForm={isRealForm}
           formState={formState}
           setFormState={setFormState}
-          catalog={catalog}
           availableFormCategories={availableFormCategories}
           availableTypes={availableTypes}
           availableDescriptions={availableDescriptions}

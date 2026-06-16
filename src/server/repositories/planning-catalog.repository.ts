@@ -108,16 +108,22 @@ export async function findPlanningCatalogTypeByCategoryAndLabel(
   const db = getSupabaseServerClient();
   const { data, error } = await db
     .from("planning_catalog_types")
-    .select("id")
-    .eq("category", category)
-    .eq("label", label)
-    .maybeSingle();
+    .select("id, slug, label")
+    .eq("category", category);
 
   if (error) {
     throw error;
   }
 
-  return data as { id: number } | null;
+  const normalizedValue = label.trim().toLowerCase();
+  const selectedType =
+    ((data ?? []) as Array<{ id: number; slug: string; label: string }>).find(
+      (type) =>
+        type.label.trim().toLowerCase() === normalizedValue ||
+        type.slug.trim().toLowerCase() === normalizedValue
+    ) ?? null;
+
+  return selectedType ? { id: selectedType.id } : null;
 }
 
 export async function findPlanningCatalogDetailByTypeAndLabel(

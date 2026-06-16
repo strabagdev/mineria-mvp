@@ -42,10 +42,8 @@ type PlanningSheetProps = {
   titleId: string;
   eyebrow: string;
   title: string;
-  isRealForm: boolean;
   formState: PlanningItemForm;
   setFormState: Dispatch<SetStateAction<PlanningItemForm>>;
-  catalog: CatalogCategory[];
   availableFormCategories: CatalogCategory[];
   availableTypes: CatalogType[];
   availableDescriptions: CatalogDetail[];
@@ -66,10 +64,8 @@ export function PlanningSheet({
   titleId,
   eyebrow,
   title,
-  isRealForm,
   formState,
   setFormState,
-  catalog,
   availableFormCategories,
   availableTypes,
   availableDescriptions,
@@ -94,36 +90,33 @@ export function PlanningSheet({
       onClose={onClose}
     >
       <form className="modal-form" onSubmit={onSubmit}>
-        {isRealForm ? (
-          <label className="field">
-            Categoria
-            <select
-              className="field-input"
-              value={formState.category}
-              onChange={(event) => {
-                const category = event.target.value as "actividad" | "interferencia";
-                const nextCategory = catalog.find((entry) => entry.slug === category) ?? null;
-                const nextType = nextCategory?.types[0] ?? null;
-                const nextDetail = nextType?.details[0] ?? null;
+        <label className="field">
+          Categoria
+          <select
+            className="field-input"
+            value={formState.category}
+            onChange={(event) => {
+              const category = event.target.value as "actividad" | "interferencia";
+              const nextCategory = availableFormCategories.find((entry) => entry.slug === category) ?? null;
+              const nextType = nextCategory?.types[0] ?? null;
+              const nextDetail = nextType?.details[0] ?? null;
 
-                setFormState((current) => ({
-                  ...current,
-                  category,
-                  item_type: nextType?.label ?? "",
-                  description: nextDetail?.label ?? "",
-                }));
-              }}
-            >
-              {availableFormCategories.map((category) => (
-                <option key={category.slug} value={category.slug}>
-                  {category.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : (
-          <p className="planning-category-title">Actividad</p>
-        )}
+              setFormState((current) => ({
+                ...current,
+                category,
+                item_type: nextType?.label ?? "",
+                description: nextDetail?.label ?? "",
+              }));
+            }}
+            disabled={!availableFormCategories.length}
+          >
+            {availableFormCategories.map((category) => (
+              <option key={category.slug} value={category.slug}>
+                {category.label}
+              </option>
+            ))}
+          </select>
+        </label>
 
         <div className="modal-grid">
           <label className="field">

@@ -4,6 +4,19 @@ const mocks = vi.hoisted(() => ({
   requireApprovedUser: vi.fn(),
   requireOperationalUser: vi.fn(),
   deletePlanningItem: vi.fn(),
+  isPlanningCategoryDto: vi.fn(),
+  isPlanningShiftDto: vi.fn(),
+  isPlanningTrackingTypeDto: vi.fn(),
+  normalizePlanningItemMutationPayload: vi.fn(),
+  findPlanningCatalogDetailByTypeAndLabel: vi.fn(),
+  findPlanningCatalogTypeByCategoryAndLabel: vi.fn(),
+  findPlanningLevelByLabel: vi.fn(),
+  findPlannedItemSummaryByActivityGroupId: vi.fn(),
+  createPlannedPlanningItem: vi.fn(),
+  createRealPlanningSegments: vi.fn(),
+  listPlanningItems: vi.fn(),
+  updatePlannedPlanningItem: vi.fn(),
+  updateRealPlanningSegment: vi.fn(),
 }));
 
 vi.mock("@/lib/accessControl", () => ({
@@ -18,20 +31,20 @@ vi.mock("@/lib/errorMessage", () => ({
 }));
 
 vi.mock("@/modules/planning/contracts/planning-items", () => ({
-  isPlanningCategoryDto: vi.fn(),
-  isPlanningShiftDto: vi.fn(),
-  isPlanningTrackingTypeDto: vi.fn(),
-  normalizePlanningItemMutationPayload: vi.fn(),
+  isPlanningCategoryDto: mocks.isPlanningCategoryDto,
+  isPlanningShiftDto: mocks.isPlanningShiftDto,
+  isPlanningTrackingTypeDto: mocks.isPlanningTrackingTypeDto,
+  normalizePlanningItemMutationPayload: mocks.normalizePlanningItemMutationPayload,
 }));
 
 vi.mock("@/server/repositories/planning-catalog.repository", () => ({
-  findPlanningCatalogDetailByTypeAndLabel: vi.fn(),
-  findPlanningCatalogTypeByCategoryAndLabel: vi.fn(),
-  findPlanningLevelByLabel: vi.fn(),
+  findPlanningCatalogDetailByTypeAndLabel: mocks.findPlanningCatalogDetailByTypeAndLabel,
+  findPlanningCatalogTypeByCategoryAndLabel: mocks.findPlanningCatalogTypeByCategoryAndLabel,
+  findPlanningLevelByLabel: mocks.findPlanningLevelByLabel,
 }));
 
 vi.mock("@/server/repositories/planning-items.repository", () => ({
-  findPlannedItemSummaryByActivityGroupId: vi.fn(),
+  findPlannedItemSummaryByActivityGroupId: mocks.findPlannedItemSummaryByActivityGroupId,
 }));
 
 vi.mock("@/server/repositories/planning-segments.repository", () => ({
@@ -39,12 +52,12 @@ vi.mock("@/server/repositories/planning-segments.repository", () => ({
 }));
 
 vi.mock("@/server/services/planning-items.service", () => ({
-  createPlannedPlanningItem: vi.fn(),
-  createRealPlanningSegments: vi.fn(),
+  createPlannedPlanningItem: mocks.createPlannedPlanningItem,
+  createRealPlanningSegments: mocks.createRealPlanningSegments,
   deletePlanningItem: mocks.deletePlanningItem,
-  listPlanningItems: vi.fn(),
-  updatePlannedPlanningItem: vi.fn(),
-  updateRealPlanningSegment: vi.fn(),
+  listPlanningItems: mocks.listPlanningItems,
+  updatePlannedPlanningItem: mocks.updatePlannedPlanningItem,
+  updateRealPlanningSegment: mocks.updateRealPlanningSegment,
 }));
 
 function jsonRequest(method: "POST" | "PATCH" | "DELETE", body: unknown) {
@@ -58,6 +71,15 @@ function jsonRequest(method: "POST" | "PATCH" | "DELETE", body: unknown) {
 describe("operational permissions", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    mocks.isPlanningCategoryDto.mockImplementation((value: string) =>
+      value === "actividad" || value === "interferencia"
+    );
+    mocks.isPlanningTrackingTypeDto.mockImplementation((value: string) =>
+      value === "programado" || value === "real"
+    );
+    mocks.isPlanningShiftDto.mockImplementation((value: string) =>
+      value === "Dia" || value === "Noche"
+    );
   });
 
   it("returns 403 when viewer users try to create planning items", async () => {
@@ -86,5 +108,55 @@ describe("operational permissions", () => {
 
     expect(response.status).toBe(403);
     expect(mocks.deletePlanningItem).not.toHaveBeenCalled();
+  });
+
+  it("accepts planned interferences when category, type and description exist in catalog", async () => {
+    const payload = {
+      activity_group_id: "group-1",
+      client_mutation_id: null,
+      item_date: "2026-06-16",
+      start_time: "08:00",
+      end_time: "09:00",
+      shift: "Dia",
+      level: "NTI",
+      front: "GT1",
+      category: "interferencia",
+      tracking_type: "programado",
+      item_type: "Administrativa",
+      description: "Permiso interno",
+      notes: null,
+    };
+    mocks.requireOperationalUser.mockResolvedValue({
+      user: { id: "user-1" },
+      profile: { id: "profile-1" },
+    });
+    mocks.normalizePlanningItemMutationPayload.mockReturnValue(payload);
+    mocks.findPlanningLevelByLabel.mockResolvedValue({ id: 1 });
+    mocks.findPlanningCatalogTypeByCategoryAndLabel.mockResolvedValue({ id: 20 });
+    mocks.findPlanningCatalogDetailByTypeAndLabel.mockResolvedValue({ id: 200 });
+    mocks.createPlannedPlanningItem.mockResolvedValue({
+      status: "created",
+      item: { id: 99, ...payload },
+    });
+    const { POST } = await import("../app/api/planning-items/route");
+
+    const response = await POST(jsonRequest("POST", payload));
+
+    expect(response?.status).toBe(201);
+    expect(mocks.findPlanningCatalogTypeByCategoryAndLabel).toHaveBeenCalledWith(
+      "interferencia",
+      "Administrativa"
+    );
+    expect(mocks.findPlanningCatalogDetailByTypeAndLabel).toHaveBeenCalledWith(20, "Permiso interno");
+    expect(mocks.createPlannedPlanningItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          category: "interferencia",
+          tracking_type: "programado",
+          item_type: "Administrativa",
+          description: "Permiso interno",
+        }),
+      })
+    );
   });
 });

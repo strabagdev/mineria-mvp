@@ -322,15 +322,6 @@ async function validateAndNormalizePlanningItem(
     };
   }
 
-  if (payload.tracking_type === "programado" && payload.category !== "actividad") {
-    return {
-      errorResponse: NextResponse.json(
-        { error: "La programacion solo permite actividades. Las interferencias se registran en lo real." },
-        { status: 400 }
-      ),
-    };
-  }
-
   if (!isPlanningShiftDto(payload.shift)) {
     return {
       errorResponse: NextResponse.json(

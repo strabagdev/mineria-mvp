@@ -38,5 +38,3 @@ export function getServerEnv(): ServerEnv {
     ),
   };
 }
-
-export const serverEnv = getServerEnv();

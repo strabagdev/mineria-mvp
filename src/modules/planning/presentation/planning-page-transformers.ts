@@ -2,11 +2,40 @@ import { formatLocalDateIso, getDefaultShiftTimes, type ShiftKey } from "./plann
 import type {
   CatalogCategory,
   CatalogLevel,
+  CatalogType,
   DetailAdminForm,
   PlanningGroup,
   PlanningItem,
   PlanningItemForm,
 } from "./planning-page-models";
+
+export function isProgrammableActivityType(type: CatalogType) {
+  return type.slug === "unitaria" || type.label.toLowerCase() === "unitaria";
+}
+
+export function getProgrammableActivityTypes(category: CatalogCategory | null | undefined) {
+  return category?.slug === "actividad" ? category.types.filter(isProgrammableActivityType) : [];
+}
+
+export function getProgrammablePlanningCategories(categories: CatalogCategory[]) {
+  return categories.filter((category) => category.slug === "actividad" || category.slug === "interferencia");
+}
+
+export function getProgrammablePlanningTypes(category: CatalogCategory | null | undefined) {
+  if (!category) {
+    return [];
+  }
+
+  if (category.slug === "actividad") {
+    return getProgrammableActivityTypes(category);
+  }
+
+  if (category.slug === "interferencia") {
+    return category.types;
+  }
+
+  return [];
+}
 
 export function toInitialPlanningForm(
   categories: CatalogCategory[],
@@ -14,12 +43,12 @@ export function toInitialPlanningForm(
   shift: ShiftKey = "Dia",
   itemDate = formatLocalDateIso()
 ): PlanningItemForm {
-  const defaultCategory = categories[0] ?? {
+  const defaultCategory = categories.find((category) => category.slug === "actividad") ?? {
     slug: "actividad" as const,
     label: "Actividad",
     types: [],
   };
-  const defaultType = defaultCategory.types[0];
+  const defaultType = getProgrammableActivityTypes(defaultCategory)[0];
   const defaultDetail = defaultType?.details[0];
   const defaultLevel = levels[0];
   const defaultTimes = getDefaultShiftTimes(shift);
@@ -46,8 +75,12 @@ export function syncPlanningForm(
   levels: CatalogLevel[]
 ) {
   const fallback = toInitialPlanningForm(categories, levels);
+  const programmableCategories = getProgrammablePlanningCategories(categories);
   const normalizedCategory =
-    form.tracking_type === "programado" ? ("actividad" as const) : form.category;
+    form.tracking_type === "programado" &&
+    !programmableCategories.some((category) => category.slug === form.category)
+      ? programmableCategories[0]?.slug ?? fallback.category
+      : form.category;
   const selectedCategory =
     categories.find((category) => category.slug === normalizedCategory) ??
     categories.find((category) => category.slug === fallback.category);
@@ -56,8 +89,12 @@ export function syncPlanningForm(
     return fallback;
   }
 
+  const availableTypes =
+    form.tracking_type === "programado"
+      ? getProgrammablePlanningTypes(selectedCategory)
+      : selectedCategory.types;
   const selectedType =
-    selectedCategory.types.find((type) => type.label === form.item_type) ?? selectedCategory.types[0];
+    availableTypes.find((type) => type.label === form.item_type) ?? availableTypes[0];
   const selectedDetail =
     selectedType?.details.find((detail) => detail.label === form.description) ?? selectedType?.details[0];
 
