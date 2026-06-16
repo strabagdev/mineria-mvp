@@ -4,12 +4,12 @@ import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
 
 export const metadata = {
-  title: "ZÜBLIN/STRABAG",
+  title: "OPSAHEAD",
   description: "Carta gantt operacional para actividades e interferencias mineras",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
-    title: "Control Gantt",
+    title: "MINERÍA",
     statusBarStyle: "default",
   },
 };

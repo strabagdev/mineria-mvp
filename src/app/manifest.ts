@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "ZUBLIN STRABAG Control Gantt Operacional",
-    short_name: "Control Gantt",
+    name: "OPSAHEAD MINERÍA",
+    short_name: "MINERÍA",
     description: "Carta gantt operacional para actividades e interferencias mineras.",
     start_url: "/",
     scope: "/",

@@ -187,7 +187,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
     return (
       <main className="app-background auth-layout">
         <section className="auth-card">
-          <p className="eyebrow">ZÜBLIN/STRABAG</p>
+          <p className="eyebrow">OPSAHEAD</p>
           <h1 className="hero-title" style={{ fontSize: "2.125rem" }}>Cargando</h1>
           <p className="body-copy" style={{ marginTop: 0 }}>
             Validando tu sesion.
@@ -228,7 +228,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
       : [];
 
   const navItems: NavItem[] = [
-    { href: "/", label: "Inicio", icon: Home, offlineView: "home" },
+    { href: "/", label: "Operaciones", icon: Home, offlineView: "home" },
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, offlineView: "dashboard" },
     { href: "/reports", label: "Reportes", icon: BarChart3, offlineView: "reports" },
     ...adminNavItems,
@@ -296,10 +296,10 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
     <div className={`app-background app-shell-layout ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <aside className="app-sidebar" aria-label="Navegacion principal">
         <div className="app-sidebar-brand">
-          <div className="app-brand-mark" aria-hidden="true">ZS</div>
+          <div className="app-brand-mark" aria-hidden="true">OA</div>
           <div className="app-sidebar-brand-copy">
-            <span>ZÜBLIN/STRABAG</span>
-            <strong>Control Gantt</strong>
+            <span>OPSAHEAD</span>
+            <strong>MINERÍA</strong>
           </div>
           <button
             type="button"

@@ -317,10 +317,10 @@ export function OfflineRouteContent({ view }: OfflineRouteContentProps) {
     return (
       <div className="dashboard-stack">
         <section className="surface-card hero padded">
-          <p className="eyebrow">Inicio offline</p>
+          <p className="eyebrow">Operaciones offline</p>
           <h2 className="section-title">Planificacion local</h2>
           <p className="body-copy">
-            La vista de inicio mantiene sus datos locales cuando ya estas en Inicio. Para conservar la URL alineada,
+            La vista de operaciones mantiene sus datos locales cuando ya estas en Operaciones. Para conservar la URL alineada,
             vuelve a esta seccion con conexion disponible.
           </p>
         </section>
