@@ -1,6 +1,7 @@
 import { Plus, Trash2 } from "lucide-react";
 import type { AssignmentFieldDto, AssignmentTypeDto } from "@/modules/planning-assignments/contracts/planning-assignments";
 import {
+  applyAssignmentDerivations,
   createEmptyPlanningAssignmentInstance,
   type PlanningAssignmentFieldFormValue,
   type PlanningAssignmentsFormState,
@@ -47,6 +48,32 @@ export function PlanningAssignmentsForm({ types, value, onChange, online, title 
     ));
   }
 
+  function updateSelectField(
+    type: AssignmentTypeDto,
+    instanceOrder: number,
+    field: AssignmentFieldDto,
+    optionId: string
+  ) {
+    updateInstances(type.id, (value[type.id] ?? []).map((instance) => {
+      if (instance.instanceOrder !== instanceOrder) {
+        return instance;
+      }
+
+      const nextInstance = {
+        ...instance,
+        values: {
+          ...instance.values,
+          [field.id]: {
+            ...(instance.values[field.id] ?? {}),
+            optionId,
+          },
+        },
+      };
+      const selectedOption = field.options.find((option) => String(option.id) === optionId);
+      return applyAssignmentDerivations(type, nextInstance, field, selectedOption);
+    }));
+  }
+
   return (
     <section className="assignments-form-section">
       <div className="custom-fields-heading"><p className="eyebrow">{title}</p><span className="catalog-count">{online ? "Online" : "Offline"}</span></div>
@@ -68,7 +95,7 @@ export function PlanningAssignmentsForm({ types, value, onChange, online, title 
                     const current = instance.values[field.id] ?? {};
                     const fieldDisabled = disabled || !field.active;
                     const label = field.active ? field.label : `${field.label} (inactivo)`;
-                    if (field.input_type === "select") return <label className="field" key={field.id}>{label}<select className="field-input" value={current.optionId ?? ""} disabled={fieldDisabled} required={field.required} onChange={(event) => updateField(type.id, instance.instanceOrder, field.id, { optionId: event.target.value })}><option value="">Sin seleccionar</option>{visibleOptions(field, current.optionId ? [current.optionId] : []).map((option) => <option key={option.id} value={option.id}>{option.active ? option.label : `${option.label} (inactiva)`}</option>)}</select></label>;
+                    if (field.input_type === "select") return <label className="field" key={field.id}>{label}<select className="field-input" value={current.optionId ?? ""} disabled={fieldDisabled} required={field.required} onChange={(event) => updateSelectField(type, instance.instanceOrder, field, event.target.value)}><option value="">Sin seleccionar</option>{visibleOptions(field, current.optionId ? [current.optionId] : []).map((option) => <option key={option.id} value={option.id}>{option.active ? option.label : `${option.label} (inactiva)`}</option>)}</select></label>;
                     if (field.input_type === "multi_select") return <div className="field" key={field.id}><span>{label}</span><div className="assignments-multi-options">{visibleOptions(field, current.optionIds ?? []).map((option) => { const optionId = String(option.id); return <label className="custom-fields-multi-option" key={option.id}><input type="checkbox" checked={(current.optionIds ?? []).includes(optionId)} disabled={fieldDisabled} onChange={(event) => updateField(type.id, instance.instanceOrder, field.id, { optionIds: event.target.checked ? [...(current.optionIds ?? []), optionId] : (current.optionIds ?? []).filter((id) => id !== optionId) })} /><span>{option.label}</span></label>; })}</div>{field.required && !(current.optionIds ?? []).length ? <input className="custom-fields-required-proxy" tabIndex={-1} required value="" onChange={() => undefined} /> : null}</div>;
                     if (field.input_type === "number") return <label className="field" key={field.id}>{label}<input className="field-input" type="number" value={current.valueNumber ?? ""} disabled={fieldDisabled} required={field.required} onChange={(event) => updateField(type.id, instance.instanceOrder, field.id, { valueNumber: event.target.value })} /></label>;
                     if (field.input_type === "date") return <label className="field" key={field.id}>{label}<input className="field-input" type="date" value={current.valueDate ?? ""} disabled={fieldDisabled} required={field.required} onChange={(event) => updateField(type.id, instance.instanceOrder, field.id, { valueDate: event.target.value })} /></label>;

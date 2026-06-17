@@ -22,6 +22,10 @@ import type {
   AssignmentTypeDto,
 } from "@/modules/planning-assignments/contracts/planning-assignments";
 import {
+  formatAssignmentOptionMetadata,
+  parseAssignmentOptionMetadata,
+} from "@/modules/planning-assignments/presentation/planning-assignments-admin-metadata";
+import {
   ASSIGNMENT_TYPE_ICON_OPTIONS,
   getAssignmentTypeIcon,
 } from "@/modules/planning-assignments/presentation/planning-assignment-type-icons";
@@ -52,6 +56,7 @@ type AssignmentOptionForm = {
   label: string;
   sortOrder: string;
   active: boolean;
+  metadata: string;
 };
 
 const defaultTypeForm: AssignmentTypeForm = {
@@ -80,6 +85,7 @@ const defaultOptionForm: AssignmentOptionForm = {
   label: "",
   sortOrder: "100",
   active: true,
+  metadata: "{}",
 };
 
 function normalizeAdminValue(value: string) {
@@ -293,6 +299,7 @@ export function PlanningAssignmentsAdminPanel({ accessToken }: PlanningAssignmen
         label: optionForm.label,
         sort_order: Number(optionForm.sortOrder) || 100,
         active: optionForm.active,
+        metadata: parseAssignmentOptionMetadata(optionForm.metadata),
       };
       if (editingOptionId) {
         await updateAssignmentFieldOption({ id: editingOptionId, ...payload }, accessToken);
@@ -342,6 +349,7 @@ export function PlanningAssignmentsAdminPanel({ accessToken }: PlanningAssignmen
       label: option.label,
       sortOrder: String(option.sort_order),
       active: option.active,
+      metadata: formatAssignmentOptionMetadata(option.metadata),
     });
   }
 
@@ -447,6 +455,7 @@ export function PlanningAssignmentsAdminPanel({ accessToken }: PlanningAssignmen
                 <label className="field">Label visible<input className="field-input" value={optionForm.label} onChange={(event) => setOptionForm((current) => ({ ...current, label: event.target.value, value: current.value || normalizeAdminValue(event.target.value) }))} placeholder="Ej: Operaciones" /></label>
                 <label className="field">Value interno<input className="field-input" value={optionForm.value} onChange={(event) => setOptionForm((current) => ({ ...current, value: normalizeAdminValue(event.target.value) }))} placeholder="operaciones" /></label>
                 <label className="field">Orden<input className="field-input" type="number" value={optionForm.sortOrder} onChange={(event) => setOptionForm((current) => ({ ...current, sortOrder: event.target.value }))} /></label>
+                <label className="field">Metadata JSON<textarea className="field-input assignments-config-input" value={optionForm.metadata} onChange={(event) => setOptionForm((current) => ({ ...current, metadata: event.target.value }))} placeholder={'{ "familia": "Jumbo" }'} /></label>
                 <label className="field custom-fields-checkbox"><input type="checkbox" checked={optionForm.active} onChange={(event) => setOptionForm((current) => ({ ...current, active: event.target.checked }))} /><span>Activa</span></label>
                 <div className="catalog-inline-actions"><button className="button small primary" type="submit" disabled={busy || !optionForm.label.trim()}><Plus className="button-icon" />{editingOptionId ? "Guardar" : "Crear opcion"}</button>{editingOptionId ? <button className="button small" type="button" onClick={resetOptionForm}><X className="button-icon" />Cancelar</button> : null}</div>
               </form>

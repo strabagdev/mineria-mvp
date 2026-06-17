@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AssignmentTypeDto, PlanningAssignmentDto } from "@/modules/planning-assignments/contracts/planning-assignments";
-import { buildPlanningAssignmentsFormState, getPlanningAssignmentSummaryEntries, getPlanningAssignmentTypeSummaries, toDisplayPlanningAssignments, toOperationalAssignmentTypes, toPlanningAssignmentInputs } from "./planning-assignments-form-model";
+import { applyAssignmentDerivations, buildPlanningAssignmentsFormState, getMetadataPathValue, getPlanningAssignmentSummaryEntries, getPlanningAssignmentTypeSummaries, toDisplayPlanningAssignments, toOperationalAssignmentTypes, toPlanningAssignmentInputs } from "./planning-assignments-form-model";
 
 const type: AssignmentTypeDto = {
   id: 1, slug: "cuadrillas", label: "Cuadrillas", description: null, icon_key: "users", active: true, max_instances: 2, sort_order: 100, config: {},
@@ -86,5 +86,161 @@ describe("planning assignments form model", () => {
         ],
       },
     ]);
+  });
+
+  it("reads simple metadata paths", () => {
+    expect(getMetadataPathValue({ familia: "Camión" }, "metadata.familia")).toBe("Camión");
+    expect(getMetadataPathValue({ familia: "Camión" }, "familia")).toBeUndefined();
+    expect(getMetadataPathValue({ familia: "Camión" }, "metadata.")).toBeUndefined();
+  });
+
+  it("derives text fields from selected option metadata", () => {
+    const typeWithDerivation: AssignmentTypeDto = {
+      ...type,
+      fields: [
+        {
+          ...type.fields[0],
+          config: { derives: { familia: "metadata.familia" } },
+          options: [{ ...type.fields[0].options[0], metadata: { familia: "Camión" } }],
+        },
+        { ...type.fields[1], id: 11, slug: "familia", label: "Familia", input_type: "text" },
+      ],
+    };
+    const instance = { instanceOrder: 1, values: { 10: { optionId: "20" } } };
+
+    expect(applyAssignmentDerivations(
+      typeWithDerivation,
+      instance,
+      typeWithDerivation.fields[0],
+      typeWithDerivation.fields[0].options[0]
+    ).values[11]).toEqual({ valueText: "Camión" });
+  });
+
+  it("derives select fields by destination option value first", () => {
+    const typeWithDerivation: AssignmentTypeDto = {
+      ...type,
+      fields: [
+        {
+          ...type.fields[0],
+          config: { derives: { familia: "metadata.familia" } },
+          options: [{ ...type.fields[0].options[0], metadata: { familia: "camion" } }],
+        },
+        {
+          ...type.fields[0],
+          id: 11,
+          slug: "familia",
+          label: "Familia",
+          input_type: "select",
+          config: {},
+          options: [
+            { id: 30, field_id: 11, value: "camion", label: "Camión pesado", active: true, sort_order: 100, metadata: {} },
+            { id: 31, field_id: 11, value: "otro", label: "camion", active: true, sort_order: 200, metadata: {} },
+          ],
+        },
+      ],
+    };
+
+    expect(applyAssignmentDerivations(
+      typeWithDerivation,
+      { instanceOrder: 1, values: {} },
+      typeWithDerivation.fields[0],
+      typeWithDerivation.fields[0].options[0]
+    ).values[11]).toEqual({ optionId: "30" });
+  });
+
+  it("derives select fields by destination option label when value does not match", () => {
+    const typeWithDerivation: AssignmentTypeDto = {
+      ...type,
+      fields: [
+        {
+          ...type.fields[0],
+          config: { derives: { familia: "metadata.familia" } },
+          options: [{ ...type.fields[0].options[0], metadata: { familia: "Camión" } }],
+        },
+        {
+          ...type.fields[0],
+          id: 11,
+          slug: "familia",
+          label: "Familia",
+          input_type: "select",
+          config: {},
+          options: [{ id: 30, field_id: 11, value: "camion", label: "Camión", active: true, sort_order: 100, metadata: {} }],
+        },
+      ],
+    };
+
+    expect(applyAssignmentDerivations(
+      typeWithDerivation,
+      { instanceOrder: 1, values: {} },
+      typeWithDerivation.fields[0],
+      typeWithDerivation.fields[0].options[0]
+    ).values[11]).toEqual({ optionId: "30" });
+  });
+
+  it("ignores missing destination fields and missing metadata paths", () => {
+    const typeWithDerivation: AssignmentTypeDto = {
+      ...type,
+      fields: [{ ...type.fields[0], config: { derives: { familia: "metadata.familia" } } }],
+    };
+    const instance = { instanceOrder: 1, values: {} };
+
+    expect(applyAssignmentDerivations(typeWithDerivation, instance, typeWithDerivation.fields[0], typeWithDerivation.fields[0].options[0])).toEqual(instance);
+  });
+
+  it("keeps behavior unchanged when config has no derives", () => {
+    const instance = { instanceOrder: 1, values: { 10: { optionId: "20" } } };
+
+    expect(applyAssignmentDerivations(type, instance, type.fields[0], type.fields[0].options[0])).toEqual(instance);
+  });
+
+  it("does not write unsupported multi-select destinations", () => {
+    const typeWithDerivation: AssignmentTypeDto = {
+      ...type,
+      fields: [
+        {
+          ...type.fields[0],
+          config: { derives: { familia: "metadata.familia" } },
+          options: [{ ...type.fields[0].options[0], metadata: { familia: "Camión" } }],
+        },
+        { ...type.fields[0], id: 11, slug: "familia", label: "Familia", input_type: "multi_select", config: {} },
+      ],
+    };
+
+    expect(applyAssignmentDerivations(
+      typeWithDerivation,
+      { instanceOrder: 1, values: {} },
+      typeWithDerivation.fields[0],
+      typeWithDerivation.fields[0].options[0]
+    ).values[11]).toBeUndefined();
+  });
+
+  it("updates derived values when the selected option changes", () => {
+    const typeWithDerivation: AssignmentTypeDto = {
+      ...type,
+      fields: [
+        {
+          ...type.fields[0],
+          config: { derives: { familia: "metadata.familia" } },
+          options: [
+            { ...type.fields[0].options[0], id: 20, metadata: { familia: "Camión" } },
+            { ...type.fields[0].options[0], id: 21, value: "cod-002", label: "COD-002", metadata: { familia: "Jumbo" } },
+          ],
+        },
+        { ...type.fields[1], id: 11, slug: "familia", label: "Familia", input_type: "text" },
+      ],
+    };
+    const firstInstance = applyAssignmentDerivations(
+      typeWithDerivation,
+      { instanceOrder: 1, values: {} },
+      typeWithDerivation.fields[0],
+      typeWithDerivation.fields[0].options[0]
+    );
+
+    expect(applyAssignmentDerivations(
+      typeWithDerivation,
+      firstInstance,
+      typeWithDerivation.fields[0],
+      typeWithDerivation.fields[0].options[1]
+    ).values[11]).toEqual({ valueText: "Jumbo" });
   });
 });

@@ -1,5 +1,7 @@
 import type {
   AssignmentFieldDto,
+  AssignmentFieldOptionDto,
+  AssignmentJson,
   AssignmentTypeDto,
   PlanningAssignmentDto,
   PlanningAssignmentInputDto,
@@ -24,6 +26,83 @@ export type PlanningAssignmentsFormState = Record<number, PlanningAssignmentForm
 
 export function createEmptyPlanningAssignmentInstance(instanceOrder: number): PlanningAssignmentFormInstance {
   return { instanceOrder, values: {} };
+}
+
+export function getMetadataPathValue(metadata: AssignmentJson, path: string) {
+  const normalizedPath = path.trim();
+  if (!normalizedPath.startsWith("metadata.")) {
+    return undefined;
+  }
+
+  const key = normalizedPath.slice("metadata.".length);
+  if (!key) {
+    return undefined;
+  }
+
+  return metadata[key];
+}
+
+function getFieldDerivations(field: AssignmentFieldDto) {
+  const derives = field.config.derives;
+  if (!derives || typeof derives !== "object" || Array.isArray(derives)) {
+    return [];
+  }
+
+  return Object.entries(derives)
+    .filter((entry): entry is [string, string] => typeof entry[1] === "string");
+}
+
+function buildDerivedFieldValue(field: AssignmentFieldDto, rawValue: string): PlanningAssignmentFieldFormValue | null {
+  if (field.input_type === "text") {
+    return { valueText: rawValue };
+  }
+
+  if (field.input_type === "select") {
+    const option = field.options.find((candidate) => candidate.value === rawValue)
+      ?? field.options.find((candidate) => candidate.label === rawValue);
+    return option ? { optionId: String(option.id) } : null;
+  }
+
+  return null;
+}
+
+export function applyAssignmentDerivations(
+  type: AssignmentTypeDto,
+  instance: PlanningAssignmentFormInstance,
+  sourceField: AssignmentFieldDto,
+  selectedOption?: AssignmentFieldOptionDto
+): PlanningAssignmentFormInstance {
+  if (sourceField.input_type !== "select" || !selectedOption) {
+    return instance;
+  }
+
+  const derivations = getFieldDerivations(sourceField);
+  if (!derivations.length) {
+    return instance;
+  }
+
+  const fieldsBySlug = new Map(type.fields.map((field) => [field.slug, field]));
+  const nextValues = { ...instance.values };
+
+  for (const [targetSlug, metadataPath] of derivations) {
+    const targetField = fieldsBySlug.get(targetSlug);
+    const derivedValue = getMetadataPathValue(selectedOption.metadata, metadataPath);
+    if (!targetField || derivedValue === undefined || derivedValue === null) {
+      continue;
+    }
+
+    const nextValue = buildDerivedFieldValue(targetField, String(derivedValue));
+    if (!nextValue) {
+      continue;
+    }
+
+    nextValues[targetField.id] = {
+      ...(nextValues[targetField.id] ?? {}),
+      ...nextValue,
+    };
+  }
+
+  return { ...instance, values: nextValues };
 }
 
 export function buildPlanningAssignmentsFormState(assignments: PlanningAssignmentDto[]) {
