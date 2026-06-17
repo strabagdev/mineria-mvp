@@ -67,6 +67,8 @@ const filters = {
 };
 
 const assignmentBase = {
+  target_kind: "planning_item" as const,
+  target_id: 1,
   planning_item_id: 1,
   assignment_id: 100,
   assignment_type_id: 20,
@@ -185,7 +187,7 @@ describe("reporting xlsx export", () => {
   });
 
   it("formats empty assignment values with instance fallback", () => {
-    expect(formatAssignmentsForExcel(1, [
+    expect(formatAssignmentsForExcel("planning_item", 1, [
       {
         ...assignmentBase,
         values: [],
@@ -194,7 +196,7 @@ describe("reporting xlsx export", () => {
   });
 
   it("formats one type with one assignment instance", () => {
-    expect(formatAssignmentsForExcel(1, [
+    expect(formatAssignmentsForExcel("planning_item", 1, [
       {
         ...assignmentBase,
         values: [
@@ -205,7 +207,7 @@ describe("reporting xlsx export", () => {
   });
 
   it("formats one type with multiple assignment instances", () => {
-    expect(formatAssignmentsForExcel(1, [
+    expect(formatAssignmentsForExcel("planning_item", 1, [
       {
         ...assignmentBase,
         assignment_id: 101,
@@ -226,7 +228,7 @@ describe("reporting xlsx export", () => {
   });
 
   it("formats multiple assignment types", () => {
-    expect(formatAssignmentsForExcel(1, [
+    expect(formatAssignmentsForExcel("planning_item", 1, [
       {
         ...assignmentBase,
         assignment_type_id: 21,
@@ -247,7 +249,7 @@ describe("reporting xlsx export", () => {
   });
 
   it("formats assignment instances with multiple fields", () => {
-    expect(formatAssignmentsForExcel(1, [
+    expect(formatAssignmentsForExcel("planning_item", 1, [
       {
         ...assignmentBase,
         values: [
@@ -259,7 +261,7 @@ describe("reporting xlsx export", () => {
   });
 
   it("formats select, multi-select and boolean display values", () => {
-    expect(formatAssignmentsForExcel(1, [
+    expect(formatAssignmentsForExcel("planning_item", 1, [
       {
         ...assignmentBase,
         assignment_type_label: "Equipo",
@@ -273,7 +275,7 @@ describe("reporting xlsx export", () => {
   });
 
   it("returns empty assignment text when no assignments match the planning item", () => {
-    expect(formatAssignmentsForExcel(999, [
+    expect(formatAssignmentsForExcel("planning_item", 999, [
       {
         ...assignmentBase,
         values: [
@@ -283,20 +285,80 @@ describe("reporting xlsx export", () => {
     ])).toBe("");
   });
 
-  it("does not export assignment details for real rows", () => {
+  it("exports execution segment assignments for real rows", () => {
     const report: ReportResponse = {
       ...baseReport,
       rows: [{ ...baseRow, id: 2, source_table: "activity_execution_segments", tracking_type: "real" }],
       assignment_rows: [
         {
-          planning_item_id: 1,
+          ...assignmentBase,
+          target_kind: "execution_segment",
+          target_id: 2,
+          planning_item_id: null,
           assignment_id: 100,
           assignment_type_id: 20,
           assignment_type_slug: "cuadrilla",
           assignment_type_label: "Cuadrilla",
           assignment_type_icon_key: "users",
           instance_order: 1,
-          values: [],
+          values: [
+            { field_id: 1, field_slug: "nombre", field_label: "Nombre", input_type: "text", value: "Turno Real", raw_value: "Turno Real" },
+          ],
+        },
+      ],
+    };
+    const sheets = buildReportXlsxSheets(report);
+
+    expect(sheets.detalle[1].at(-1)).toBe("Cuadrilla: Turno Real");
+  });
+
+  it("keeps assignment exports scoped to each target", () => {
+    const realRow: ReportRow = {
+      ...baseRow,
+      id: 1,
+      source_table: "activity_execution_segments",
+      tracking_type: "real",
+      description: "Excavacion real",
+    };
+    const report: ReportResponse = {
+      ...baseReport,
+      rows: [baseRow, realRow],
+      assignment_rows: [
+        {
+          ...assignmentBase,
+          values: [
+            { field_id: 1, field_slug: "nombre", field_label: "Nombre", input_type: "text", value: "Planificada", raw_value: "Planificada" },
+          ],
+        },
+        {
+          ...assignmentBase,
+          target_kind: "execution_segment",
+          target_id: 1,
+          planning_item_id: null,
+          assignment_id: 101,
+          values: [
+            { field_id: 1, field_slug: "nombre", field_label: "Nombre", input_type: "text", value: "Real", raw_value: "Real" },
+          ],
+        },
+      ],
+    };
+    const sheets = buildReportXlsxSheets(report);
+
+    expect(sheets.detalle[1].at(-1)).toBe("Cuadrilla: Planificada");
+    expect(sheets.detalle[2].at(-1)).toBe("Cuadrilla: Real");
+  });
+
+  it("leaves assignment export empty for rows without matching assignments", () => {
+    const report: ReportResponse = {
+      ...baseReport,
+      assignment_rows: [
+        {
+          ...assignmentBase,
+          target_id: 999,
+          planning_item_id: 999,
+          values: [
+            { field_id: 1, field_slug: "nombre", field_label: "Nombre", input_type: "text", value: "Otro", raw_value: "Otro" },
+          ],
         },
       ],
     };

@@ -6,6 +6,7 @@ function assignment(overrides: Partial<PlanningAssignmentDto> = {}): PlanningAss
   return {
     id: 1,
     planning_item_id: 10,
+    execution_segment_id: null,
     assignment_type_id: 1,
     instance_order: 1,
     values: [

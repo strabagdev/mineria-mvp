@@ -10,6 +10,7 @@ import {
 } from "@/server/repositories/planning-custom-fields.repository";
 import { listPlanningCustomFields } from "@/server/services/planning-custom-fields.service";
 import {
+  getPlanningAssignmentsForExecutionSegments,
   getPlanningAssignmentsForPlanningItems,
   listAssignmentTypes,
 } from "@/server/services/planning-assignments.service";
@@ -44,6 +45,7 @@ export async function getReport(query: ReportQuery) {
     activityGroupValues,
     assignmentTypes,
     planningAssignments,
+    executionSegmentAssignments,
   ] = await Promise.all([
     listPlanningCustomFields({ activeOnly: false }),
     listPlanningCustomFieldValuesByPlanningItemIds(planningItemIds),
@@ -51,6 +53,7 @@ export async function getReport(query: ReportQuery) {
     listPlanningCustomFieldValuesByActivityGroupIds(activityGroupIds),
     listAssignmentTypes({ activeOnly: false }),
     getPlanningAssignmentsForPlanningItems(planningItemIds),
+    getPlanningAssignmentsForExecutionSegments(executionSegmentIds),
   ]);
 
   return buildReportFromSourceRows(
@@ -67,7 +70,10 @@ export async function getReport(query: ReportQuery) {
     },
     {
       types: assignmentTypes,
-      assignments: planningAssignments,
+      assignments: [
+        ...planningAssignments,
+        ...executionSegmentAssignments,
+      ],
     }
   );
 }

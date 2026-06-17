@@ -5,12 +5,14 @@ import type {
   AssignmentFieldInputType,
   AssignmentFieldOptionDto,
   AssignmentJson,
+  AssignmentTarget,
   AssignmentTypeIconKey,
   AssignmentTypeDto,
   PlanningAssignmentDto,
   PlanningAssignmentValueDto,
 } from "@/modules/planning-assignments/contracts/planning-assignments";
 import {
+  buildAssignmentsTargetReplaceParams,
   buildPlanningAssignmentsReplaceParams,
   type NormalizedPlanningAssignment,
 } from "@/modules/planning-assignments/application/planning-assignment-values";
@@ -25,7 +27,7 @@ export type PlanningAssignmentValueRow = PlanningAssignmentValueDto;
 const typeSelect = "id, slug, label, description, icon_key, active, max_instances, sort_order, config";
 const fieldSelect = "id, assignment_type_id, slug, label, input_type, active, required, sort_order, config";
 const optionSelect = "id, field_id, value, label, active, sort_order, metadata";
-const planningAssignmentSelect = "id, planning_item_id, assignment_type_id, instance_order";
+const planningAssignmentSelect = "id, planning_item_id, execution_segment_id, assignment_type_id, instance_order";
 const planningAssignmentValueSelect = "id, assignment_id, field_id, option_id, value_text, value_number, value_date, value_boolean, value_json";
 
 export async function listAssignmentTypeRows(input: { activeOnly?: boolean }) {
@@ -209,16 +211,28 @@ export async function planningItemExists(id: number) {
   return Boolean(data);
 }
 
-export async function listPlanningAssignmentRows(planningItemId: number) {
+export async function executionSegmentExists(id: number) {
+  const db = getSupabaseServerClient();
+  const { data, error } = await db.from("activity_execution_segments").select("id").eq("id", id).maybeSingle();
+  if (error) throw error;
+  return Boolean(data);
+}
+
+export async function listAssignmentRowsForTarget(target: AssignmentTarget) {
+  const targetColumn = target.target_kind === "planning_item" ? "planning_item_id" : "execution_segment_id";
   const db = getSupabaseServerClient();
   const { data, error } = await db
     .from("planning_assignments")
     .select(planningAssignmentSelect)
-    .eq("planning_item_id", planningItemId)
+    .eq(targetColumn, target.target_id)
     .order("assignment_type_id")
     .order("instance_order");
   if (error) throw error;
   return (data ?? []) as PlanningAssignmentRow[];
+}
+
+export async function listPlanningAssignmentRows(planningItemId: number) {
+  return listAssignmentRowsForTarget({ target_kind: "planning_item", target_id: planningItemId });
 }
 
 export async function listPlanningAssignmentRowsByPlanningItemIds(planningItemIds: number[]) {
@@ -229,6 +243,20 @@ export async function listPlanningAssignmentRowsByPlanningItemIds(planningItemId
     .select(planningAssignmentSelect)
     .in("planning_item_id", planningItemIds)
     .order("planning_item_id")
+    .order("assignment_type_id")
+    .order("instance_order");
+  if (error) throw error;
+  return (data ?? []) as PlanningAssignmentRow[];
+}
+
+export async function listPlanningAssignmentRowsByExecutionSegmentIds(executionSegmentIds: number[]) {
+  if (!executionSegmentIds.length) return [];
+  const db = getSupabaseServerClient();
+  const { data, error } = await db
+    .from("planning_assignments")
+    .select(planningAssignmentSelect)
+    .in("execution_segment_id", executionSegmentIds)
+    .order("execution_segment_id")
     .order("assignment_type_id")
     .order("instance_order");
   if (error) throw error;
@@ -250,6 +278,12 @@ export async function listPlanningAssignmentValueRows(assignmentIds: number[]) {
 export async function replacePlanningAssignmentRows(planningItemId: number, assignments: NormalizedPlanningAssignment[]) {
   const db = getSupabaseServerClient();
   const { error } = await db.rpc("replace_planning_assignments", buildPlanningAssignmentsReplaceParams(planningItemId, assignments));
+  if (error) throw error;
+}
+
+export async function replaceAssignmentRowsForTarget(target: AssignmentTarget, assignments: NormalizedPlanningAssignment[]) {
+  const db = getSupabaseServerClient();
+  const { error } = await db.rpc("replace_assignments_for_target", buildAssignmentsTargetReplaceParams(target, assignments));
   if (error) throw error;
 }
 

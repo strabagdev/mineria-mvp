@@ -6,10 +6,12 @@ import type {
   AssignmentFieldOptionDto,
   AssignmentFieldOptionUpdateRequestDto,
   AssignmentFieldUpdateRequestDto,
+  AssignmentTarget,
   AssignmentTypeCreateRequestDto,
   AssignmentTypeDto,
   AssignmentTypeUpdateRequestDto,
   PlanningAssignmentDto,
+  PlanningAssignmentInputDto,
   PlanningAssignmentsReplaceRequestDto,
 } from "@/modules/planning-assignments/contracts/planning-assignments";
 
@@ -149,8 +151,16 @@ export async function deleteAssignmentFieldOption(id: number, accessToken?: stri
 }
 
 export async function fetchPlanningAssignments(planningItemId: number, accessToken?: string) {
+  return fetchPlanningAssignmentsForTarget({ target_kind: "planning_item", target_id: planningItemId }, accessToken);
+}
+
+export async function fetchPlanningAssignmentsForTarget(target: AssignmentTarget, accessToken?: string) {
+  const params = new URLSearchParams({
+    target_kind: target.target_kind,
+    target_id: String(target.target_id),
+  });
   const json = await requestJson<{ assignments?: PlanningAssignmentDto[] }>(
-    `/api/planning-assignments?planning_item_id=${encodeURIComponent(String(planningItemId))}`,
+    `/api/planning-assignments?${params}`,
     { accessToken }
   );
   return Array.isArray(json.assignments) ? json.assignments : [];
@@ -166,6 +176,34 @@ export async function fetchPlanningAssignmentsForItems(planningItemIds: number[]
 }
 
 export async function replacePlanningAssignments(payload: PlanningAssignmentsReplaceRequestDto, accessToken?: string) {
+  if (payload.target) {
+    return savePlanningAssignmentsForTarget(payload.target, payload.assignments ?? [], accessToken);
+  }
+
+  if (payload.execution_segment_id) {
+    return savePlanningAssignmentsForTarget(
+      { target_kind: "execution_segment", target_id: payload.execution_segment_id },
+      payload.assignments ?? [],
+      accessToken
+    );
+  }
+
+  const json = await requestJson<{ assignments?: PlanningAssignmentDto[] }>("/api/planning-assignments", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    accessToken,
+  });
+  return Array.isArray(json.assignments) ? json.assignments : [];
+}
+
+export async function savePlanningAssignmentsForTarget(
+  target: AssignmentTarget,
+  assignments: PlanningAssignmentInputDto[],
+  accessToken?: string
+) {
+  const payload: PlanningAssignmentsReplaceRequestDto = target.target_kind === "planning_item"
+    ? { planning_item_id: target.target_id, assignments }
+    : { target, assignments };
   const json = await requestJson<{ assignments?: PlanningAssignmentDto[] }>("/api/planning-assignments", {
     method: "POST",
     body: JSON.stringify(payload),

@@ -118,8 +118,10 @@ function assignmentValue(input: Partial<PlanningAssignmentValueDto> & Pick<Plann
   };
 }
 
-function planningAssignment(input: Partial<PlanningAssignmentDto> & Pick<PlanningAssignmentDto, "id" | "planning_item_id" | "assignment_type_id">): PlanningAssignmentDto {
+function planningAssignment(input: Partial<PlanningAssignmentDto> & Pick<PlanningAssignmentDto, "id" | "assignment_type_id">): PlanningAssignmentDto {
   return {
+    planning_item_id: null,
+    execution_segment_id: null,
     instance_order: 1,
     values: [],
     ...input,
@@ -362,6 +364,8 @@ describe("reports service calculations", () => {
     expect(report.rows[0]?.custom_fields).toBeUndefined();
     expect(report.assignment_rows).toEqual([
       {
+        target_kind: "planning_item",
+        target_id: basePlanned.id,
         planning_item_id: basePlanned.id,
         assignment_id: assignment.id,
         assignment_type_id: type.id,
@@ -380,6 +384,81 @@ describe("reports service calculations", () => {
           },
         ],
       },
+    ]);
+  });
+
+  it("adds assignment rows for execution segment targets", () => {
+    const field = assignmentField({ id: 307, assignment_type_id: 34, slug: "equipo", label: "Equipo", input_type: "text" });
+    const type = assignmentType({ id: 34, slug: "maquinaria-real", label: "Maquinaria real", fields: [field] });
+    const assignment = planningAssignment({
+      id: 3005,
+      execution_segment_id: baseReal.id,
+      assignment_type_id: type.id,
+      values: [assignmentValue({ id: 4007, assignment_id: 3005, field_id: field.id, value_text: "Jumbo 03" })],
+    });
+
+    const report = buildReportFromSourceRows(emptyQuery, [], [baseReal], undefined, {
+      types: [type],
+      assignments: [assignment],
+    });
+
+    expect(report.assignment_rows).toEqual([
+      {
+        target_kind: "execution_segment",
+        target_id: baseReal.id,
+        planning_item_id: null,
+        assignment_id: assignment.id,
+        assignment_type_id: type.id,
+        assignment_type_slug: "maquinaria-real",
+        assignment_type_label: "Maquinaria real",
+        assignment_type_icon_key: null,
+        instance_order: 1,
+        values: [
+          {
+            field_id: field.id,
+            field_slug: "equipo",
+            field_label: "Equipo",
+            input_type: "text",
+            value: "Jumbo 03",
+            raw_value: "Jumbo 03",
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("does not infer assignments between planned and real targets with matching activity group", () => {
+    const field = assignmentField({ id: 308, assignment_type_id: 35, slug: "nombre", label: "Nombre", input_type: "text" });
+    const type = assignmentType({ id: 35, slug: "cuadrilla", label: "Cuadrilla", fields: [field] });
+    const plannedAssignment = planningAssignment({
+      id: 3006,
+      planning_item_id: basePlanned.id,
+      assignment_type_id: type.id,
+      values: [assignmentValue({ id: 4008, assignment_id: 3006, field_id: field.id, value_text: "Planificada" })],
+    });
+    const realAssignment = planningAssignment({
+      id: 3007,
+      execution_segment_id: baseReal.id,
+      assignment_type_id: type.id,
+      values: [assignmentValue({ id: 4009, assignment_id: 3007, field_id: field.id, value_text: "Real" })],
+    });
+
+    const report = buildReportFromSourceRows(emptyQuery, [basePlanned], [baseReal], undefined, {
+      types: [type],
+      assignments: [plannedAssignment, realAssignment],
+    });
+
+    expect(report.assignment_rows).toEqual([
+      expect.objectContaining({
+        target_kind: "execution_segment",
+        target_id: baseReal.id,
+        values: [expect.objectContaining({ value: "Real" })],
+      }),
+      expect.objectContaining({
+        target_kind: "planning_item",
+        target_id: basePlanned.id,
+        values: [expect.objectContaining({ value: "Planificada" })],
+      }),
     ]);
   });
 

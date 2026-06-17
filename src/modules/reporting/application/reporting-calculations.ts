@@ -57,6 +57,7 @@ export type RealReportSourceRow = {
 
 type ReportBreakdownKey = "level" | "shift" | "front" | "category" | "tracking_type" | "item_type";
 type ReportCustomFieldTargetKind = "planning_item" | "execution_segment" | "activity_group";
+type ReportAssignmentTargetKind = ReportAssignmentRow["target_kind"];
 type ReportCustomFieldValuesByTarget = Map<string, Map<number, PlanningCustomFieldValueDto[]>>;
 
 export type ReportCustomFieldInput = {
@@ -115,6 +116,28 @@ function groupTotals(rows: ReportRow[], key: ReportBreakdownKey) {
 
 function getCustomFieldTargetKey(kind: ReportCustomFieldTargetKind, id: number | string) {
   return `${kind}:${id}`;
+}
+
+function getReportAssignmentTargetKey(kind: ReportAssignmentTargetKind, id: number) {
+  return `${kind}:${id}`;
+}
+
+function getReportRowAssignmentTarget(row: ReportRow) {
+  return row.source_table === "planning_items"
+    ? { target_kind: "planning_item" as const, target_id: row.id }
+    : { target_kind: "execution_segment" as const, target_id: row.id };
+}
+
+function getPlanningAssignmentTarget(assignment: PlanningAssignmentDto) {
+  if (assignment.planning_item_id !== null) {
+    return { target_kind: "planning_item" as const, target_id: assignment.planning_item_id };
+  }
+
+  if (assignment.execution_segment_id !== null) {
+    return { target_kind: "execution_segment" as const, target_id: assignment.execution_segment_id };
+  }
+
+  return null;
 }
 
 function indexCustomFieldValues(values: PlanningCustomFieldValueDto[]) {
@@ -396,20 +419,25 @@ function buildReportAssignmentRows(
     return [];
   }
 
-  const includedPlanningItemIds = new Set(
-    rows
-      .filter((row) => row.source_table === "planning_items")
-      .map((row) => row.id)
+  const includedTargetKeys = new Set(
+    rows.map((row) => {
+      const target = getReportRowAssignmentTarget(row);
+      return getReportAssignmentTargetKey(target.target_kind, target.target_id);
+    })
   );
-  if (!includedPlanningItemIds.size) {
+  if (!includedTargetKeys.size) {
     return [];
   }
 
   const { typeById, fieldById } = indexAssignmentCatalog(assignmentsInput.types);
 
   return assignmentsInput.assignments
-    .filter((assignment) => includedPlanningItemIds.has(assignment.planning_item_id))
     .map((assignment): ReportAssignmentRow | null => {
+      const target = getPlanningAssignmentTarget(assignment);
+      if (!target || !includedTargetKeys.has(getReportAssignmentTargetKey(target.target_kind, target.target_id))) {
+        return null;
+      }
+
       const type = typeById.get(assignment.assignment_type_id);
       if (!type) {
         return null;
@@ -444,6 +472,8 @@ function buildReportAssignmentRows(
       });
 
       return {
+        target_kind: target.target_kind,
+        target_id: target.target_id,
         planning_item_id: assignment.planning_item_id,
         assignment_id: assignment.id,
         assignment_type_id: type.id,
@@ -456,7 +486,8 @@ function buildReportAssignmentRows(
     })
     .filter((row): row is ReportAssignmentRow => Boolean(row))
     .sort((left, right) =>
-      left.planning_item_id - right.planning_item_id
+      left.target_kind.localeCompare(right.target_kind)
+      || left.target_id - right.target_id
       || left.assignment_type_id - right.assignment_type_id
       || left.instance_order - right.instance_order
       || left.assignment_id - right.assignment_id

@@ -16,14 +16,15 @@ type PlanningAssignmentsFormProps = {
   value: PlanningAssignmentsFormState;
   onChange: (value: PlanningAssignmentsFormState) => void;
   online: boolean;
+  title?: string;
   disabled?: boolean;
   loading?: boolean;
   error?: string;
 };
 
-export function PlanningAssignmentsForm({ types, value, onChange, online, disabled, loading, error }: PlanningAssignmentsFormProps) {
+export function PlanningAssignmentsForm({ types, value, onChange, online, title = "Asignaciones", disabled, loading, error }: PlanningAssignmentsFormProps) {
   if (loading) {
-    return <section className="assignments-form-section"><div className="custom-fields-heading"><p className="eyebrow">Asignaciones</p><span className="catalog-count">Cargando</span></div></section>;
+    return <section className="assignments-form-section"><div className="custom-fields-heading"><p className="eyebrow">{title}</p><span className="catalog-count">Cargando</span></div></section>;
   }
 
   if (error) {
@@ -48,7 +49,7 @@ export function PlanningAssignmentsForm({ types, value, onChange, online, disabl
 
   return (
     <section className="assignments-form-section">
-      <div className="custom-fields-heading"><p className="eyebrow">Asignaciones</p><span className="catalog-count">{online ? "Online" : "Offline"}</span></div>
+      <div className="custom-fields-heading"><p className="eyebrow">{title}</p><span className="catalog-count">{online ? "Online" : "Offline"}</span></div>
       {!online ? <p className="feedback">Trabajando con definiciones locales. Las asignaciones se sincronizaran cuando vuelva la conexion.</p> : null}
       {types.map((type) => {
         const instances = value[type.id] ?? [];

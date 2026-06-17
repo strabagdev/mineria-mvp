@@ -10,8 +10,10 @@ const mocks = vi.hoisted(() => ({
   getCustomFieldValues: vi.fn(),
   getCustomFieldValuesForPlanningItems: vi.fn(),
   saveCustomFieldValues: vi.fn(),
+  getAssignmentsForTarget: vi.fn(),
   getPlanningAssignments: vi.fn(),
   getPlanningAssignmentsForPlanningItems: vi.fn(),
+  saveAssignmentsForTarget: vi.fn(),
   savePlanningAssignments: vi.fn(),
   getReport: vi.fn(),
 }));
@@ -49,8 +51,10 @@ vi.mock("@/server/services/planning-custom-fields.service", () => ({
 }));
 
 vi.mock("@/server/services/planning-assignments.service", () => ({
+  getAssignmentsForTarget: mocks.getAssignmentsForTarget,
   getPlanningAssignments: mocks.getPlanningAssignments,
   getPlanningAssignmentsForPlanningItems: mocks.getPlanningAssignmentsForPlanningItems,
+  saveAssignmentsForTarget: mocks.saveAssignmentsForTarget,
   savePlanningAssignments: mocks.savePlanningAssignments,
 }));
 
@@ -219,5 +223,42 @@ describe("catalog permissions", () => {
 
     expect(response.status).toBe(403);
     expect(mocks.savePlanningAssignments).not.toHaveBeenCalled();
+  });
+
+  it("keeps planning item assignments writable with the legacy payload", async () => {
+    mocks.requireOperationalUser.mockResolvedValue(operatorActor);
+    mocks.savePlanningAssignments.mockResolvedValue([]);
+    const { POST } = await import("../app/api/planning-assignments/route");
+
+    const response = await POST(jsonRequest("http://local.test/api/planning-assignments", {
+      planning_item_id: 123,
+      assignments: [],
+    }));
+
+    expect(response.status).toBe(200);
+    expect(mocks.savePlanningAssignments).toHaveBeenCalledWith({
+      actor: operatorActor,
+      planningItemId: 123,
+      assignments: [],
+    });
+    expect(mocks.saveAssignmentsForTarget).not.toHaveBeenCalled();
+  });
+
+  it("supports execution segment assignments with a target-aware payload", async () => {
+    mocks.requireOperationalUser.mockResolvedValue(operatorActor);
+    mocks.saveAssignmentsForTarget.mockResolvedValue([]);
+    const { POST } = await import("../app/api/planning-assignments/route");
+
+    const response = await POST(jsonRequest("http://local.test/api/planning-assignments", {
+      target: { target_kind: "execution_segment", target_id: 456 },
+      assignments: [],
+    }));
+
+    expect(response.status).toBe(200);
+    expect(mocks.saveAssignmentsForTarget).toHaveBeenCalledWith({
+      actor: operatorActor,
+      target: { target_kind: "execution_segment", target_id: 456 },
+      assignments: [],
+    });
   });
 });

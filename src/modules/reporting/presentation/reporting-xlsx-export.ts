@@ -13,6 +13,7 @@ import {
 
 type SheetValue = string | number;
 export type ReportXlsxSheet = SheetValue[][];
+type AssignmentTargetKind = ReportAssignmentRow["target_kind"];
 
 const detailCoreHeaders = [
   "ID",
@@ -42,12 +43,23 @@ function getCustomFieldHeaders(report: ReportResponse) {
   });
 }
 
-function groupAssignmentsByPlanningItem(report: ReportResponse) {
-  const grouped = new Map<number, ReportAssignmentRow[]>();
+function getReportRowAssignmentTarget(row: Pick<ReportRow, "id" | "source_table">) {
+  return row.source_table === "planning_items"
+    ? { target_kind: "planning_item" as const, target_id: row.id }
+    : { target_kind: "execution_segment" as const, target_id: row.id };
+}
+
+function getAssignmentTargetKey(targetKind: AssignmentTargetKind, targetId: number) {
+  return `${targetKind}:${targetId}`;
+}
+
+function groupAssignmentsByTarget(report: ReportResponse) {
+  const grouped = new Map<string, ReportAssignmentRow[]>();
 
   for (const assignment of report.assignment_rows ?? []) {
-    grouped.set(assignment.planning_item_id, [
-      ...(grouped.get(assignment.planning_item_id) ?? []),
+    const targetKey = getAssignmentTargetKey(assignment.target_kind, assignment.target_id);
+    grouped.set(targetKey, [
+      ...(grouped.get(targetKey) ?? []),
       assignment,
     ]);
   }
@@ -68,10 +80,13 @@ function formatAssignmentInstanceForExcel(assignment: ReportAssignmentRow) {
 }
 
 export function formatAssignmentsForExcel(
-  planningItemId: number,
+  targetKind: AssignmentTargetKind,
+  targetId: number,
   assignmentRows: ReportAssignmentRow[]
 ) {
-  const assignments = assignmentRows.filter((assignment) => assignment.planning_item_id === planningItemId);
+  const assignments = assignmentRows.filter((assignment) =>
+    assignment.target_kind === targetKind && assignment.target_id === targetId
+  );
   const assignmentsByType = new Map<number, { label: string; assignments: ReportAssignmentRow[] }>();
 
   for (const assignment of assignments) {
@@ -96,29 +111,36 @@ export function formatAssignmentsForExcel(
 
 export function buildReportXlsxSheets(report: ReportResponse) {
   const customFieldHeaders = getCustomFieldHeaders(report);
-  const assignmentRowsByPlanningItem = groupAssignmentsByPlanningItem(report);
+  const assignmentRowsByTarget = groupAssignmentsByTarget(report);
   const detalle: ReportXlsxSheet = [
     [...detailCoreHeaders, ...customFieldHeaders, "Asignaciones"],
-    ...report.rows.map((row: ReportRow) => [
-      row.id,
-      row.source_table,
-      row.activity_group_id,
-      row.item_date,
-      `${row.start_time} - ${row.end_time}`,
-      formatHours(row.duration_minutes / 60),
-      toTrackingLabel(row.tracking_type),
-      row.shift,
-      row.level,
-      row.front,
-      toDisplayCategory(row.category),
-      row.item_type,
-      row.description,
-      row.notes ?? "",
-      ...(report.custom_field_columns ?? []).map((column) => row.custom_fields?.[column.slug]?.value ?? ""),
-      row.source_table === "planning_items"
-        ? formatAssignmentsForExcel(row.id, assignmentRowsByPlanningItem.get(row.id) ?? [])
-        : "",
-    ]),
+    ...report.rows.map((row: ReportRow) => {
+      const target = getReportRowAssignmentTarget(row);
+      const targetKey = getAssignmentTargetKey(target.target_kind, target.target_id);
+
+      return [
+        row.id,
+        row.source_table,
+        row.activity_group_id,
+        row.item_date,
+        `${row.start_time} - ${row.end_time}`,
+        formatHours(row.duration_minutes / 60),
+        toTrackingLabel(row.tracking_type),
+        row.shift,
+        row.level,
+        row.front,
+        toDisplayCategory(row.category),
+        row.item_type,
+        row.description,
+        row.notes ?? "",
+        ...(report.custom_field_columns ?? []).map((column) => row.custom_fields?.[column.slug]?.value ?? ""),
+        formatAssignmentsForExcel(
+          target.target_kind,
+          target.target_id,
+          assignmentRowsByTarget.get(targetKey) ?? []
+        ),
+      ];
+    }),
   ];
 
   return {

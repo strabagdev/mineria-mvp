@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import type { AssignmentFieldDto, AssignmentTypeDto } from "@/modules/planning-assignments/contracts/planning-assignments";
 import {
+  buildAssignmentsTargetReplaceParams,
   buildPlanningAssignmentsReplaceParams,
   normalizePlanningAssignments,
 } from "./planning-assignment-values";
@@ -140,5 +142,33 @@ describe("planning assignment value normalization", () => {
       p_planning_item_id: 123,
       p_assignments: assignments,
     });
+  });
+
+  it("builds transactional replace params scoped to an execution segment target", () => {
+    const assignments = [{ assignment_type_id: 1, instance_order: 1, values: [] }];
+    expect(buildAssignmentsTargetReplaceParams({ target_kind: "execution_segment", target_id: 456 }, assignments)).toEqual({
+      p_target_kind: "execution_segment",
+      p_target_id: 456,
+      p_assignments: assignments,
+    });
+  });
+
+  it("documents DB constraints for exactly one assignment target", () => {
+    const sql = readFileSync("supabase/sql/007_planning_assignments.sql", "utf8");
+
+    expect(sql).toContain("planning_assignments_exactly_one_target_check");
+    expect(sql).toContain("planning_item_id is not null");
+    expect(sql).toContain("execution_segment_id is null");
+    expect(sql).toContain("planning_item_id is null");
+    expect(sql).toContain("execution_segment_id is not null");
+  });
+
+  it("documents partial unique indexes for each assignment target", () => {
+    const sql = readFileSync("supabase/sql/007_planning_assignments.sql", "utf8");
+
+    expect(sql).toContain("planning_assignments_planning_item_type_order_uidx");
+    expect(sql).toContain("where planning_item_id is not null");
+    expect(sql).toContain("planning_assignments_execution_segment_type_order_uidx");
+    expect(sql).toContain("where execution_segment_id is not null");
   });
 });

@@ -54,6 +54,7 @@ type ReportDetailItem = {
   front: string;
   notes?: string | null;
 };
+type ReportAssignmentTargetKind = ReportAssignmentRow["target_kind"];
 
 function escapeCsvValue(value: unknown) {
   const rawValue = String(value ?? "");
@@ -244,6 +245,24 @@ function getReportAssignmentTypeSummaries(assignmentRows: ReportAssignmentRow[])
   );
 }
 
+function getReportRowAssignmentTarget(row: Pick<ReportRow, "id" | "source_table">) {
+  return row.source_table === "planning_items"
+    ? { target_kind: "planning_item" as const, target_id: row.id }
+    : { target_kind: "execution_segment" as const, target_id: row.id };
+}
+
+function getReportAssignmentTargetKey(targetKind: ReportAssignmentTargetKind, targetId: number) {
+  return `${targetKind}:${targetId}`;
+}
+
+function getReportAssignmentSectionTitle(row: Pick<ReportRow, "tracking_type" | "category">) {
+  if (row.tracking_type === "programado") {
+    return "Asignaciones planificadas";
+  }
+
+  return row.category === "interferencia" ? "Recursos involucrados" : "Asignaciones reales";
+}
+
 function ReportCustomFieldsSummary({ row }: { row: ReportRow }) {
   const values = Object.values(row.custom_fields ?? {})
     .filter((value) => value.value)
@@ -270,11 +289,11 @@ function ReportCustomFieldsSummary({ row }: { row: ReportRow }) {
   );
 }
 
-function ReportAssignmentsSummary({ assignments }: { assignments: ReportAssignmentRow[] }) {
+function ReportAssignmentsSummary({ assignments, title }: { assignments: ReportAssignmentRow[]; title: string }) {
   if (!assignments.length) {
     return (
       <section className="detail-content-section assignments-detail-section">
-        <p className="eyebrow">Asignaciones</p>
+        <p className="eyebrow">{title}</p>
         <p className="assignment-detail-status">Sin asignaciones vinculadas.</p>
       </section>
     );
@@ -282,7 +301,7 @@ function ReportAssignmentsSummary({ assignments }: { assignments: ReportAssignme
 
   return (
     <section className="detail-content-section assignments-detail-section">
-      <p className="eyebrow">Asignaciones</p>
+      <p className="eyebrow">{title}</p>
       <div className="assignments-detail-grid">
         {assignments.map((assignment) => {
           const TypeIcon = getAssignmentTypeIcon(
@@ -392,34 +411,36 @@ export default function ReportsPage() {
   const reportAssignmentRows = report?.assignment_rows;
   const assignmentRows = useMemo(() => reportAssignmentRows ?? [], [reportAssignmentRows]);
   const breakdowns = report?.breakdowns;
-  const assignmentSummariesByPlanningItemId = useMemo(() => {
-    const rowsByPlanningItemId = new Map<number, ReportAssignmentRow[]>();
+  const assignmentSummariesByTarget = useMemo(() => {
+    const rowsByTarget = new Map<string, ReportAssignmentRow[]>();
 
     for (const assignment of assignmentRows) {
-      rowsByPlanningItemId.set(assignment.planning_item_id, [
-        ...(rowsByPlanningItemId.get(assignment.planning_item_id) ?? []),
+      const targetKey = getReportAssignmentTargetKey(assignment.target_kind, assignment.target_id);
+      rowsByTarget.set(targetKey, [
+        ...(rowsByTarget.get(targetKey) ?? []),
         assignment,
       ]);
     }
 
     return new Map(
-      Array.from(rowsByPlanningItemId.entries()).map(([planningItemId, rows]) => [
-        planningItemId,
+      Array.from(rowsByTarget.entries()).map(([targetKey, rows]) => [
+        targetKey,
         getReportAssignmentTypeSummaries(rows),
       ])
     );
   }, [assignmentRows]);
-  const assignmentRowsByPlanningItemId = useMemo(() => {
-    const rowsByPlanningItemId = new Map<number, ReportAssignmentRow[]>();
+  const assignmentRowsByTarget = useMemo(() => {
+    const rowsByTarget = new Map<string, ReportAssignmentRow[]>();
 
     for (const assignment of assignmentRows) {
-      rowsByPlanningItemId.set(assignment.planning_item_id, [
-        ...(rowsByPlanningItemId.get(assignment.planning_item_id) ?? []),
+      const targetKey = getReportAssignmentTargetKey(assignment.target_kind, assignment.target_id);
+      rowsByTarget.set(targetKey, [
+        ...(rowsByTarget.get(targetKey) ?? []),
         assignment,
       ]);
     }
 
-    return rowsByPlanningItemId;
+    return rowsByTarget;
   }, [assignmentRows]);
 
   useEffect(() => {
@@ -796,64 +817,70 @@ export default function ReportsPage() {
           <div className="reports-table-wrap">
             <table className="reports-table">
               <thead>
-	                <tr>
-	                  <th>Fecha</th>
-	                  <th>Horario</th>
-	                  <th>Horas</th>
-	                  <th>Vista</th>
-	                  <th>Turno</th>
-	                  <th>Nivel</th>
-	                  <th>Frente</th>
-	                  <th>Categoria</th>
-	                  <th>Tipo</th>
-	                  <th>Detalle</th>
-	                  <th>Notas</th>
-	                  {customFieldColumns.map((column) => (
-	                    <th key={column.id}>{column.label}</th>
-	                  ))}
-	                  <th>Asignaciones</th>
-	                  <th>Acción</th>
-	                </tr>
-	              </thead>
-	              <tbody>
-	                {visibleRows.map((row) => (
-	                  <tr key={`${row.source_table}-${row.id}`}>
-	                    <td>{formatReportDate(row.item_date)}</td>
-	                    <td>
-	                      {row.start_time} - {row.end_time}
-	                    </td>
-	                    <td>{formatHours(row.duration_minutes / 60)}</td>
-	                    <td>{toTrackingLabel(row.tracking_type)}</td>
-	                    <td>{row.shift}</td>
-	                    <td>{row.level}</td>
-	                    <td>{row.front}</td>
-	                    <td>{toDisplayCategory(row.category)}</td>
-	                    <td>{row.item_type}</td>
-	                    <td>{row.description}</td>
-	                    <td>{row.notes ?? ""}</td>
-	                    {customFieldColumns.map((column) => (
-	                      <td key={column.id}>{row.custom_fields?.[column.slug]?.value ?? ""}</td>
-	                    ))}
-	                    <td>
-	                      {row.source_table === "planning_items" ? (
+                <tr>
+                  <th>Fecha</th>
+                  <th>Horario</th>
+                  <th>Horas</th>
+                  <th>Vista</th>
+                  <th>Turno</th>
+                  <th>Nivel</th>
+                  <th>Frente</th>
+                  <th>Categoria</th>
+                  <th>Tipo</th>
+                  <th>Detalle</th>
+                  <th>Notas</th>
+                  {customFieldColumns.map((column) => (
+                    <th key={column.id}>{column.label}</th>
+                  ))}
+                  <th>Asignaciones</th>
+                  <th>Acción</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleRows.map((row) => {
+                  const assignmentTarget = getReportRowAssignmentTarget(row);
+                  const assignmentTargetKey = getReportAssignmentTargetKey(
+                    assignmentTarget.target_kind,
+                    assignmentTarget.target_id
+                  );
+
+                  return (
+                    <tr key={`${row.source_table}-${row.id}`}>
+                      <td>{formatReportDate(row.item_date)}</td>
+                      <td>
+                        {row.start_time} - {row.end_time}
+                      </td>
+                      <td>{formatHours(row.duration_minutes / 60)}</td>
+                      <td>{toTrackingLabel(row.tracking_type)}</td>
+                      <td>{row.shift}</td>
+                      <td>{row.level}</td>
+                      <td>{row.front}</td>
+                      <td>{toDisplayCategory(row.category)}</td>
+                      <td>{row.item_type}</td>
+                      <td>{row.description}</td>
+                      <td>{row.notes ?? ""}</td>
+                      {customFieldColumns.map((column) => (
+                        <td key={column.id}>{row.custom_fields?.[column.slug]?.value ?? ""}</td>
+                      ))}
+                      <td>
                         <ReportAssignmentSummaryCell
-                          summaries={assignmentSummariesByPlanningItemId.get(row.id) ?? []}
-	                        />
-	                      ) : null}
-	                    </td>
-	                    <td className="reports-action-cell">
-	                      <button
-	                        type="button"
-	                        className="button icon-button small reports-detail-button"
-	                        title="Ver detalle"
-	                        aria-label={`Ver detalle de ${row.description}`}
-	                        onClick={() => setSelectedReportRow(row)}
-	                      >
-	                        <Eye aria-hidden="true" />
-	                      </button>
-	                    </td>
-	                  </tr>
-	                ))}
+                          summaries={assignmentSummariesByTarget.get(assignmentTargetKey) ?? []}
+                        />
+                      </td>
+                      <td className="reports-action-cell">
+                        <button
+                          type="button"
+                          className="button icon-button small reports-detail-button"
+                          title="Ver detalle"
+                          aria-label={`Ver detalle de ${row.description}`}
+                          onClick={() => setSelectedReportRow(row)}
+                        >
+                          <Eye aria-hidden="true" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -877,13 +904,20 @@ export default function ReportsPage() {
           toDisplayCategory={toDisplayCategory}
           toTrackingTypeLabel={toTrackingLabel}
           customFieldsSlot={<ReportCustomFieldsSummary row={selectedReportRow} />}
-          assignmentsSlot={
-            selectedReportRow.source_table === "planning_items" ? (
+          assignmentsSlot={(() => {
+            const assignmentTarget = getReportRowAssignmentTarget(selectedReportRow);
+            const assignmentTargetKey = getReportAssignmentTargetKey(
+              assignmentTarget.target_kind,
+              assignmentTarget.target_id
+            );
+
+            return (
               <ReportAssignmentsSummary
-                assignments={assignmentRowsByPlanningItemId.get(selectedReportRow.id) ?? []}
+                assignments={assignmentRowsByTarget.get(assignmentTargetKey) ?? []}
+                title={getReportAssignmentSectionTitle(selectedReportRow)}
               />
-            ) : null
-          }
+            );
+          })()}
           historySlot={null}
           onClose={() => setSelectedReportRow(null)}
           onEdit={() => undefined}

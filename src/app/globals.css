@@ -1570,25 +1570,35 @@ textarea {
 }
 
 .audit-page {
+  display: flex;
+  flex-direction: column;
+  grid-template-columns: none;
   align-items: stretch;
+  gap: 1rem;
 }
 
-.audit-hero,
+.audit-page > * {
+  width: 100%;
+}
+
 .audit-filters-card,
-.audit-table-card,
-.audit-detail-card {
+.audit-table-card {
   width: 100%;
 }
 
 .audit-filters {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 0.875rem;
+  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+  gap: 0.75rem;
   align-items: end;
 }
 
 .audit-filter-actions {
-  grid-column: 1 / -1;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 12rem;
 }
 
 .audit-filter-actions .button svg,
@@ -1598,10 +1608,8 @@ textarea {
 }
 
 .audit-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(20rem, 0.85fr);
-  gap: 1rem;
-  align-items: start;
+  display: block;
+  width: 100%;
 }
 
 .audit-table-wrap {
@@ -1609,7 +1617,7 @@ textarea {
 }
 
 .audit-table {
-  min-width: 70rem;
+  min-width: 96rem;
 }
 
 .audit-table tbody tr.selected {
@@ -1622,17 +1630,27 @@ textarea {
   color: var(--foreground);
 }
 
+.audit-table .session-pill {
+  justify-content: center;
+  min-width: 6.5rem;
+}
+
+.audit-tracking-real {
+  border-color: color-mix(in srgb, var(--warning) 42%, var(--border));
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+  color: var(--warning);
+}
+
+.audit-tracking-programado {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 72%, transparent);
+  color: var(--accent-text);
+}
+
 .audit-pagination {
   display: flex;
   justify-content: flex-end;
   padding-top: 0.25rem;
-}
-
-.audit-detail-card {
-  position: sticky;
-  top: 1rem;
-  display: grid;
-  gap: 1rem;
 }
 
 .audit-detail-stack {
@@ -1644,6 +1662,12 @@ textarea {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+}
+
+.audit-detail-modal-card {
+  width: min(64rem, calc(100vw - 2rem));
+  max-height: min(46rem, calc(100vh - 2rem));
+  overflow: auto;
 }
 
 .audit-json-block {
@@ -4950,11 +4974,7 @@ select.field-input {
   }
 
   .audit-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .audit-detail-card {
-    position: static;
+    width: 100%;
   }
 
   .assignments-admin-grid {
@@ -4965,6 +4985,11 @@ select.field-input {
   .reports-filter-grid,
   .audit-filters {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .audit-filter-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
   }
 
   .surface-card.hero.hero-operational {

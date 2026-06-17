@@ -1,5 +1,6 @@
 import type {
   AssignmentJson,
+  AssignmentTarget,
   AssignmentTypeDto,
   PlanningAssignmentInputDto,
   PlanningAssignmentValueInputDto,
@@ -27,6 +28,17 @@ export function buildPlanningAssignmentsReplaceParams(
 ) {
   return {
     p_planning_item_id: planningItemId,
+    p_assignments: assignments,
+  };
+}
+
+export function buildAssignmentsTargetReplaceParams(
+  target: AssignmentTarget,
+  assignments: NormalizedPlanningAssignment[]
+) {
+  return {
+    p_target_kind: target.target_kind,
+    p_target_id: target.target_id,
     p_assignments: assignments,
   };
 }

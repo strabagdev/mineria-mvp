@@ -5,15 +5,16 @@ import { getAssignmentTypeIcon } from "@/modules/planning-assignments/presentati
 type PlanningAssignmentsSummaryProps = {
   types: AssignmentTypeDto[];
   assignments: PlanningAssignmentDto[];
+  title?: string;
   loading?: boolean;
   error?: string;
 };
 
-export function PlanningAssignmentsSummary({ types, assignments, loading, error }: PlanningAssignmentsSummaryProps) {
+export function PlanningAssignmentsSummary({ types, assignments, title = "Asignaciones", loading, error }: PlanningAssignmentsSummaryProps) {
   if (loading || error) {
     return (
       <section className="detail-content-section assignments-detail-section">
-        <p className="eyebrow">Asignaciones</p>
+        <p className="eyebrow">{title}</p>
         <p className="assignment-detail-status">{loading ? "Cargando asignaciones..." : error}</p>
       </section>
     );
@@ -24,7 +25,7 @@ export function PlanningAssignmentsSummary({ types, assignments, loading, error 
 
   return (
     <section className="detail-content-section assignments-detail-section">
-      <p className="eyebrow">Asignaciones</p>
+      <p className="eyebrow">{title}</p>
       <div className="assignments-detail-grid">
         {entries.map(({ assignment, type, values }) => {
           const TypeIcon = getAssignmentTypeIcon(type.icon_key);

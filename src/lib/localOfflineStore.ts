@@ -17,6 +17,7 @@ export const OFFLINE_KEYS = {
   planningCustomFieldValuesPrefix: "planning-custom-field-values",
   planningAssignmentTypes: "planning-assignment-types",
   planningAssignmentsPrefix: "planning-assignments",
+  assignmentTargetsPrefix: "assignments",
   authProfile: "auth-profile",
   planningMutationQueue: "planning-mutation-queue",
 } as const;

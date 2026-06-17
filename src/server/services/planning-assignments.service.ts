@@ -7,6 +7,7 @@ import type {
   AssignmentFieldDto,
   AssignmentFieldInputType,
   AssignmentJson,
+  AssignmentTarget,
   AssignmentTypeIconKey,
   AssignmentTypeDto,
   PlanningAssignmentDto,
@@ -24,16 +25,20 @@ import {
   deleteAssignmentField,
   deleteAssignmentFieldOption,
   deleteAssignmentType,
+  executionSegmentExists,
   getAssignmentFieldById,
   getAssignmentFieldOptionById,
   getAssignmentTypeById,
+  listAssignmentRowsForTarget,
   listAssignmentFieldOptions,
   listAssignmentFieldRows,
   listAssignmentTypeRows,
   listPlanningAssignmentRows,
+  listPlanningAssignmentRowsByExecutionSegmentIds,
   listPlanningAssignmentRowsByPlanningItemIds,
   listPlanningAssignmentValueRows,
   planningItemExists,
+  replaceAssignmentRowsForTarget,
   replacePlanningAssignmentRows,
   updateAssignmentField,
   updateAssignmentFieldOption,
@@ -92,6 +97,20 @@ function buildAssignmentAuditSummary(assignments: PlanningAssignmentDto[], types
   }
 
   return summary;
+}
+
+function getAssignmentTargetEntityType(target: AssignmentTarget) {
+  return target.target_kind === "planning_item" ? "planning_item" : "activity_execution_segment";
+}
+
+async function assertAssignmentTargetExists(target: AssignmentTarget) {
+  const exists = target.target_kind === "planning_item"
+    ? await planningItemExists(target.target_id)
+    : await executionSegmentExists(target.target_id);
+
+  if (!exists) {
+    throw new Error(target.target_kind === "planning_item" ? "El programado no existe." : "El segmento real no existe.");
+  }
 }
 
 export function slugifyAssignmentCatalogValue(value: string) {
@@ -295,6 +314,21 @@ export async function getPlanningAssignments(planningItemId: number) {
   }));
 }
 
+export async function getAssignmentsForTarget(target: AssignmentTarget) {
+  const assignments = await listAssignmentRowsForTarget(target);
+  const values = await listPlanningAssignmentValueRows(assignments.map((assignment) => assignment.id));
+  const valuesByAssignment = new Map<number, typeof values>();
+
+  for (const value of values) {
+    valuesByAssignment.set(value.assignment_id, [...(valuesByAssignment.get(value.assignment_id) ?? []), value]);
+  }
+
+  return assignments.map((assignment): PlanningAssignmentDto => ({
+    ...assignment,
+    values: valuesByAssignment.get(assignment.id) ?? [],
+  }));
+}
+
 export async function getPlanningAssignmentsForPlanningItems(planningItemIds: number[]) {
   const assignments = await listPlanningAssignmentRowsByPlanningItemIds(planningItemIds);
   const values = await listPlanningAssignmentValueRows(assignments.map((assignment) => assignment.id));
@@ -308,6 +342,57 @@ export async function getPlanningAssignmentsForPlanningItems(planningItemIds: nu
     ...assignment,
     values: valuesByAssignment.get(assignment.id) ?? [],
   }));
+}
+
+export async function getPlanningAssignmentsForExecutionSegments(executionSegmentIds: number[]) {
+  const assignments = await listPlanningAssignmentRowsByExecutionSegmentIds(executionSegmentIds);
+  const values = await listPlanningAssignmentValueRows(assignments.map((assignment) => assignment.id));
+  const valuesByAssignment = new Map<number, typeof values>();
+
+  for (const value of values) {
+    valuesByAssignment.set(value.assignment_id, [...(valuesByAssignment.get(value.assignment_id) ?? []), value]);
+  }
+
+  return assignments.map((assignment): PlanningAssignmentDto => ({
+    ...assignment,
+    values: valuesByAssignment.get(assignment.id) ?? [],
+  }));
+}
+
+export async function saveAssignmentsForTarget(input: {
+  actor: AuditActor;
+  target: AssignmentTarget;
+  assignments: PlanningAssignmentInputDto[];
+}) {
+  await assertAssignmentTargetExists(input.target);
+
+  const [beforeAssignments, types, auditTypes] = await Promise.all([
+    getAssignmentsForTarget(input.target),
+    listAssignmentTypes({ activeOnly: true }),
+    listAssignmentTypes({ activeOnly: false }),
+  ]);
+  const normalizedAssignments = normalizePlanningAssignments(types, input.assignments);
+  await replaceAssignmentRowsForTarget(input.target, normalizedAssignments);
+  const assignments = await getAssignmentsForTarget(input.target);
+  if (!havePlanningAssignmentsChanged(beforeAssignments, assignments)) {
+    return assignments;
+  }
+
+  await writeAuditLog({
+    actor: input.actor,
+    action: "planning_assignments.replaced",
+    entityType: getAssignmentTargetEntityType(input.target),
+    entityId: input.target.target_id,
+    before: buildAssignmentAuditSnapshot(beforeAssignments, auditTypes),
+    after: buildAssignmentAuditSnapshot(assignments, auditTypes),
+    metadata: {
+      targetKind: input.target.target_kind,
+      assignmentCountBefore: beforeAssignments.length,
+      assignmentCountAfter: assignments.length,
+      summary: buildAssignmentAuditSummary(assignments, auditTypes),
+    },
+  });
+  return assignments;
 }
 
 export async function savePlanningAssignments(input: {
@@ -339,6 +424,7 @@ export async function savePlanningAssignments(input: {
     before: buildAssignmentAuditSnapshot(beforeAssignments, auditTypes),
     after: buildAssignmentAuditSnapshot(assignments, auditTypes),
     metadata: {
+      targetKind: "planning_item",
       assignmentCountBefore: beforeAssignments.length,
       assignmentCountAfter: assignments.length,
       summary: buildAssignmentAuditSummary(assignments, auditTypes),

@@ -15,7 +15,9 @@ export type ReportCustomFieldValue = {
 };
 
 export type ReportAssignmentRow = {
-  planning_item_id: number;
+  target_kind: "planning_item" | "execution_segment";
+  target_id: number;
+  planning_item_id?: number | null;
   assignment_id: number;
   assignment_type_id: number;
   assignment_type_slug: string;

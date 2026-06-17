@@ -26,6 +26,7 @@ describe("local offline storage keys", () => {
       planningCustomFieldValuesPrefix: "planning-custom-field-values",
       planningAssignmentTypes: "planning-assignment-types",
       planningAssignmentsPrefix: "planning-assignments",
+      assignmentTargetsPrefix: "assignments",
       authProfile: "auth-profile",
       planningMutationQueue: "planning-mutation-queue",
     });

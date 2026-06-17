@@ -11,7 +11,7 @@ const type: AssignmentTypeDto = {
 };
 
 const assignment: PlanningAssignmentDto = {
-  id: 100, planning_item_id: 200, assignment_type_id: 1, instance_order: 1,
+  id: 100, planning_item_id: 200, execution_segment_id: null, assignment_type_id: 1, instance_order: 1,
   values: [
     { id: 1, assignment_id: 100, field_id: 10, option_id: 20, value_text: null, value_number: null, value_date: null, value_boolean: null, value_json: {} },
     { id: 2, assignment_id: 100, field_id: 11, option_id: null, value_text: null, value_number: 8, value_date: null, value_boolean: null, value_json: {} },
@@ -77,6 +77,7 @@ describe("planning assignments form model", () => {
     ], -9)).toMatchObject([
       {
         planning_item_id: -9,
+        execution_segment_id: null,
         assignment_type_id: 1,
         instance_order: 1,
         values: [

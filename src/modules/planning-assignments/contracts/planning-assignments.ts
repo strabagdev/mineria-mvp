@@ -1,5 +1,11 @@
 export type AssignmentFieldInputType = "text" | "number" | "date" | "boolean" | "select" | "multi_select";
 export type AssignmentJson = Record<string, string | number | boolean | null>;
+export type AssignmentTargetKind = "planning_item" | "execution_segment";
+
+export type AssignmentTarget = {
+  target_kind: AssignmentTargetKind;
+  target_id: number;
+};
 
 export const ASSIGNMENT_TYPE_ICON_KEYS = [
   "truck",
@@ -113,6 +119,8 @@ export type PlanningAssignmentInputDto = {
 
 export type PlanningAssignmentsReplaceRequestDto = {
   planning_item_id?: number;
+  execution_segment_id?: number;
+  target?: AssignmentTarget;
   assignments?: PlanningAssignmentInputDto[];
 };
 
@@ -130,7 +138,8 @@ export type PlanningAssignmentValueDto = {
 
 export type PlanningAssignmentDto = {
   id: number;
-  planning_item_id: number;
+  planning_item_id: number | null;
+  execution_segment_id: number | null;
   assignment_type_id: number;
   instance_order: number;
   values: PlanningAssignmentValueDto[];
@@ -142,4 +151,8 @@ export function isAssignmentFieldInputType(value: string): value is AssignmentFi
 
 export function isAssignmentTypeIconKey(value: string): value is AssignmentTypeIconKey {
   return (ASSIGNMENT_TYPE_ICON_KEYS as readonly string[]).includes(value);
+}
+
+export function isAssignmentTargetKind(value: string): value is AssignmentTargetKind {
+  return value === "planning_item" || value === "execution_segment";
 }

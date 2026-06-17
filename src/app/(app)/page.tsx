@@ -42,11 +42,12 @@ import { getPlanningCustomFieldIcon } from "@/modules/planning-custom-fields/pre
 import { PlanningCustomFieldsSummary } from "@/modules/planning-custom-fields/presentation/planning-custom-fields-summary";
 import {
   fetchAssignmentTypes,
-  fetchPlanningAssignments,
+  fetchPlanningAssignmentsForTarget,
   fetchPlanningAssignmentsForItems,
-  replacePlanningAssignments,
+  savePlanningAssignmentsForTarget,
 } from "@/modules/planning-assignments/application/planning-assignments.client";
 import type {
+  AssignmentTarget,
   AssignmentTypeDto,
   PlanningAssignmentInputDto,
   PlanningAssignmentDto,
@@ -63,10 +64,10 @@ import {
 import { PlanningAssignmentsSummary } from "@/modules/planning-assignments/presentation/planning-assignments-summary";
 import { getAssignmentTypeIcon } from "@/modules/planning-assignments/presentation/planning-assignment-type-icons";
 import {
+  readAssignmentsCacheForTarget,
   readAssignmentTypesCache,
-  readPlanningAssignmentsCache,
   saveAssignmentTypesCache,
-  savePlanningAssignmentsCache,
+  saveAssignmentsCacheForTarget,
 } from "@/modules/planning-assignments/offline/planning-assignments-offline";
 import {
   PlanningMutationRequestError,
@@ -175,6 +176,28 @@ function buildCustomFieldValuesCacheKey(planningItemId: number) {
   return `${OFFLINE_KEYS.planningCustomFieldValuesPrefix}:${planningItemId}`;
 }
 
+function toPlanningItemAssignmentTarget(planningItemId: number): AssignmentTarget {
+  return { target_kind: "planning_item", target_id: planningItemId };
+}
+
+function getAssignmentTargetForItem(item: PlanningItem): AssignmentTarget {
+  return item.tracking_type === "programado"
+    ? { target_kind: "planning_item", target_id: item.id }
+    : { target_kind: "execution_segment", target_id: item.id };
+}
+
+function getAssignmentTargetKey(target: AssignmentTarget) {
+  return `${target.target_kind}:${target.target_id}`;
+}
+
+function getAssignmentTitleForItem(item: Pick<PlanningItem, "tracking_type" | "category">) {
+  if (item.tracking_type === "programado") {
+    return "Asignaciones planificadas";
+  }
+
+  return item.category === "interferencia" ? "Recursos involucrados" : "Asignaciones reales";
+}
+
 const AUTH_SYNC_ERROR_MESSAGE =
   "Los registros siguen guardados en este equipo. No pudimos sincronizarlos todavia; se reintentara automaticamente cuando la conexion este estable.";
 const PLANNING_NETWORK_ERROR_MESSAGE =
@@ -279,7 +302,7 @@ export default function Home() {
   const [formAssignmentsError, setFormAssignmentsError] = useState("");
   const [formAssignmentsReady, setFormAssignmentsReady] = useState(false);
   const [assignmentTypes, setAssignmentTypes] = useState<AssignmentTypeDto[]>([]);
-  const [planningAssignmentsByItemId, setPlanningAssignmentsByItemId] = useState<Record<number, PlanningAssignmentDto[]>>({});
+  const [planningAssignmentsByTargetKey, setPlanningAssignmentsByTargetKey] = useState<Record<string, PlanningAssignmentDto[]>>({});
   const [viewingAssignmentTypes, setViewingAssignmentTypes] = useState<AssignmentTypeDto[]>([]);
   const [viewingPlanningAssignments, setViewingPlanningAssignments] = useState<PlanningAssignmentDto[]>([]);
   const [viewingAssignmentsLoading, setViewingAssignmentsLoading] = useState(false);
@@ -459,14 +482,21 @@ export default function Home() {
     const planningItemIds = items
       .filter((item) => item.tracking_type === "programado" && item.id > 0)
       .map((item) => item.id);
+    const executionSegmentTargets = items
+      .filter((item) => item.tracking_type === "real" && item.id > 0)
+      .map(getAssignmentTargetForItem);
+    const visibleTargets = [
+      ...planningItemIds.map(toPlanningItemAssignmentTarget),
+      ...executionSegmentTargets,
+    ];
 
     async function loadCachedAssignments() {
       const [cachedTypes, cachedEntries] = await Promise.all([
         readAssignmentTypesCache().catch(() => null),
         Promise.all(
-          planningItemIds.map(async (planningItemId) => [
-            planningItemId,
-            await readPlanningAssignmentsCache(planningItemId).catch(() => null),
+          visibleTargets.map(async (target) => [
+            getAssignmentTargetKey(target),
+            await readAssignmentsCacheForTarget(target).catch(() => null),
           ] as const)
         ),
       ]);
@@ -478,9 +508,9 @@ export default function Home() {
         });
       }
       if (cachedTypes) setAssignmentTypes(cachedTypes);
-      setPlanningAssignmentsByItemId((current) => ({
+      setPlanningAssignmentsByTargetKey((current) => ({
         ...current,
-        ...Object.fromEntries(cachedEntries.map(([id, assignments]) => [id, assignments ?? []])),
+        ...Object.fromEntries(cachedEntries.map(([key, assignments]) => [key, assignments ?? []])),
       }));
     }
 
@@ -496,22 +526,36 @@ export default function Home() {
           ? fetchPlanningAssignmentsForItems(planningItemIds, session.access_token)
           : Promise.resolve([]),
       ]);
-      const nextAssignmentsByItemId = Object.fromEntries(
-        planningItemIds.map((id) => [id, [] as PlanningAssignmentDto[]])
+      const executionSegmentAssignments = await Promise.all(
+        executionSegmentTargets.map(async (target) => [
+          target,
+          await fetchPlanningAssignmentsForTarget(target, session.access_token),
+        ] as const)
+      );
+      const nextAssignmentsByTargetKey = Object.fromEntries(
+        visibleTargets.map((target) => [getAssignmentTargetKey(target), [] as PlanningAssignmentDto[]])
       );
       for (const assignment of assignments) {
-        nextAssignmentsByItemId[assignment.planning_item_id] = [
-          ...(nextAssignmentsByItemId[assignment.planning_item_id] ?? []),
+        if (!assignment.planning_item_id) {
+          continue;
+        }
+        const key = getAssignmentTargetKey(toPlanningItemAssignmentTarget(assignment.planning_item_id));
+        nextAssignmentsByTargetKey[key] = [
+          ...(nextAssignmentsByTargetKey[key] ?? []),
           assignment,
         ];
       }
+      for (const [target, targetAssignments] of executionSegmentAssignments) {
+        nextAssignmentsByTargetKey[getAssignmentTargetKey(target)] = targetAssignments;
+      }
       setAssignmentTypes(types);
-      setPlanningAssignmentsByItemId((current) => ({ ...current, ...nextAssignmentsByItemId }));
+      setPlanningAssignmentsByTargetKey((current) => ({ ...current, ...nextAssignmentsByTargetKey }));
       void saveAssignmentTypesCache(types);
       void Promise.all(
-        Object.entries(nextAssignmentsByItemId).map(([planningItemId, itemAssignments]) =>
-          savePlanningAssignmentsCache(Number(planningItemId), itemAssignments).catch(() => undefined)
-        )
+        Object.entries(nextAssignmentsByTargetKey).map(([key, itemAssignments]) => {
+          const target = visibleTargets.find((entry) => getAssignmentTargetKey(entry) === key);
+          return target ? saveAssignmentsCacheForTarget(target, itemAssignments).catch(() => undefined) : Promise.resolve();
+        })
       );
     } catch {
       recordOperationalEvent({
@@ -1013,6 +1057,10 @@ export default function Home() {
   }
 
   function getPendingAssignmentsForItem(item: PlanningItem) {
+    if (item.tracking_type !== "programado") {
+      return null;
+    }
+
     const pendingMutation = findPendingPlanningMutationForItemId(item.id);
     return pendingMutation?.assignmentPayload !== undefined
       ? toDisplayPlanningAssignments(pendingMutation.assignmentPayload, item.id)
@@ -1020,7 +1068,7 @@ export default function Home() {
   }
 
   function getAssignmentsForItem(item: PlanningItem) {
-    return getPendingAssignmentsForItem(item) ?? planningAssignmentsByItemId[item.id] ?? [];
+    return getPendingAssignmentsForItem(item) ?? planningAssignmentsByTargetKey[getAssignmentTargetKey(getAssignmentTargetForItem(item))] ?? [];
   }
 
   function getCustomFieldValuesForGanttPopover(item: PlanningItem) {
@@ -1042,18 +1090,14 @@ export default function Home() {
   }
 
   function openPlanningDetail(item: PlanningItem) {
+    const assignmentTarget = getAssignmentTargetForItem(item);
+    const assignmentTargetKey = getAssignmentTargetKey(assignmentTarget);
     setViewingPlanningItem(item);
     setViewingCustomFieldValues(getPendingCustomFieldValuesForItem(item) ?? []);
     setViewingCustomFieldsError("");
     setViewingAssignmentTypes(assignmentTypes);
     setViewingPlanningAssignments(getAssignmentsForItem(item));
     setViewingAssignmentsError("");
-
-    if (item.tracking_type !== "programado") {
-      setViewingCustomFieldsLoading(false);
-      setViewingAssignmentsLoading(false);
-      return;
-    }
 
     if (item.id <= 0) {
       setViewingCustomFieldsLoading(false);
@@ -1067,7 +1111,7 @@ export default function Home() {
       if (!getPendingAssignmentsForItem(item)) {
         void Promise.all([
           readAssignmentTypesCache().catch(() => null),
-          readPlanningAssignmentsCache(item.id).catch(() => null),
+          readAssignmentsCacheForTarget(assignmentTarget).catch(() => null),
         ]).then(([types, assignments]) => {
           if (types) setViewingAssignmentTypes(types);
           if (assignments) setViewingPlanningAssignments(assignments);
@@ -1076,41 +1120,45 @@ export default function Home() {
       return;
     }
 
-    setViewingCustomFieldsLoading(true);
+    setViewingCustomFieldsLoading(item.tracking_type === "programado");
     setViewingAssignmentsLoading(!isBrowserOffline());
-    void fetchPlanningCustomFieldValues({ planningItemId: item.id }, session.access_token)
-      .then((values) => {
-        setViewingCustomFieldValues(values);
-        setViewingCustomFieldsError("");
-        void cacheCustomFieldValues(item.id, values);
-      })
-      .catch(async (error: unknown) => {
-        const cachedValues = await readCachedCustomFieldValues(item.id);
-        if (cachedValues) {
-          setViewingCustomFieldValues(cachedValues);
+    if (item.tracking_type === "programado") {
+      void fetchPlanningCustomFieldValues({ planningItemId: item.id }, session.access_token)
+        .then((values) => {
+          setViewingCustomFieldValues(values);
           setViewingCustomFieldsError("");
-          return;
-        }
+          void cacheCustomFieldValues(item.id, values);
+        })
+        .catch(async (error: unknown) => {
+          const cachedValues = await readCachedCustomFieldValues(item.id);
+          if (cachedValues) {
+            setViewingCustomFieldValues(cachedValues);
+            setViewingCustomFieldsError("");
+            return;
+          }
 
-        recordOperationalEvent({
-          level: "warn",
-          name: "planning_custom_field_values.load_failed",
-          source: "planningPage",
-          metadata: { planningItemId: item.id },
+          recordOperationalEvent({
+            level: "warn",
+            name: "planning_custom_field_values.load_failed",
+            source: "planningPage",
+            metadata: { planningItemId: item.id },
+          });
+          const message = getRequestErrorMessage(error, "No se pudieron cargar los campos configurables.");
+          setViewingCustomFieldsError(message);
+          setItemsError(message);
+        })
+        .finally(() => {
+          setViewingCustomFieldsLoading(false);
         });
-        const message = getRequestErrorMessage(error, "No se pudieron cargar los campos configurables.");
-        setViewingCustomFieldsError(message);
-        setItemsError(message);
-      })
-      .finally(() => {
-        setViewingCustomFieldsLoading(false);
-      });
+    } else {
+      setViewingCustomFieldsLoading(false);
+    }
 
     if (isBrowserOffline()) {
       if (!getPendingAssignmentsForItem(item)) {
         void Promise.all([
           readAssignmentTypesCache().catch(() => null),
-          readPlanningAssignmentsCache(item.id).catch(() => null),
+          readAssignmentsCacheForTarget(assignmentTarget).catch(() => null),
         ]).then(([types, assignments]) => {
           if (types) {
             setAssignmentTypes(types);
@@ -1118,7 +1166,7 @@ export default function Home() {
           }
           if (assignments) {
             setViewingPlanningAssignments(assignments);
-            setPlanningAssignmentsByItemId((current) => ({ ...current, [item.id]: assignments }));
+            setPlanningAssignmentsByTargetKey((current) => ({ ...current, [assignmentTargetKey]: assignments }));
           }
         });
       }
@@ -1126,15 +1174,15 @@ export default function Home() {
     } else {
       void Promise.all([
         fetchAssignmentTypes(session.access_token, { activeOnly: false }),
-        fetchPlanningAssignments(item.id, session.access_token),
+        fetchPlanningAssignmentsForTarget(assignmentTarget, session.access_token),
       ])
         .then(([types, assignments]) => {
           setViewingAssignmentTypes(types);
           setViewingPlanningAssignments(assignments);
           setAssignmentTypes(types);
-          setPlanningAssignmentsByItemId((current) => ({ ...current, [item.id]: assignments }));
+          setPlanningAssignmentsByTargetKey((current) => ({ ...current, [assignmentTargetKey]: assignments }));
           void saveAssignmentTypesCache(types);
-          void savePlanningAssignmentsCache(item.id, assignments);
+          void saveAssignmentsCacheForTarget(assignmentTarget, assignments);
           setViewingAssignmentsError("");
         })
         .catch((error: unknown) => {
@@ -1142,7 +1190,7 @@ export default function Home() {
             level: "warn",
             name: "planning_assignments.load_failed",
             source: "planningPage",
-            metadata: { planningItemId: item.id, mode: "detail" },
+            metadata: { targetKind: assignmentTarget.target_kind, targetId: assignmentTarget.target_id, mode: "detail" },
           });
           setViewingAssignmentsError(getRequestErrorMessage(error, "No se pudieron cargar las asignaciones."));
         })
@@ -1150,12 +1198,21 @@ export default function Home() {
     }
   }
 
-  async function loadAssignmentTypesForCreate() {
+  async function loadAssignmentTypesForCreate(input: { targetKind?: AssignmentTarget["target_kind"] } = {}) {
     if (!canOperatePlanning) {
       setFormAssignmentTypes([]);
       setPlanningAssignmentsFormState({});
       setFormAssignmentsReady(false);
       setFormAssignmentsError("");
+      setFormAssignmentsLoading(false);
+      return;
+    }
+
+    if (input.targetKind === "execution_segment" && (!session?.access_token || isBrowserOffline())) {
+      setFormAssignmentTypes([]);
+      setPlanningAssignmentsFormState({});
+      setFormAssignmentsReady(false);
+      setFormAssignmentsError("Las asignaciones reales requieren conexión por ahora.");
       setFormAssignmentsLoading(false);
       return;
     }
@@ -1192,7 +1249,7 @@ export default function Home() {
     }
   }
 
-  async function loadAssignmentsForEdit(planningItemId: number) {
+  async function loadAssignmentsForEdit(item: PlanningItem) {
     if (!canOperatePlanning) {
       setFormAssignmentTypes([]);
       setPlanningAssignmentsFormState({});
@@ -1202,9 +1259,11 @@ export default function Home() {
       return;
     }
 
-    const pendingMutation = findPendingPlanningMutationForItemId(planningItemId);
+    const target = getAssignmentTargetForItem(item);
+    const isExecutionSegmentTarget = target.target_kind === "execution_segment";
+    const pendingMutation = item.tracking_type === "programado" ? findPendingPlanningMutationForItemId(item.id) : null;
     const pendingAssignments = pendingMutation?.assignmentPayload !== undefined
-      ? toDisplayPlanningAssignments(pendingMutation.assignmentPayload, planningItemId)
+      ? toDisplayPlanningAssignments(pendingMutation.assignmentPayload, item.id)
       : null;
     if (pendingAssignments) {
       const cachedTypes = assignmentTypes.length
@@ -1218,10 +1277,20 @@ export default function Home() {
       setFormAssignmentsLoading(false);
       return;
     }
-    if (!session?.access_token || isBrowserOffline() || planningItemId <= 0) {
+    if (isExecutionSegmentTarget && (!session?.access_token || isBrowserOffline())) {
+      setFormAssignmentTypes([]);
+      setAssignmentTypes(assignmentTypes);
+      setPlanningAssignmentsFormState({});
+      setFormAssignmentsReady(false);
+      setFormAssignmentsError("Las asignaciones reales requieren conexión por ahora.");
+      setFormAssignmentsLoading(false);
+      return;
+    }
+
+    if (!session?.access_token || isBrowserOffline() || item.id <= 0) {
       const [cachedTypes, cachedAssignments] = await Promise.all([
         readAssignmentTypesCache().catch(() => null),
-        planningItemId > 0 ? readPlanningAssignmentsCache(planningItemId).catch(() => null) : Promise.resolve(null),
+        item.id > 0 ? readAssignmentsCacheForTarget(target).catch(() => null) : Promise.resolve(null),
       ]);
       setFormAssignmentTypes(toOperationalAssignmentTypes(cachedTypes ?? []));
       setAssignmentTypes(cachedTypes ?? []);
@@ -1237,18 +1306,18 @@ export default function Home() {
     try {
       const [types, assignments] = await Promise.all([
         fetchAssignmentTypes(session.access_token, { activeOnly: false }),
-        fetchPlanningAssignments(planningItemId, session.access_token),
+        fetchPlanningAssignmentsForTarget(target, session.access_token),
       ]);
       setFormAssignmentTypes(toOperationalAssignmentTypes(types));
       setAssignmentTypes(types);
       setPlanningAssignmentsFormState(buildPlanningAssignmentsFormState(assignments));
       setFormAssignmentsReady(true);
       void saveAssignmentTypesCache(types);
-      void savePlanningAssignmentsCache(planningItemId, assignments);
+      void saveAssignmentsCacheForTarget(target, assignments);
     } catch (error: unknown) {
       const [cachedTypes, cachedAssignments] = await Promise.all([
         readAssignmentTypesCache().catch(() => null),
-        readPlanningAssignmentsCache(planningItemId).catch(() => null),
+        readAssignmentsCacheForTarget(target).catch(() => null),
       ]);
       setFormAssignmentTypes(toOperationalAssignmentTypes(cachedTypes ?? []));
       setAssignmentTypes(cachedTypes ?? []);
@@ -1375,12 +1444,14 @@ export default function Home() {
           throw new Error("No se pudo asociar las asignaciones al programado sincronizado.");
         }
 
-        const savedAssignments = await replacePlanningAssignments({
-          planning_item_id: planningItemId,
-          assignments: mutation.assignmentPayload,
-        }, session.access_token);
-        setPlanningAssignmentsByItemId((current) => ({ ...current, [planningItemId]: savedAssignments }));
-        void savePlanningAssignmentsCache(planningItemId, savedAssignments);
+        const savedAssignments = await savePlanningAssignmentsForTarget(
+          toPlanningItemAssignmentTarget(planningItemId),
+          mutation.assignmentPayload,
+          session.access_token
+        );
+        const assignmentTarget = toPlanningItemAssignmentTarget(planningItemId);
+        setPlanningAssignmentsByTargetKey((current) => ({ ...current, [getAssignmentTargetKey(assignmentTarget)]: savedAssignments }));
+        void saveAssignmentsCacheForTarget(assignmentTarget, savedAssignments);
       },
       getErrorMessage: (error) =>
         getRequestErrorMessage(error, "No se pudo sincronizar un registro pendiente."),
@@ -1435,6 +1506,12 @@ export default function Home() {
 
     if (!session?.access_token) {
       if (isBrowserOffline()) {
+        if (formState.tracking_type === "real" && formAssignmentsReady) {
+          setFormAssignmentsError("Las asignaciones reales requieren conexión por ahora.");
+          setFormError("Las asignaciones reales requieren conexión por ahora.");
+          return;
+        }
+
         enqueuePlanningMutation(method, payload, {
           customFieldValues: getPlannedCustomFieldValuesForQueue(),
           assignmentPayload: getPlannedAssignmentsForQueue(),
@@ -1484,43 +1561,54 @@ export default function Home() {
           await refreshPlanningItems().catch(() => undefined);
           return;
         }
+      }
 
-        if (formAssignmentsReady) {
-          const assignmentPayload = toPlanningAssignmentInputs(formAssignmentTypes, planningAssignmentsFormState);
-          if (isBrowserOffline()) {
+      if (formAssignmentsReady && Number.isFinite(savedItemId) && savedItemId > 0) {
+        const assignmentPayload = toPlanningAssignmentInputs(formAssignmentTypes, planningAssignmentsFormState);
+        const assignmentTarget = formState.tracking_type === "programado"
+          ? toPlanningItemAssignmentTarget(savedItemId)
+          : ({ target_kind: "execution_segment", target_id: savedItemId } satisfies AssignmentTarget);
+
+        if (isBrowserOffline()) {
+          if (assignmentTarget.target_kind === "execution_segment") {
+            setFormAssignmentsError("Las asignaciones reales requieren conexión por ahora.");
+            setFormError("Las asignaciones reales requieren conexión por ahora.");
+            return;
+          }
+
+          enqueuePlanningMutation(method, payload, { assignmentPayload, syncedPlanningItemId: savedItemId });
+          setItemsError("Sin conexion: la programacion se guardo y sus asignaciones quedaron pendientes de sincronizacion.");
+          setIsModalOpen(false);
+          resetPlanningForm();
+          return;
+        }
+
+        try {
+          const savedAssignments = await savePlanningAssignmentsForTarget(
+            assignmentTarget,
+            assignmentPayload,
+            session.access_token
+          );
+          setPlanningAssignmentsByTargetKey((current) => ({ ...current, [getAssignmentTargetKey(assignmentTarget)]: savedAssignments }));
+          void saveAssignmentsCacheForTarget(assignmentTarget, savedAssignments);
+        } catch (error: unknown) {
+          if (assignmentTarget.target_kind === "planning_item" && shouldQueuePlanningMutation(error)) {
             enqueuePlanningMutation(method, payload, { assignmentPayload, syncedPlanningItemId: savedItemId });
             setItemsError("Sin conexion: la programacion se guardo y sus asignaciones quedaron pendientes de sincronizacion.");
             setIsModalOpen(false);
             resetPlanningForm();
             return;
           }
-
-          try {
-            const savedAssignments = await replacePlanningAssignments({
-              planning_item_id: savedItemId,
-              assignments: assignmentPayload,
-            }, session.access_token);
-            setPlanningAssignmentsByItemId((current) => ({ ...current, [savedItemId]: savedAssignments }));
-            void savePlanningAssignmentsCache(savedItemId, savedAssignments);
-          } catch (error: unknown) {
-            if (shouldQueuePlanningMutation(error)) {
-              enqueuePlanningMutation(method, payload, { assignmentPayload, syncedPlanningItemId: savedItemId });
-              setItemsError("Sin conexion: la programacion se guardo y sus asignaciones quedaron pendientes de sincronizacion.");
-              setIsModalOpen(false);
-              resetPlanningForm();
-              return;
-            }
-            recordOperationalEvent({
-              level: "warn",
-              name: "planning_assignments.save_failed",
-              source: "planningPage",
-              metadata: { planningItemId: savedItemId },
-            });
-            setEditingPlanningItem({ id: savedItemId });
-            setFormAssignmentsError(getRequestErrorMessage(error, "La programacion se guardo, pero no se pudieron guardar sus asignaciones. Reintenta guardar para completarlas."));
-            await refreshPlanningItems().catch(() => undefined);
-            return;
-          }
+          recordOperationalEvent({
+            level: "warn",
+            name: "planning_assignments.save_failed",
+            source: "planningPage",
+            metadata: { targetKind: assignmentTarget.target_kind, targetId: assignmentTarget.target_id },
+          });
+          setEditingPlanningItem({ id: savedItemId });
+          setFormAssignmentsError(getRequestErrorMessage(error, "El registro se guardo, pero no se pudieron guardar sus asignaciones. Reintenta guardar para completarlas."));
+          await refreshPlanningItems().catch(() => undefined);
+          return;
         }
       }
 
@@ -1594,9 +1682,7 @@ export default function Home() {
     setViewingPlanningItem(null);
     setIsModalOpen(true);
 
-    if (item.tracking_type === "programado") {
-      void loadAssignmentsForEdit(item.id);
-    }
+    void loadAssignmentsForEdit(item);
 
     if (item.tracking_type === "programado" && session?.access_token) {
       const pendingValues = getPendingCustomFieldValuesForItem(item);
@@ -1802,7 +1888,7 @@ export default function Home() {
   const viewingContinuation = findSegmentContinuation(viewingPlanningItem, allPlanningGroups);
 
   function renderGanttAssignmentIndicators(item: PlanningItem | null) {
-    if (!item || item.tracking_type !== "programado") {
+    if (!item) {
       return null;
     }
 
@@ -1855,7 +1941,7 @@ export default function Home() {
     );
     const assignmentBadges = getPlanningAssignmentTypeSummaries(
       assignmentTypes,
-      item.tracking_type === "programado" ? getAssignmentsForItem(item) : []
+      getAssignmentsForItem(item)
     );
     const visibleAssignmentBadges = assignmentBadges.slice(0, 5);
     const hiddenAssignmentBadges = assignmentBadges.slice(5);
@@ -2048,11 +2134,9 @@ export default function Home() {
     setFormError("");
     setViewingPlanningItem(null);
     setIsModalOpen(true);
-    if (trackingType === "programado") {
-      void loadAssignmentTypesForCreate();
-    } else {
-      setFormAssignmentsLoading(false);
-    }
+    void loadAssignmentTypesForCreate({
+      targetKind: trackingType === "programado" ? "planning_item" : "execution_segment",
+    });
   }
 
   return (
@@ -2179,17 +2263,16 @@ export default function Home() {
             ) : null
           }
           assignmentsSlot={
-            formState.tracking_type === "programado" ? (
-              <PlanningAssignmentsForm
-                types={formAssignmentTypes}
-                value={planningAssignmentsFormState}
-                onChange={setPlanningAssignmentsFormState}
-                online={networkStatus === "online" && !isBrowserOffline()}
-                disabled={formBusy}
-                loading={formAssignmentsLoading}
-                error={formAssignmentsError}
-              />
-            ) : null
+            <PlanningAssignmentsForm
+              title={getAssignmentTitleForItem(formState)}
+              types={formAssignmentTypes}
+              value={planningAssignmentsFormState}
+              onChange={setPlanningAssignmentsFormState}
+              online={networkStatus === "online" && !isBrowserOffline()}
+              disabled={formBusy || (formState.tracking_type === "real" && (!session?.access_token || isBrowserOffline()))}
+              loading={formAssignmentsLoading}
+              error={formAssignmentsError}
+            />
           }
           onClose={() => setIsModalOpen(false)}
           onSubmit={handleCreateItem}
@@ -2218,14 +2301,13 @@ export default function Home() {
             ) : null
           }
           assignmentsSlot={
-            viewingPlanningItem.tracking_type === "programado" ? (
-              <PlanningAssignmentsSummary
-                types={viewingAssignmentTypes}
-                assignments={viewingPlanningAssignments}
-                loading={viewingAssignmentsLoading}
-                error={viewingAssignmentsError}
-              />
-            ) : null
+            <PlanningAssignmentsSummary
+              title={getAssignmentTitleForItem(viewingPlanningItem)}
+              types={viewingAssignmentTypes}
+              assignments={viewingPlanningAssignments}
+              loading={viewingAssignmentsLoading}
+              error={viewingAssignmentsError}
+            />
           }
           historySlot={
             viewingPlanningItem.tracking_type === "programado" && canManageCatalog ? (
@@ -2240,7 +2322,6 @@ export default function Home() {
           onEdit={() => openEditPlanningItem(viewingPlanningItem)}
         />
       ) : null}
-
       {deleteConfirmation ? (
         <DeleteConfirmationDialog
           title={`Eliminar ${deleteConfirmation.trackingType === "real" ? "real" : "programacion"}`}

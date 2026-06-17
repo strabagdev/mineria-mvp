@@ -140,6 +140,7 @@ export function toDisplayPlanningAssignments(
     return {
       id: assignmentId,
       planning_item_id: planningItemId,
+      execution_segment_id: null,
       assignment_type_id: assignment.assignment_type_id,
       instance_order: assignment.instance_order,
       values,

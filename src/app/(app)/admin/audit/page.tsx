@@ -2,35 +2,34 @@
 
 import React from "react";
 import { useRouter } from "next/navigation";
-import { Eye, History, RotateCcw, Search, ShieldCheck } from "lucide-react";
+import { Eye, RotateCcw, Search, X } from "lucide-react";
 import type { AuditEventDto, AuditEventsQueryDto } from "@/modules/audit/contracts/audit";
 import { fetchAuditEvents } from "@/modules/audit/application/audit-events.client";
 import {
   formatAuditDate,
-  formatAuditEntity,
   formatJsonPreview,
-  getAuditActionLabel,
   getAuditEventSummary,
-  getAuditMetadataSummary,
 } from "@/modules/audit/presentation/audit-events-display";
 import { useAuth } from "@/providers/auth-provider";
 
 type AuditFilterForm = {
   from: string;
   to: string;
-  action: string;
-  entityType: string;
-  entityId: string;
-  userId: string;
+  shift: string;
+  level: string;
+  front: string;
+  itemType: string;
+  trackingType: string;
 };
 
 const emptyFilters: AuditFilterForm = {
   from: "",
   to: "",
-  action: "",
-  entityType: "",
-  entityId: "",
-  userId: "",
+  shift: "",
+  level: "",
+  front: "",
+  itemType: "",
+  trackingType: "",
 };
 
 const pageLimit = 50;
@@ -43,13 +42,125 @@ function buildAuditQuery(filters: AuditFilterForm, cursor?: string | null): Audi
   return {
     from: cleanFilter(filters.from),
     to: cleanFilter(filters.to),
-    action: cleanFilter(filters.action),
-    entity_type: cleanFilter(filters.entityType),
-    entity_id: cleanFilter(filters.entityId),
-    user_id: cleanFilter(filters.userId),
     limit: pageLimit,
     cursor: cursor ?? undefined,
   };
+}
+
+type AuditInterferenceRow = {
+  key: string;
+  event: AuditEventDto;
+  itemDate: string;
+  shift: string;
+  level: string;
+  front: string;
+  trackingType: "programado" | "real";
+  itemType: string;
+  description: string;
+  startTime: string;
+  endTime: string;
+  duration: string;
+  notes: string;
+  createdBy: string;
+  createdAt: string;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function toText(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function toTime(value: unknown) {
+  return toText(value).slice(0, 5);
+}
+
+function toMinutes(time: string) {
+  const [hours, minutes] = time.slice(0, 5).split(":").map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+    return null;
+  }
+  return hours * 60 + minutes;
+}
+
+function formatDuration(startTime: string, endTime: string) {
+  const start = toMinutes(startTime);
+  let end = toMinutes(endTime);
+
+  if (start === null || end === null) {
+    return "";
+  }
+
+  if (end <= start) {
+    end += 24 * 60;
+  }
+
+  const totalMinutes = end - start;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  if (!hours) {
+    return `${minutes}m`;
+  }
+
+  return minutes ? `${hours}h ${minutes}m` : `${hours}h`;
+}
+
+function getAuditSnapshots(value: unknown): Record<string, unknown>[] {
+  if (Array.isArray(value)) {
+    return value.filter(isRecord);
+  }
+
+  return isRecord(value) ? [value] : [];
+}
+
+function getInterferenceRowsFromEvent(event: AuditEventDto): AuditInterferenceRow[] {
+  const snapshots = getAuditSnapshots(event.after).length
+    ? getAuditSnapshots(event.after)
+    : getAuditSnapshots(event.before);
+  const inferredTrackingType = event.entity.type === "activity_execution_segment" ? "real" : "programado";
+
+  return snapshots
+    .filter((snapshot) => toText(snapshot.category) === "interferencia")
+    .map((snapshot, index) => {
+      const startTime = toTime(snapshot.start_time);
+      const endTime = toTime(snapshot.end_time);
+      const trackingType = toText(snapshot.tracking_type) === "real" ? "real" : inferredTrackingType;
+
+      return {
+        key: `${event.id}-${toText(snapshot.id) || index}`,
+        event,
+        itemDate: toText(snapshot.item_date),
+        shift: toText(snapshot.shift),
+        level: toText(snapshot.level),
+        front: toText(snapshot.front),
+        trackingType,
+        itemType: toText(snapshot.item_type),
+        description: toText(snapshot.description),
+        startTime,
+        endTime,
+        duration: formatDuration(startTime, endTime),
+        notes: toText(snapshot.notes),
+        createdBy: event.user.email ?? event.user.id ?? "Sin usuario",
+        createdAt: event.created_at,
+      };
+    });
+}
+
+function matchesInterferenceFilters(row: AuditInterferenceRow, filters: AuditFilterForm) {
+  return (
+    (!filters.shift || row.shift === filters.shift) &&
+    (!filters.level || row.level.toLowerCase().includes(filters.level.toLowerCase())) &&
+    (!filters.front || row.front.toLowerCase().includes(filters.front.toLowerCase())) &&
+    (!filters.itemType || row.itemType.toLowerCase().includes(filters.itemType.toLowerCase())) &&
+    (!filters.trackingType || row.trackingType === filters.trackingType)
+  );
+}
+
+function trackingTypeLabel(value: AuditInterferenceRow["trackingType"]) {
+  return value === "programado" ? "Programado" : "Real";
 }
 
 function JsonBlock({ label, value }: { label: string; value: unknown }) {
@@ -72,6 +183,14 @@ export default function AdminAuditPage() {
   const [busy, setBusy] = React.useState(false);
   const [message, setMessage] = React.useState("");
   const canAdmin = profile?.role === "admin";
+  const interferenceRows = React.useMemo(
+    () => events.flatMap(getInterferenceRowsFromEvent),
+    [events]
+  );
+  const visibleInterferenceRows = React.useMemo(
+    () => interferenceRows.filter((row) => matchesInterferenceFilters(row, appliedFilters)),
+    [appliedFilters, interferenceRows]
+  );
 
   const loadEvents = React.useCallback(async (input: { append?: boolean; cursor?: string | null; filters: AuditFilterForm }) => {
     if (!session?.access_token) {
@@ -95,7 +214,7 @@ export default function AdminAuditPage() {
           return current;
         }
 
-        return response.events[0] ?? null;
+        return null;
       });
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : "No se pudo cargar auditoria.");
@@ -134,24 +253,11 @@ export default function AdminAuditPage() {
 
   return (
     <div className="dashboard-stack audit-page">
-      <section className="surface-card hero padded audit-hero">
-        <div className="reports-hero-copy">
-          <span className="reports-hero-icon" aria-hidden="true">
-            <ShieldCheck />
-          </span>
-          <div>
-            <p className="eyebrow">Administracion</p>
-            <h2 className="section-title">Auditoría</h2>
-            <p className="body-copy">Historial de cambios y acciones del sistema</p>
-          </div>
-        </div>
-      </section>
-
       <section className="surface-card padded audit-filters-card">
         <div className="reports-section-header">
           <div>
-            <p className="eyebrow">Filtros</p>
-            <h3 className="card-title">Busqueda global</h3>
+            <p className="eyebrow">Auditoría</p>
+            <h2 className="section-title">Interferencias</h2>
           </div>
           <span className="session-pill">Solo admin</span>
         </div>
@@ -176,40 +282,55 @@ export default function AdminAuditPage() {
             />
           </label>
           <label className="field">
-            Accion
+            Turno
+            <select
+              className="field-input"
+              value={filters.shift}
+              onChange={(event) => setFilters((current) => ({ ...current, shift: event.target.value }))}
+            >
+              <option value="">Todos</option>
+              <option value="Dia">Dia</option>
+              <option value="Noche">Noche</option>
+            </select>
+          </label>
+          <label className="field">
+            Nivel
             <input
               className="field-input"
-              value={filters.action}
-              onChange={(event) => setFilters((current) => ({ ...current, action: event.target.value }))}
-              placeholder="planning_item.updated"
+              value={filters.level}
+              onChange={(event) => setFilters((current) => ({ ...current, level: event.target.value }))}
+              placeholder="NTI"
             />
           </label>
           <label className="field">
-            Tipo de entidad
+            Frente
             <input
               className="field-input"
-              value={filters.entityType}
-              onChange={(event) => setFilters((current) => ({ ...current, entityType: event.target.value }))}
-              placeholder="planning_item"
+              value={filters.front}
+              onChange={(event) => setFilters((current) => ({ ...current, front: event.target.value }))}
+              placeholder="GT1"
             />
           </label>
           <label className="field">
-            ID de entidad
+            Tipo
             <input
               className="field-input"
-              value={filters.entityId}
-              onChange={(event) => setFilters((current) => ({ ...current, entityId: event.target.value }))}
-              placeholder="36"
+              value={filters.itemType}
+              onChange={(event) => setFilters((current) => ({ ...current, itemType: event.target.value }))}
+              placeholder="operacional"
             />
           </label>
           <label className="field">
-            Usuario
-            <input
+            Vista
+            <select
               className="field-input"
-              value={filters.userId}
-              onChange={(event) => setFilters((current) => ({ ...current, userId: event.target.value }))}
-              placeholder="user_id"
-            />
+              value={filters.trackingType}
+              onChange={(event) => setFilters((current) => ({ ...current, trackingType: event.target.value }))}
+            >
+              <option value="">Todas</option>
+              <option value="programado">Programado</option>
+              <option value="real">Real</option>
+            </select>
           </label>
 
           <div className="toolbar-actions audit-filter-actions">
@@ -231,45 +352,55 @@ export default function AdminAuditPage() {
         <article className="surface-card padded reports-table-card audit-table-card">
           <div className="reports-section-header">
             <div>
-              <p className="eyebrow">Eventos</p>
-              <h3 className="card-title">{events.length} registros cargados</h3>
+              <p className="eyebrow">Tabla principal</p>
+              <h3 className="card-title">{visibleInterferenceRows.length} interferencias</h3>
             </div>
-            <span className="reports-hero-icon" aria-hidden="true">
-              <History />
-            </span>
           </div>
 
           <div className="reports-table-wrap audit-table-wrap">
             <table className="reports-table audit-table">
               <thead>
                 <tr>
-                  <th>Fecha/hora</th>
+                  <th>Fecha</th>
+                  <th>Turno</th>
+                  <th>Nivel</th>
+                  <th>Frente</th>
+                  <th>Vista</th>
+                  <th>Tipo</th>
+                  <th>Descripción</th>
+                  <th>Inicio</th>
+                  <th>Término</th>
+                  <th>Duración</th>
+                  <th>Notas</th>
                   <th>Usuario</th>
-                  <th>Accion</th>
-                  <th>Entidad</th>
-                  <th>Resumen</th>
+                  <th>Creación</th>
                   <th>Detalle</th>
                 </tr>
               </thead>
               <tbody>
-                {events.map((event) => {
-                  const isSelected = selectedEvent?.id === event.id;
-                  const metadataSummary = getAuditMetadataSummary(event);
-
+                {visibleInterferenceRows.map((row) => {
                   return (
-                    <tr key={event.id} className={isSelected ? "selected" : undefined}>
-                      <td>{formatAuditDate(event.created_at)}</td>
-                      <td>{event.user.email ?? event.user.id ?? "Sin usuario"}</td>
-                      <td>{getAuditActionLabel(event)}</td>
-                      <td>{formatAuditEntity(event.entity)}</td>
-                      <td>{metadataSummary ?? "Sin detalles adicionales"}</td>
+                    <tr key={row.key}>
+                      <td>{row.itemDate || "Sin fecha"}</td>
+                      <td>{row.shift || "-"}</td>
+                      <td>{row.level || "-"}</td>
+                      <td>{row.front || "-"}</td>
+                      <td><span className={`session-pill audit-tracking-${row.trackingType}`}>{trackingTypeLabel(row.trackingType)}</span></td>
+                      <td>{row.itemType || "-"}</td>
+                      <td>{row.description || "-"}</td>
+                      <td>{row.startTime || "-"}</td>
+                      <td>{row.endTime || "-"}</td>
+                      <td>{row.duration || "-"}</td>
+                      <td>{row.notes || "-"}</td>
+                      <td>{row.createdBy}</td>
+                      <td>{formatAuditDate(row.createdAt)}</td>
                       <td>
                         <button
                           type="button"
                           className="button icon-button small"
-                          aria-label={`Ver detalle de auditoria ${event.id}`}
+                          aria-label={`Ver detalle de auditoria ${row.event.id}`}
                           title="Ver detalle"
-                          onClick={() => setSelectedEvent(event)}
+                          onClick={() => setSelectedEvent(row.event)}
                         >
                           <Eye aria-hidden />
                         </button>
@@ -283,7 +414,12 @@ export default function AdminAuditPage() {
 
           {!events.length && !busy ? (
             <div className="empty-state reports-empty-state">
-              <p className="body-copy">No hay eventos de auditoria para los filtros seleccionados.</p>
+              <p className="body-copy">No hay eventos de auditoria para el rango seleccionado.</p>
+            </div>
+          ) : null}
+          {events.length && !visibleInterferenceRows.length && !busy ? (
+            <div className="empty-state reports-empty-state">
+              <p className="body-copy">No hay interferencias para los filtros seleccionados.</p>
             </div>
           ) : null}
 
@@ -298,20 +434,38 @@ export default function AdminAuditPage() {
             </button>
           </div>
         </article>
+      </section>
 
-        <aside className="surface-card padded audit-detail-card" aria-label="Detalle de evento de auditoria">
-          <div className="reports-section-header">
-            <div>
-              <p className="eyebrow">Detalle</p>
-              <h3 className="card-title">{selectedEvent ? `Evento #${selectedEvent.id}` : "Sin seleccion"}</h3>
+      {selectedEvent ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setSelectedEvent(null)}>
+          <section
+            className="modal-card detail-modal-card audit-detail-modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="audit-detail-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div>
+                <p className="eyebrow">Detalle de auditoría</p>
+                <h2 id="audit-detail-title" className="card-title" style={{ marginTop: 12 }}>
+                  Evento #{selectedEvent.id}
+                </h2>
+              </div>
+              <button
+                type="button"
+                className="button icon-button"
+                aria-label="Cerrar detalle"
+                onClick={() => setSelectedEvent(null)}
+              >
+                <X aria-hidden />
+              </button>
             </div>
-          </div>
 
-          {selectedEvent ? (
             <div className="audit-detail-stack">
               <div className="audit-detail-meta">
                 <span className="session-pill">{formatAuditDate(selectedEvent.created_at)}</span>
-                <span className="session-pill">{formatAuditEntity(selectedEvent.entity)}</span>
+                <span className="session-pill">{selectedEvent.entity.type}</span>
                 <span className="session-pill">{selectedEvent.user.email ?? "Sin usuario"}</span>
               </div>
               <p className="body-copy">{getAuditEventSummary(selectedEvent)}</p>
@@ -320,13 +474,9 @@ export default function AdminAuditPage() {
               <JsonBlock label="Después" value={selectedEvent.after} />
               <JsonBlock label="Detalles del evento" value={selectedEvent.metadata} />
             </div>
-          ) : (
-            <div className="empty-state reports-empty-state">
-              <p className="body-copy">Selecciona un evento para ver antes, después y detalles del evento.</p>
-            </div>
-          )}
-        </aside>
-      </section>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }
