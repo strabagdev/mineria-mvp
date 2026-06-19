@@ -16,8 +16,7 @@ export type ReportXlsxSheet = SheetValue[][];
 type AssignmentTargetKind = ReportAssignmentRow["target_kind"];
 type AssignmentColumn = {
   assignment_type_id: number;
-  assignment_type_label: string;
-  assignment_type_slug: string;
+  field_id: number;
   header: string;
 };
 
@@ -50,18 +49,23 @@ function getCustomFieldHeaders(report: ReportResponse) {
 }
 
 function buildUniqueAssignmentHeader(
-  assignment: Pick<ReportAssignmentRow, "assignment_type_label" | "assignment_type_slug" | "assignment_type_id">,
+  input: Pick<ReportAssignmentRow, "assignment_type_label" | "assignment_type_slug" | "assignment_type_id"> & {
+    field_id: number;
+    field_label: string;
+    field_slug: string;
+  },
   seenHeaders: Set<string>,
   seenLabels: Map<string, number>
 ) {
-  const baseHeader = `Asignación - ${assignment.assignment_type_label}`;
-  const labelCount = seenLabels.get(assignment.assignment_type_label) ?? 0;
-  seenLabels.set(assignment.assignment_type_label, labelCount + 1);
+  const baseHeader = `${input.assignment_type_label} - ${input.field_label}`;
+  const labelCount = seenLabels.get(baseHeader) ?? 0;
+  seenLabels.set(baseHeader, labelCount + 1);
 
   const candidates = [
     baseHeader,
-    `Asignación - ${assignment.assignment_type_label} (${assignment.assignment_type_slug})`,
-    `Asignación - ${assignment.assignment_type_label} (${assignment.assignment_type_id})`,
+    `${input.assignment_type_label} - ${input.field_label} (${input.field_slug})`,
+    `${input.assignment_type_label} - ${input.field_label} (${input.assignment_type_slug}-${input.field_slug})`,
+    `${input.assignment_type_label} - ${input.field_label} (${input.assignment_type_id}-${input.field_id})`,
   ];
   const firstCandidateIndex = labelCount > 0 ? 1 : 0;
 
@@ -83,7 +87,7 @@ function buildUniqueAssignmentHeader(
 }
 
 function buildAssignmentColumns(report: ReportResponse, reservedHeaders: string[]) {
-  const seenTypeIds = new Set<number>();
+  const seenColumnKeys = new Set<string>();
   const seenHeaders = new Set([...detailCoreHeaders, ...reservedHeaders]);
   const seenLabels = new Map<string, number>();
 
@@ -94,17 +98,32 @@ function buildAssignmentColumns(report: ReportResponse, reservedHeaders: string[
       || left.assignment_type_id - right.assignment_type_id
     )
     .flatMap((assignment): AssignmentColumn[] => {
-      if (seenTypeIds.has(assignment.assignment_type_id)) {
-        return [];
-      }
+      return [...assignment.values]
+        .sort((left, right) =>
+          left.field_label.localeCompare(right.field_label)
+          || left.field_slug.localeCompare(right.field_slug)
+          || left.field_id - right.field_id
+        )
+        .flatMap((value): AssignmentColumn[] => {
+          const columnKey = `${assignment.assignment_type_id}:${value.field_id}`;
+          if (seenColumnKeys.has(columnKey)) {
+            return [];
+          }
 
-      seenTypeIds.add(assignment.assignment_type_id);
-      return [{
-        assignment_type_id: assignment.assignment_type_id,
-        assignment_type_label: assignment.assignment_type_label,
-        assignment_type_slug: assignment.assignment_type_slug,
-        header: buildUniqueAssignmentHeader(assignment, seenHeaders, seenLabels),
-      }];
+          seenColumnKeys.add(columnKey);
+          return [{
+            assignment_type_id: assignment.assignment_type_id,
+            field_id: value.field_id,
+            header: buildUniqueAssignmentHeader({
+              assignment_type_id: assignment.assignment_type_id,
+              assignment_type_label: assignment.assignment_type_label,
+              assignment_type_slug: assignment.assignment_type_slug,
+              field_id: value.field_id,
+              field_label: value.field_label,
+              field_slug: value.field_slug,
+            }, seenHeaders, seenLabels),
+          }];
+        });
     });
 }
 
@@ -136,6 +155,7 @@ export function formatAssignmentsForExcel(
   targetKind: AssignmentTargetKind,
   targetId: number,
   assignmentTypeId: number,
+  fieldId: number,
   assignmentRows: ReportAssignmentRow[]
 ) {
   return assignmentRows
@@ -145,7 +165,12 @@ export function formatAssignmentsForExcel(
       && assignment.assignment_type_id === assignmentTypeId
     )
     .sort((left, right) => left.instance_order - right.instance_order || left.assignment_id - right.assignment_id)
-    .flatMap((assignment) => assignment.values.map((value) => value.value).filter(Boolean))
+    .flatMap((assignment) =>
+      assignment.values
+        .filter((value) => value.field_id === fieldId)
+        .map((value) => value.value)
+        .filter(Boolean)
+    )
     .join("; ");
 }
 
@@ -180,6 +205,7 @@ export function buildReportXlsxSheets(report: ReportResponse) {
           target.target_kind,
           target.target_id,
           column.assignment_type_id,
+          column.field_id,
           targetAssignments
         )),
       ];

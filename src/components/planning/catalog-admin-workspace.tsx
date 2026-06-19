@@ -1,4 +1,5 @@
-import type { Dispatch, FormEventHandler, ReactNode, SetStateAction } from "react";
+import { useState, type Dispatch, type FormEventHandler, type ReactNode, type SetStateAction } from "react";
+import { DeleteConfirmationDialog } from "@/components/planning/delete-confirmation-dialog";
 
 type CatalogDetail = {
   id: number;
@@ -92,6 +93,13 @@ export type CatalogAdminWorkspaceProps = {
   customFieldsAdminSlot?: ReactNode;
 };
 
+type CatalogDeletionRequest = {
+  entityType: string;
+  label: string;
+  warning: string;
+  onConfirm: () => void;
+};
+
 export function CatalogAdminWorkspace({
   catalog,
   levels,
@@ -124,6 +132,7 @@ export function CatalogAdminWorkspace({
   showCounts = true,
   customFieldsAdminSlot,
 }: CatalogAdminWorkspaceProps) {
+  const [pendingDeletion, setPendingDeletion] = useState<CatalogDeletionRequest | null>(null);
   const detailTypesForAdmin =
     catalog.find((category) => category.slug === detailForm.category)?.types ?? [];
   const showActivities = activeSection === "all" || activeSection === "activities";
@@ -131,8 +140,33 @@ export function CatalogAdminWorkspace({
   const showCustomFields = activeSection === "all" || activeSection === "custom-fields";
   const showTree = showActivities || showLevels;
 
+  function requestDeletion(request: CatalogDeletionRequest) {
+    setPendingDeletion(request);
+  }
+
+  function confirmDeletion() {
+    if (!pendingDeletion) {
+      return;
+    }
+
+    pendingDeletion.onConfirm();
+    setPendingDeletion(null);
+  }
+
   return (
     <div className={`catalog-admin-grid ${activeSection === "custom-fields" ? "custom-fields-only" : ""}`}>
+      {pendingDeletion ? (
+        <DeleteConfirmationDialog
+          title="Eliminar elemento del catalogo"
+          entityType={pendingDeletion.entityType}
+          label={pendingDeletion.label}
+          warning={pendingDeletion.warning}
+          busy={catalogBusy}
+          onCancel={() => setPendingDeletion(null)}
+          onConfirm={confirmDeletion}
+        />
+      ) : null}
+
       <div className="catalog-admin-column" id="catalog-create">
         {showActivities ? (
           <>
@@ -333,7 +367,14 @@ export function CatalogAdminWorkspace({
                       <button
                         type="button"
                         className="button small danger"
-                        onClick={() => onDeleteLevel(level.id)}
+                        onClick={() =>
+                          requestDeletion({
+                            entityType: "Nivel",
+                            label: level.label,
+                            warning: "El nivel dejara de estar disponible para nuevas selecciones del catalogo.",
+                            onConfirm: () => onDeleteLevel(level.id),
+                          })
+                        }
                         disabled={catalogBusy}
                       >
                         Eliminar
@@ -383,7 +424,14 @@ export function CatalogAdminWorkspace({
                       <button
                         type="button"
                         className="button small danger"
-                        onClick={() => onDeleteType(type.id)}
+                        onClick={() =>
+                          requestDeletion({
+                            entityType: "Tipo",
+                            label: type.label,
+                            warning: "Los detalles asociados tambien seran eliminados.",
+                            onConfirm: () => onDeleteType(type.id),
+                          })
+                        }
                         disabled={catalogBusy}
                       >
                         Eliminar
@@ -539,7 +587,14 @@ export function CatalogAdminWorkspace({
                               <button
                                 type="button"
                                 className="button small danger"
-                                onClick={() => onDeleteDetail(detail.id)}
+                                onClick={() =>
+                                  requestDeletion({
+                                    entityType: "Detalle",
+                                    label: detail.label,
+                                    warning: "El detalle dejara de estar disponible para nuevas selecciones del catalogo.",
+                                    onConfirm: () => onDeleteDetail(detail.id),
+                                  })
+                                }
                                 disabled={catalogBusy}
                               >
                                 Eliminar

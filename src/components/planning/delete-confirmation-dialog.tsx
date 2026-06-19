@@ -1,6 +1,8 @@
 type DeleteConfirmationDialogProps = {
   title: string;
   label: string;
+  entityType?: string;
+  warning?: string;
   error?: string;
   busy: boolean;
   onCancel: () => void;
@@ -10,6 +12,8 @@ type DeleteConfirmationDialogProps = {
 export function DeleteConfirmationDialog({
   title,
   label,
+  entityType,
+  warning,
   error,
   busy,
   onCancel,
@@ -30,9 +34,12 @@ export function DeleteConfirmationDialog({
             <h2 id="delete-confirmation-title" className="card-title" style={{ marginTop: 12 }}>
               {title}
             </h2>
-            <p className="body-copy" style={{ marginTop: 8 }}>
-              Vas a eliminar <strong>{label}</strong>. Esta accion no se puede deshacer.
-            </p>
+            <div className="body-copy" style={{ marginTop: 8 }}>
+              {entityType ? <p>Tipo de entidad: <strong>{entityType}</strong></p> : null}
+              <p>Elemento: <strong>{label}</strong></p>
+              {warning ? <p>{warning}</p> : null}
+              <p>Esta accion no se puede deshacer.</p>
+            </div>
           </div>
         </div>
 
@@ -43,7 +50,7 @@ export function DeleteConfirmationDialog({
             Cancelar
           </button>
           <button type="button" className="button danger" onClick={onConfirm} disabled={busy}>
-            {busy ? "Eliminando..." : "Confirmar eliminacion"}
+            {busy ? "Eliminando..." : "Eliminar"}
           </button>
         </div>
       </div>

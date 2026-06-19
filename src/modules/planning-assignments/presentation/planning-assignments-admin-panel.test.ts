@@ -35,4 +35,21 @@ describe("planning assignments admin panel option metadata", () => {
     expect(source).toContain("metadata: parseAssignmentOptionMetadata(optionForm.metadata)");
     expect(source).toContain("metadata: formatAssignmentOptionMetadata(option.metadata)");
   });
+
+  it("opens a UI dialog for assignment catalog deletions before deleting", () => {
+    const source = readFileSync(
+      "src/modules/planning-assignments/presentation/planning-assignments-admin-panel.tsx",
+      "utf8"
+    );
+
+    expect(source).toContain("DeleteConfirmationDialog");
+    expect(source).toContain('entityType: "Assignment Type"');
+    expect(source).toContain('entityType: "Assignment Field"');
+    expect(source).toContain('entityType: "Assignment Field Option"');
+    expect(source).toContain("Los campos y opciones asociados tambien seran eliminados.");
+    expect(source).toContain("Las opciones asociadas tambien seran eliminadas.");
+    expect(source).toContain("onConfirm: () => void runMutation(() => deleteAssignmentType");
+    expect(source).toContain("onConfirm: () => void runMutation(() => deleteAssignmentField");
+    expect(source).toContain("onConfirm: () => void runMutation(() => deleteAssignmentFieldOption");
+  });
 });

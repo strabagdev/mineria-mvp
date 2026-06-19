@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Pencil, Plus, Power, Trash2, X } from "lucide-react";
+import { DeleteConfirmationDialog } from "@/components/planning/delete-confirmation-dialog";
 import {
   createAssignmentField,
   createAssignmentFieldOption,
@@ -144,6 +145,13 @@ type PlanningAssignmentsAdminPanelProps = {
   accessToken?: string;
 };
 
+type AssignmentDeletionRequest = {
+  entityType: string;
+  label: string;
+  warning: string;
+  onConfirm: () => void;
+};
+
 export function PlanningAssignmentsAdminPanel({ accessToken }: PlanningAssignmentsAdminPanelProps) {
   const [types, setTypes] = useState<AssignmentTypeDto[]>([]);
   const [selectedTypeId, setSelectedTypeId] = useState<number | null>(null);
@@ -157,6 +165,7 @@ export function PlanningAssignmentsAdminPanel({ accessToken }: PlanningAssignmen
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [pendingDeletion, setPendingDeletion] = useState<AssignmentDeletionRequest | null>(null);
 
   const selectedType = useMemo(
     () => types.find((type) => type.id === selectedTypeId) ?? types[0] ?? null,
@@ -366,12 +375,37 @@ export function PlanningAssignmentsAdminPanel({ accessToken }: PlanningAssignmen
     }
   }
 
+  function requestDeletion(request: AssignmentDeletionRequest) {
+    setPendingDeletion(request);
+  }
+
+  function confirmDeletion() {
+    if (!pendingDeletion) {
+      return;
+    }
+
+    pendingDeletion.onConfirm();
+    setPendingDeletion(null);
+  }
+
   if (loading) {
     return <p className="body-copy">Cargando asignaciones...</p>;
   }
 
   return (
     <div className="assignments-admin">
+      {pendingDeletion ? (
+        <DeleteConfirmationDialog
+          title="Eliminar elemento de asignaciones"
+          entityType={pendingDeletion.entityType}
+          label={pendingDeletion.label}
+          warning={pendingDeletion.warning}
+          busy={busy}
+          onCancel={() => setPendingDeletion(null)}
+          onConfirm={confirmDeletion}
+        />
+      ) : null}
+
       {error ? <p className="feedback">{error}</p> : null}
       <div className="assignments-admin-grid">
         <section className="surface-card soft padded assignments-admin-column">
@@ -408,7 +442,7 @@ export function PlanningAssignmentsAdminPanel({ accessToken }: PlanningAssignmen
                 <div className="catalog-inline-actions">
                   <button className="button icon-button small" type="button" title="Editar tipo" aria-label={`Editar ${type.label}`} onClick={() => editType(type)}><Pencil /></button>
                   <button className="button icon-button small" type="button" title={type.active ? "Desactivar tipo" : "Activar tipo"} aria-label={type.active ? `Desactivar ${type.label}` : `Activar ${type.label}`} disabled={busy} onClick={() => void runMutation(() => updateAssignmentType({ id: type.id, active: !type.active }, accessToken), "No se pudo actualizar el tipo.")}><Power /></button>
-                  <button className="button icon-button small danger" type="button" title="Eliminar tipo" aria-label={`Eliminar ${type.label}`} disabled={busy} onClick={() => void runMutation(() => deleteAssignmentType(type.id, accessToken), "No se pudo eliminar el tipo.")}><Trash2 /></button>
+                  <button className="button icon-button small danger" type="button" title="Eliminar tipo" aria-label={`Eliminar ${type.label}`} disabled={busy} onClick={() => requestDeletion({ entityType: "Assignment Type", label: type.label, warning: "Los campos y opciones asociados tambien seran eliminados.", onConfirm: () => void runMutation(() => deleteAssignmentType(type.id, accessToken), "No se pudo eliminar el tipo.") })}><Trash2 /></button>
                 </div>
               </div>
             ))}
@@ -439,7 +473,7 @@ export function PlanningAssignmentsAdminPanel({ accessToken }: PlanningAssignmen
                 {selectedType.fields.map((field) => (
                   <div className="catalog-detail-row assignments-admin-list-row" key={field.id}>
                     <button type="button" className={`custom-field-select-button ${selectedField?.id === field.id ? "active" : ""}`} onClick={() => selectField(field)}><span>{field.label}</span><small>{field.input_type} · {field.required ? "requerido" : "opcional"} · {field.active ? "activo" : "inactivo"}</small></button>
-                    <div className="catalog-inline-actions"><button className="button icon-button small" type="button" title="Editar campo" aria-label={`Editar ${field.label}`} onClick={() => editField(field)}><Pencil /></button><button className="button icon-button small" type="button" title={field.active ? "Desactivar campo" : "Activar campo"} aria-label={field.active ? `Desactivar ${field.label}` : `Activar ${field.label}`} disabled={busy} onClick={() => void runMutation(() => updateAssignmentField({ id: field.id, active: !field.active }, accessToken), "No se pudo actualizar el campo.", field.id)}><Power /></button><button className="button icon-button small danger" type="button" title="Eliminar campo" aria-label={`Eliminar ${field.label}`} disabled={busy} onClick={() => void runMutation(() => deleteAssignmentField(field.id, accessToken), "No se pudo eliminar el campo.")}><Trash2 /></button></div>
+                    <div className="catalog-inline-actions"><button className="button icon-button small" type="button" title="Editar campo" aria-label={`Editar ${field.label}`} onClick={() => editField(field)}><Pencil /></button><button className="button icon-button small" type="button" title={field.active ? "Desactivar campo" : "Activar campo"} aria-label={field.active ? `Desactivar ${field.label}` : `Activar ${field.label}`} disabled={busy} onClick={() => void runMutation(() => updateAssignmentField({ id: field.id, active: !field.active }, accessToken), "No se pudo actualizar el campo.", field.id)}><Power /></button><button className="button icon-button small danger" type="button" title="Eliminar campo" aria-label={`Eliminar ${field.label}`} disabled={busy} onClick={() => requestDeletion({ entityType: "Assignment Field", label: field.label, warning: "Las opciones asociadas tambien seran eliminadas.", onConfirm: () => void runMutation(() => deleteAssignmentField(field.id, accessToken), "No se pudo eliminar el campo.") })}><Trash2 /></button></div>
                   </div>
                 ))}
               </div>
@@ -462,7 +496,7 @@ export function PlanningAssignmentsAdminPanel({ accessToken }: PlanningAssignmen
               <div className="catalog-detail-list">
                 {selectedField.options.length === 0 ? <p className="body-copy">Sin opciones configuradas.</p> : null}
                 {selectedField.options.map((option) => (
-                  <div className="catalog-detail-row assignments-admin-list-row" key={option.id}><span className="catalog-detail-chip">{option.label}{option.active ? "" : " (inactiva)"}</span><div className="catalog-inline-actions"><button className="button icon-button small" type="button" title="Editar opcion" aria-label={`Editar ${option.label}`} onClick={() => editOption(option)}><Pencil /></button><button className="button icon-button small" type="button" title={option.active ? "Desactivar opcion" : "Activar opcion"} aria-label={option.active ? `Desactivar ${option.label}` : `Activar ${option.label}`} disabled={busy} onClick={() => void runMutation(() => updateAssignmentFieldOption({ id: option.id, active: !option.active }, accessToken), "No se pudo actualizar la opcion.", selectedField.id)}><Power /></button><button className="button icon-button small danger" type="button" title="Eliminar opcion" aria-label={`Eliminar ${option.label}`} disabled={busy} onClick={() => void runMutation(() => deleteAssignmentFieldOption(option.id, accessToken), "No se pudo eliminar la opcion.", selectedField.id)}><Trash2 /></button></div></div>
+                  <div className="catalog-detail-row assignments-admin-list-row" key={option.id}><span className="catalog-detail-chip">{option.label}{option.active ? "" : " (inactiva)"}</span><div className="catalog-inline-actions"><button className="button icon-button small" type="button" title="Editar opcion" aria-label={`Editar ${option.label}`} onClick={() => editOption(option)}><Pencil /></button><button className="button icon-button small" type="button" title={option.active ? "Desactivar opcion" : "Activar opcion"} aria-label={option.active ? `Desactivar ${option.label}` : `Activar ${option.label}`} disabled={busy} onClick={() => void runMutation(() => updateAssignmentFieldOption({ id: option.id, active: !option.active }, accessToken), "No se pudo actualizar la opcion.", selectedField.id)}><Power /></button><button className="button icon-button small danger" type="button" title="Eliminar opcion" aria-label={`Eliminar ${option.label}`} disabled={busy} onClick={() => requestDeletion({ entityType: "Assignment Field Option", label: option.label, warning: "La opcion dejara de estar disponible para nuevas selecciones.", onConfirm: () => void runMutation(() => deleteAssignmentFieldOption(option.id, accessToken), "No se pudo eliminar la opcion.", selectedField.id) })}><Trash2 /></button></div></div>
                 ))}
               </div>
             </>

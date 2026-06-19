@@ -20,6 +20,7 @@ import {
   updatePlanningCustomField,
   updatePlanningCustomFieldOption,
 } from "@/modules/planning-custom-fields/application/planning-custom-fields.client";
+import { DeleteConfirmationDialog } from "@/components/planning/delete-confirmation-dialog";
 
 type FieldForm = {
   label: string;
@@ -72,6 +73,13 @@ type PlanningCustomFieldsAdminPanelProps = {
   onFieldsChange?: (fields: PlanningCustomFieldDto[]) => void;
 };
 
+type CustomFieldDeletionRequest = {
+  entityType: string;
+  label: string;
+  warning: string;
+  onConfirm: () => void;
+};
+
 export function PlanningCustomFieldsAdminPanel({
   accessToken,
   onFieldsChange,
@@ -87,6 +95,7 @@ export function PlanningCustomFieldsAdminPanel({
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [pendingDeletion, setPendingDeletion] = useState<CustomFieldDeletionRequest | null>(null);
 
   const selectedField = useMemo(
     () => fields.find((field) => field.id === selectedFieldId) ?? fields[0] ?? null,
@@ -400,8 +409,33 @@ export function PlanningCustomFieldsAdminPanel({
     }
   }
 
+  function requestDeletion(request: CustomFieldDeletionRequest) {
+    setPendingDeletion(request);
+  }
+
+  function confirmDeletion() {
+    if (!pendingDeletion) {
+      return;
+    }
+
+    pendingDeletion.onConfirm();
+    setPendingDeletion(null);
+  }
+
   return (
     <article className="surface-card soft padded custom-fields-admin">
+      {pendingDeletion ? (
+        <DeleteConfirmationDialog
+          title="Eliminar campo configurable"
+          entityType={pendingDeletion.entityType}
+          label={pendingDeletion.label}
+          warning={pendingDeletion.warning}
+          busy={busy}
+          onCancel={() => setPendingDeletion(null)}
+          onConfirm={confirmDeletion}
+        />
+      ) : null}
+
       <div className="catalog-category-header">
         <div>
           <p className="eyebrow">Campos configurables</p>
@@ -618,7 +652,14 @@ export function PlanningCustomFieldsAdminPanel({
                       <button
                         type="button"
                         className="button small danger"
-                        onClick={() => void removeOption(option)}
+                        onClick={() =>
+                          requestDeletion({
+                            entityType: "Custom Field Option",
+                            label: option.label,
+                            warning: "La opcion dejara de estar disponible para nuevas selecciones.",
+                            onConfirm: () => void removeOption(option),
+                          })
+                        }
                         disabled={busy}
                       >
                         Eliminar
@@ -659,7 +700,15 @@ export function PlanningCustomFieldsAdminPanel({
                       <button
                         type="button"
                         className="button small danger"
-                        onClick={() => setDraftOptions((current) => current.filter((entry) => entry.localId !== option.localId))}
+                        onClick={() =>
+                          requestDeletion({
+                            entityType: "Custom Field Option",
+                            label: option.label,
+                            warning: "La opcion inicial sera removida del campo antes de guardarlo.",
+                            onConfirm: () =>
+                              setDraftOptions((current) => current.filter((entry) => entry.localId !== option.localId)),
+                          })
+                        }
                       >
                         Eliminar
                       </button>
@@ -735,7 +784,14 @@ export function PlanningCustomFieldsAdminPanel({
               <button
                 type="button"
                 className="button small danger"
-                onClick={() => void removeField(field)}
+                onClick={() =>
+                  requestDeletion({
+                    entityType: "Custom Field",
+                    label: field.label,
+                    warning: "Las opciones asociadas tambien seran eliminadas.",
+                    onConfirm: () => void removeField(field),
+                  })
+                }
                 disabled={busy}
               >
                 Eliminar
