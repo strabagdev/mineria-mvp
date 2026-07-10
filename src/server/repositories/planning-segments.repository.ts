@@ -9,8 +9,6 @@ export type PlanningSegmentReadRow = {
   start_time: string;
   end_time: string;
   shift: string;
-  level: string;
-  front: string;
   category: "actividad" | "interferencia";
   item_type: string;
   description: string;
@@ -18,7 +16,7 @@ export type PlanningSegmentReadRow = {
 };
 
 export const planningSegmentReadSelect =
-  "id, activity_group_id, item_date, start_time, end_time, shift, level, front, category, item_type, description, notes";
+  "id, activity_group_id, item_date, start_time, end_time, shift, category, item_type, description, notes";
 
 export type PlanningSegmentOverlapRow = {
   id: number;
@@ -35,8 +33,6 @@ export type PlanningSegmentInsertRow = {
   start_time: string;
   end_time: string;
   shift: string;
-  level: string;
-  front: string;
   category: string;
   item_type: string;
   description: string;
@@ -53,8 +49,6 @@ export type PlanningSegmentUpdateRow = {
   start_time: string;
   end_time: string;
   shift: string;
-  level: string;
-  front: string;
   category: string;
   item_type: string;
   description: string;

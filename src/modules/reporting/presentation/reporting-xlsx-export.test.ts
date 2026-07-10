@@ -15,8 +15,6 @@ const baseRow: ReportRow = {
   start_time: "08:00",
   end_time: "10:00",
   shift: "Dia",
-  level: "Nivel 1",
-  front: "Frente A",
   category: "actividad",
   tracking_type: "programado",
   item_type: "desarrollo",
@@ -43,12 +41,10 @@ const baseReport: ReportResponse = {
     real_hours: 0,
     variance_hours: -2,
   },
-  custom_field_columns: [],
   assignment_rows: [],
   breakdowns: {
-    by_level: [{ label: "Nivel 1", count: 1, hours: 2 }],
+    by_operational_header: {},
     by_shift: [{ label: "Dia", count: 1, hours: 2 }],
-    by_front: [{ label: "Frente A", count: 1, hours: 2 }],
     by_category: [{ label: "actividad", count: 1, hours: 2 }],
     by_tracking_type: [{ label: "programado", count: 1, hours: 2 }],
     by_item_type: [{ label: "desarrollo", count: 1, hours: 2 }],
@@ -59,11 +55,10 @@ const filters = {
   date_from: "2026-06-01",
   date_to: "2026-06-07",
   shift: "",
-  level: "",
-  front: "",
   category: "",
   tracking_type: "",
   item_type: "",
+  operational_header_filters: {},
 };
 
 const assignmentBase = {
@@ -79,7 +74,7 @@ const assignmentBase = {
 };
 
 describe("reporting xlsx export", () => {
-  it("builds base detail headers without custom fields or assignments", () => {
+  it("builds base detail headers without assignments", () => {
     const sheets = buildReportXlsxSheets(baseReport);
 
     expect(sheets.detalle[0]).toEqual([
@@ -91,8 +86,6 @@ describe("reporting xlsx export", () => {
       "Horas",
       "Vista",
       "Turno",
-      "Nivel",
-      "Frente",
       "Categoría",
       "Tipo",
       "Detalle",
@@ -107,8 +100,6 @@ describe("reporting xlsx export", () => {
       "2",
       "Programado",
       "Dia",
-      "Nivel 1",
-      "Frente A",
       "Actividad",
       "desarrollo",
       "Excavacion",
@@ -116,33 +107,169 @@ describe("reporting xlsx export", () => {
     ]);
   });
 
-  it("adds dynamic custom field columns and resolves header collisions", () => {
+  it("exports operational header columns before category, type and detail", () => {
     const report: ReportResponse = {
       ...baseReport,
+      operational_header_columns: [
+        { id: 30, slug: "departamento", label: "Departamento", input_type: "select", sort_order: 30 },
+        { id: 31, slug: "especialidad", label: "Especialidad", input_type: "text", sort_order: 40 },
+      ],
       rows: [
         {
           ...baseRow,
-          custom_fields: {
-            tipo_custom: { field_id: 10, slug: "tipo_custom", label: "Tipo", value: "Especial", raw_value: "Especial" },
-            extra: { field_id: 11, slug: "extra", label: "Extra", value: "A", raw_value: "A" },
-            extra_2: { field_id: 12, slug: "extra_2", label: "Extra", value: "B", raw_value: "B" },
+          operational_header_values: {
+            departamento: { field_id: 30, slug: "departamento", label: "Departamento", value: "Mina", option_id: 300 },
+            especialidad: { field_id: 31, slug: "especialidad", label: "Especialidad", value: "Perforacion" },
           },
         },
-      ],
-      custom_field_columns: [
-        { id: 10, slug: "tipo_custom", label: "Tipo", input_type: "text", active: true },
-        { id: 11, slug: "extra", label: "Extra", input_type: "text", active: true },
-        { id: 12, slug: "extra_2", label: "Extra", input_type: "text", active: true },
       ],
     };
     const sheets = buildReportXlsxSheets(report);
 
-    expect(sheets.detalle[0].slice(-3)).toEqual([
-      "Tipo (tipo_custom)",
-      "Extra",
-      "Extra (extra_2)",
+    expect(sheets.detalle[0].slice(8, 12)).toEqual([
+      "Departamento",
+      "Especialidad",
+      "Categoría",
+      "Tipo",
     ]);
-    expect(sheets.detalle[1].slice(-3)).toEqual(["Especial", "A", "B"]);
+    expect(sheets.detalle[1].slice(8, 12)).toEqual([
+      "Mina",
+      "Perforacion",
+      "Actividad",
+      "desarrollo",
+    ]);
+  });
+
+  it("does not duplicate legacy level and front when operational header columns include them", () => {
+    const report: ReportResponse = {
+      ...baseReport,
+      operational_header_columns: [
+        { id: 28, slug: "nivel", label: "Nivel", input_type: "select", sort_order: 10 },
+        { id: 29, slug: "frente", label: "Frente", input_type: "select", sort_order: 20 },
+        { id: 30, slug: "departamento", label: "Departamento", input_type: "text", sort_order: 30 },
+      ],
+      rows: [
+        {
+          ...baseRow,
+          operational_header_values: {
+            nivel: { field_id: 28, slug: "nivel", label: "Nivel", value: "Nivel 1", option_id: 280 },
+            frente: { field_id: 29, slug: "frente", label: "Frente", value: "Frente A", option_id: 290 },
+            departamento: { field_id: 30, slug: "departamento", label: "Departamento", value: "Mina" },
+          },
+        },
+      ],
+    };
+    const sheets = buildReportXlsxSheets(report);
+
+    expect(sheets.detalle[0].filter((header) => header === "Nivel")).toHaveLength(1);
+    expect(sheets.detalle[0].filter((header) => header === "Frente")).toHaveLength(1);
+    expect(sheets.detalle[0].slice(8, 13)).toEqual([
+      "Nivel",
+      "Frente",
+      "Departamento",
+      "Categoría",
+      "Tipo",
+    ]);
+    expect(sheets.detalle[1].slice(8, 13)).toEqual([
+      "Nivel 1",
+      "Frente A",
+      "Mina",
+      "Actividad",
+      "desarrollo",
+    ]);
+  });
+
+  it("exports only operational header columns instead of legacy level and front fallbacks", () => {
+    const report: ReportResponse = {
+      ...baseReport,
+      operational_header_columns: [
+        { id: 30, slug: "departamento", label: "Departamento", input_type: "text", sort_order: 30 },
+      ],
+      rows: [
+        {
+          ...baseRow,
+          operational_header_values: {
+            departamento: { field_id: 30, slug: "departamento", label: "Departamento", value: "Mina" },
+          },
+        },
+      ],
+    };
+    const sheets = buildReportXlsxSheets(report);
+
+    expect(sheets.detalle[0].slice(8, 10)).toEqual(["Departamento", "Categoría"]);
+    expect(sheets.detalle[1].slice(8, 10)).toEqual(["Mina", "Actividad"]);
+  });
+
+  it("leaves legacy operational header columns empty when row values are missing", () => {
+    const report: ReportResponse = {
+      ...baseReport,
+      operational_header_columns: [
+        { id: 28, slug: "nivel", label: "Nivel", input_type: "select", sort_order: 10 },
+        { id: 29, slug: "frente", label: "Frente", input_type: "select", sort_order: 20 },
+      ],
+    };
+    const sheets = buildReportXlsxSheets(report);
+
+    expect(sheets.detalle[0].slice(8, 11)).toEqual(["Nivel", "Frente", "Categoría"]);
+    expect(sheets.detalle[1].slice(8, 11)).toEqual(["", "", "Actividad"]);
+  });
+
+  it("exports empty operational header cells when a row has no value", () => {
+    const report: ReportResponse = {
+      ...baseReport,
+      operational_header_columns: [
+        { id: 30, slug: "departamento", label: "Departamento", input_type: "text", sort_order: 30 },
+      ],
+    };
+    const sheets = buildReportXlsxSheets(report);
+
+    expect(sheets.detalle[0].slice(8, 10)).toEqual(["Departamento", "Categoría"]);
+    expect(sheets.detalle[1].slice(8, 10)).toEqual(["", "Actividad"]);
+  });
+
+  it("keeps assignment columns after operational header columns", () => {
+    const report: ReportResponse = {
+      ...baseReport,
+      operational_header_columns: [
+        { id: 30, slug: "departamento", label: "Departamento", input_type: "text", sort_order: 30 },
+      ],
+      rows: [
+        {
+          ...baseRow,
+          operational_header_values: {
+            departamento: { field_id: 30, slug: "departamento", label: "Departamento", value: "Mina" },
+          },
+        },
+      ],
+      assignment_rows: [
+        {
+          ...assignmentBase,
+          values: [
+            { field_id: 1, field_slug: "nombre", field_label: "Nombre", input_type: "text", value: "Turno A", raw_value: "Turno A" },
+          ],
+        },
+      ],
+    };
+    const sheets = buildReportXlsxSheets(report);
+
+    expect(sheets.detalle[0]).toEqual([
+      "ID",
+      "Fuente",
+      "Grupo actividad",
+      "Fecha",
+      "Horario",
+      "Horas",
+      "Vista",
+      "Turno",
+      "Departamento",
+      "Categoría",
+      "Tipo",
+      "Detalle",
+      "Notas",
+      "Cuadrilla - Nombre",
+    ]);
+    expect(sheets.detalle[1].at(-1)).toBe("Turno A");
+    expect(Object.keys(sheets)).toEqual(["detalle"]);
   });
 
   it("exports assignment fields as filterable dynamic columns", () => {

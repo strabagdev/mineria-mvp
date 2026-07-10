@@ -68,7 +68,7 @@ Rutas principales:
 - `/`: carta Gantt operacional.
 - `/dashboard`: resumen basado en reportes.
 - `/reports`: reportes operacionales y exportacion.
-- `/catalog`: administracion de catalogos operacionales, custom fields y assignments.
+- `/catalog`: administracion de catalogos operacionales, Cabecera Operacional y assignments.
 - `/admin/users`: administracion de usuarios.
 - `/admin/audit`: auditoria.
 - `/login`: ingreso y solicitud de acceso.
@@ -83,10 +83,6 @@ API routes principales:
 - `/api/audit-events`
 - `/api/planning-items`
 - `/api/planning-catalog`
-- `/api/planning-custom-fields`
-- `/api/planning-custom-field-options`
-- `/api/planning-custom-field-values`
-- `/api/planning-custom-field-usage`
 - `/api/assignment-types`
 - `/api/assignment-fields`
 - `/api/assignment-field-options`
@@ -183,8 +179,8 @@ Los programados se almacenan en `planning_items`.
 Caracteristicas:
 
 - Tienen `tracking_type = 'programado'`.
-- Incluyen fecha, horario, turno, nivel, frente, categoria, tipo, descripcion y notas.
-- Pueden tener custom fields.
+- Incluyen fecha, horario, turno, categoria, tipo, descripcion y notas.
+- Usan Cabecera Operacional como unica identidad configurable.
 - Pueden tener asignaciones target-aware con `target_kind = planning_item`.
 - Se muestran en la capa programada de la carta Gantt.
 
@@ -221,52 +217,19 @@ flowchart TD
   ListPlanning --> UI[Gantt operacional]
 ```
 
-## Custom fields
+## Custom Fields retirados
 
-Los custom fields permiten extender datos operacionales sin cambiar columnas base.
+Los custom fields fueron retirados de backend/API y de la experiencia operacional.
+Cabecera Operacional cubre identidad, filtros, Gantt y reportes; Asignaciones cubre
+recursos repetibles y atributos asociados.
 
-Tablas:
+Tablas legacy eliminadas por migracion destructiva:
 
 - `planning_custom_fields`
 - `planning_custom_field_options`
 - `planning_custom_field_values`
 
-Soportan:
-
-- `text`
-- `number`
-- `boolean`
-- `date`
-- `select`
-- `multi_select`
-
-Cada campo tiene:
-
-- `slug`
-- `label`
-- `icon_key`
-- `input_type`
-- `active`
-- `required`
-- `applies_to`
-- `sort_order`
-- `config`
-
-Las opciones tienen `metadata`.
-
-Los valores soportan targets:
-
-- `planning_item_id`
-- `execution_segment_id`
-- `activity_group_id`
-
-En la UI principal actual, los custom fields se completan para programados. En reportes, el servicio carga valores por planning item, execution segment y activity group para poder aplicarlos a filas visibles.
-
-Archivos:
-
-- `src/modules/planning-custom-fields/*`
-- `src/server/services/planning-custom-fields.service.ts`
-- `src/server/repositories/planning-custom-fields.repository.ts`
+Backend/API, modulos cliente, repositorios, servicios y presentacion fueron eliminados.
 
 ## Assignments
 
@@ -404,15 +367,12 @@ El servicio carga en paralelo:
 
 - Filas programadas.
 - Filas reales/interferencias.
-- Custom fields.
-- Valores por planning item.
-- Valores por execution segment.
-- Valores por activity group.
 - Tipos de assignments.
 - Assignments por planning item.
 - Assignments por execution segment.
 
-Luego `buildReportFromSourceRows` filtra, calcula resumen, breakdowns, custom fields y `assignment_rows`.
+Luego `buildReportFromSourceRows` filtra, calcula resumen, breakdowns de Cabecera
+Operacional y `assignment_rows`.
 
 Las assignment rows son target-aware:
 
@@ -426,11 +386,11 @@ flowchart TD
   ReportsAPI[/api/reports] --> ReportsService[getReport]
   ReportsService --> Planned[planning_items]
   ReportsService --> Real[activity_execution_segments]
-  ReportsService --> CF[custom fields + values]
   ReportsService --> Assign[assignment types + assignments]
+  ReportsService --> OH[operational header fields + values]
   Planned --> Calc[reporting-calculations]
   Real --> Calc
-  CF --> Calc
+  OH --> Calc
   Assign --> Calc
   Calc --> Response[ReportResponse]
 ```
@@ -449,7 +409,7 @@ Formato actual:
 
 - Una sola hoja: `Detalle operacional`.
 - Columnas base.
-- Columnas dinamicas de custom fields.
+- Columnas dinamicas de Cabecera Operacional.
 - Columnas dinamicas de assignments por tipo y campo.
 
 Encabezado de assignment:
@@ -509,8 +469,6 @@ Archivo principal:
 Keys relevantes:
 
 - `planning-catalog`
-- `planning-custom-fields`
-- `planning-custom-field-values`
 - `planning-assignment-types`
 - `planning-assignments`
 - `assignments`
@@ -536,7 +494,6 @@ Cada mutacion pendiente puede incluir:
 - Metodo.
 - Payload base.
 - `client_mutation_id`.
-- Custom field values.
 - Assignment payload.
 - Estado de conflicto.
 - `syncedPlanningItemId` cuando el core ya fue sincronizado.
@@ -548,12 +505,10 @@ sequenceDiagram
   participant UI as UI
   participant Queue as Mutation Queue
   participant API as API planning-items
-  participant CF as Custom field replay
   participant A as Assignment replay
   UI->>Queue: guarda mutacion offline
   Queue->>API: reintenta core mutation
   API-->>Queue: item/id sincronizado
-  Queue->>CF: replay customFieldValues si existen
   Queue->>A: replay assignmentPayload si existe
   Queue-->>UI: synced, retryable o conflict
 ```
@@ -562,7 +517,7 @@ Reglas:
 
 - Errores retryable conservan la cola.
 - Errores no retryable marcan conflicto.
-- Si el core ya se sincronizo, se puede reintentar solo custom fields/asignaciones usando `syncedPlanningItemId`.
+- Si el core ya se sincronizo, se puede reintentar solo asignaciones usando `syncedPlanningItemId`.
 - Mutaciones conflictivas quedan visibles hasta descartarlas.
 
 ## Cache
@@ -571,8 +526,6 @@ Capas de cache:
 
 - Catalogo operacional.
 - Planning por fecha.
-- Custom fields.
-- Valores de custom fields por planning item.
 - Tipos de assignments.
 - Assignments por target.
 - Perfil auth.
@@ -611,7 +564,7 @@ Se registran acciones sobre:
 - Planning items.
 - Activity execution segments.
 - Catalogos.
-- Custom fields.
+- Custom fields retirados, solo como labels historicos si existen audit logs antiguos.
 - Assignments.
 - Usuarios.
 
@@ -624,13 +577,17 @@ Orden actual en `supabase/sql`:
 - `001_schema.sql`: esquema base, perfiles, planning items, catalogos iniciales de base y audit/logica principal.
 - `002_seed_catalog.sql`: seed de catalogo operacional.
 - `003_security_realtime.sql`: seguridad/RLS/realtime.
-- `004_planning_custom_fields.sql`: custom fields, opciones y valores.
-- `005_planning_custom_field_icons.sql`: iconos para custom fields.
+- `004_planning_custom_fields.sql`: legacy, crea tablas retiradas por `013`.
+- `005_planning_custom_field_icons.sql`: legacy, ajusta tablas retiradas por `013`.
 - `006_assignment_catalog.sql`: catalogo de assignment types, fields y options con `config`/`metadata`.
 - `007_planning_assignments.sql`: assignments operacionales, valores y RPCs.
 - `008_assignment_type_icons.sql`: iconos de tipos de asignacion.
 - `009_operator_role.sql`: rol operativo.
 - `010_target_aware_assignments.sql`: migracion incremental target-aware para DBs donde `007` ya estaba aplicada.
+- `011_operational_header.sql`: Cabecera Operacional configurable.
+- `012_operational_header_hardening.sql`: constraints minimas de Cabecera Operacional.
+- `013_drop_planning_custom_fields.sql`: elimina tablas legacy de Custom Fields.
+- `014_drop_level_front_legacy.sql`: elimina columnas legacy Nivel/Frente, `planning_levels` y metadata tecnica temporal.
 
 Nota importante:
 
@@ -658,4 +615,3 @@ Convenciones observadas en codigo:
 - Derivaciones no soportan destino `multi_select`.
 - CSV no exporta columnas dinamicas de assignments.
 - La administracion de catalogos requiere conexion y rol admin.
-

@@ -176,6 +176,11 @@ export function isBrowserOffline() {
     return true;
   }
 
+  if (backendOnline === null) {
+    startHeartbeat("navigator-online-read");
+    return false;
+  }
+
   return backendOnline !== true;
 }
 

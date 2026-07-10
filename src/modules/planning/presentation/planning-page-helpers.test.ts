@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildEventSubtitle,
   buildEventTitle,
+  compareGanttGroupingPaths,
+  formatGanttGroupingTitle,
   buildGanttBarLabel,
   buildGanttCurrentTimeMarker,
   buildGanttScale,
@@ -12,12 +14,15 @@ import {
   getCurrentOperationalDate,
   getDefaultRealEventTimes,
   getDefaultShiftTimes,
+  getGanttGroupingFields,
   getInitialOperationalView,
   getShiftForCurrentTime,
   positionMinutesInScale,
+  resolveGanttGroupingPath,
   SHIFT_CONFIG,
 } from "./planning-page-helpers";
 import type { PlanningGroup, PlanningItem } from "./planning-page-models";
+import type { OperationalHeaderFieldDto, OperationalHeaderResponseDto } from "@/modules/operational-header/contracts/operational-header";
 
 function planningItem(overrides: Partial<PlanningItem> = {}): PlanningItem {
   return {
@@ -28,14 +33,30 @@ function planningItem(overrides: Partial<PlanningItem> = {}): PlanningItem {
     start: "10:30",
     end: "15:00",
     shift: "Dia",
-    level: "NTI",
-    front: "GT1 N XC 2AS",
     category: "actividad",
     tracking_type: "programado",
     item_type: "unitaria",
     notes: null,
     ...overrides,
   };
+}
+
+function operationalHeaderField(input: Partial<OperationalHeaderFieldDto> & Pick<OperationalHeaderFieldDto, "id" | "slug" | "label" | "input_type">): OperationalHeaderFieldDto {
+  return {
+    required: false,
+    active: true,
+    sort_order: 100,
+    groupable: true,
+    filterable: true,
+    visible_in_gantt: true,
+    exportable: true,
+    options: [],
+    ...input,
+  };
+}
+
+function operationalHeaderConfig(fields: OperationalHeaderFieldDto[]): OperationalHeaderResponseDto {
+  return { fields, dependencies: [] };
 }
 
 describe("planning page helpers", () => {
@@ -183,8 +204,6 @@ describe("planning page helpers", () => {
       activity_group_id: "group-1",
       item_date: "2026-05-06",
       shift: "Dia",
-      level: "NTI",
-      front: "GT1",
       category: "actividad",
       item_type: "unitaria",
       description: "Extraccion",
@@ -211,10 +230,186 @@ describe("planning page helpers", () => {
 
     expect(buildEventTitle(item)).toBe("MX");
     expect(buildGanttBarLabel(item, "real")).toBe("MX");
-    expect(buildEventSubtitle(item)).toBe("NTI · GT1 N XC 2AS");
+    expect(buildEventSubtitle()).toBe("");
     expect(buildPlanningItemAriaLabel(item, "4h 30m")).toContain(
-      "Categoria Actividad. Real. Frente GT1 N XC 2AS, nivel NTI"
+      "Categoria Actividad. Real. Turno Dia"
     );
+  });
+
+  it("does not create legacy level/front grouping fields when there is no operational header config", () => {
+    const fields = getGanttGroupingFields(null);
+    const path = resolveGanttGroupingPath(planningItem(), fields);
+
+    expect(fields).toEqual([]);
+    expect(path).toEqual([]);
+    expect(formatGanttGroupingTitle(path)).toBe("Sin valor");
+  });
+
+  it("uses groupable visible operational header fields ordered by sort_order and label", () => {
+    const department = operationalHeaderField({
+      id: 10,
+      slug: "departamento",
+      label: "Departamento",
+      input_type: "text",
+      sort_order: 20,
+    });
+    const specialty = operationalHeaderField({
+      id: 11,
+      slug: "especialidad",
+      label: "Especialidad",
+      input_type: "text",
+      sort_order: 30,
+    });
+    const hidden = operationalHeaderField({
+      id: 12,
+      slug: "sector",
+      label: "Sector",
+      input_type: "text",
+      visible_in_gantt: false,
+      sort_order: 10,
+    });
+    const inactive = operationalHeaderField({
+      id: 13,
+      slug: "area",
+      label: "Area",
+      input_type: "text",
+      active: false,
+      sort_order: 10,
+    });
+    const fields = getGanttGroupingFields(operationalHeaderConfig([specialty, hidden, department, inactive]));
+    const path = resolveGanttGroupingPath(planningItem({
+      operational_header_values: [
+        { field_id: 10, value: "Mina" },
+        { field_id: 11, value: "Perforacion" },
+      ],
+    }), fields);
+
+    expect(fields.map((field) => field.slug)).toEqual(["departamento", "especialidad"]);
+    expect(path.map((entry) => `${entry.label}:${entry.value}`)).toEqual([
+      "Departamento:Mina",
+      "Especialidad:Perforacion",
+    ]);
+  });
+
+  it("orders select grouping paths by option sort_order", () => {
+    const department = operationalHeaderField({
+      id: 10,
+      slug: "departamento",
+      label: "Departamento",
+      input_type: "select",
+      options: [
+        { id: 100, field_id: 10, value: "mina", label: "Mina", active: true, sort_order: 20, metadata: {} },
+        { id: 101, field_id: 10, value: "planta", label: "Planta", active: true, sort_order: 10, metadata: {} },
+      ],
+    });
+    const fields = getGanttGroupingFields(operationalHeaderConfig([department]));
+    const minaPath = resolveGanttGroupingPath(planningItem({
+      operational_header_values: [{ field_id: 10, value: "Mina", option_id: 100 }],
+    }), fields);
+    const plantaPath = resolveGanttGroupingPath(planningItem({
+      operational_header_values: [{ field_id: 10, value: "Planta", option_id: 101 }],
+    }), fields);
+
+    expect(compareGanttGroupingPaths(plantaPath, minaPath)).toBeLessThan(0);
+    expect([minaPath, plantaPath].sort(compareGanttGroupingPaths).map(formatGanttGroupingTitle)).toEqual([
+      "Planta",
+      "Mina",
+    ]);
+  });
+
+  it("orders text grouping paths alphabetically", () => {
+    const specialty = operationalHeaderField({
+      id: 11,
+      slug: "especialidad",
+      label: "Especialidad",
+      input_type: "text",
+    });
+    const fields = getGanttGroupingFields(operationalHeaderConfig([specialty]));
+    const perforacionPath = resolveGanttGroupingPath(planningItem({
+      operational_header_values: [{ field_id: 11, value: "Perforacion" }],
+    }), fields);
+    const carguioPath = resolveGanttGroupingPath(planningItem({
+      operational_header_values: [{ field_id: 11, value: "Carguio" }],
+    }), fields);
+
+    expect([perforacionPath, carguioPath].sort(compareGanttGroupingPaths).map(formatGanttGroupingTitle)).toEqual([
+      "Carguio",
+      "Perforacion",
+    ]);
+  });
+
+  it("sorts Sin valor at the end", () => {
+    const department = operationalHeaderField({
+      id: 10,
+      slug: "departamento",
+      label: "Departamento",
+      input_type: "text",
+    });
+    const fields = getGanttGroupingFields(operationalHeaderConfig([department]));
+    const valuedPath = resolveGanttGroupingPath(planningItem({
+      operational_header_values: [{ field_id: 10, value: "Mina" }],
+    }), fields);
+    const emptyPath = resolveGanttGroupingPath(planningItem({ operational_header_values: [] }), fields);
+
+    expect([emptyPath, valuedPath].sort(compareGanttGroupingPaths).map(formatGanttGroupingTitle)).toEqual([
+      "Mina",
+      "Sin valor",
+    ]);
+  });
+
+  it("uses configured Nivel and Frente values from operational header only", () => {
+    const level = operationalHeaderField({
+      id: 1,
+      slug: "nivel",
+      label: "Nivel",
+      input_type: "select",
+      sort_order: 10,
+      options: [{ id: 1, field_id: 1, value: "nti", label: "NTI", active: true, sort_order: 10, metadata: {} }],
+    });
+    const front = operationalHeaderField({
+      id: 2,
+      slug: "frente",
+      label: "Frente",
+      input_type: "select",
+      sort_order: 20,
+      options: [{ id: 2, field_id: 2, value: "gt1", label: "GT1 N XC 2AS", active: true, sort_order: 10, metadata: {} }],
+    });
+    const path = resolveGanttGroupingPath(
+      planningItem({
+        operational_header_values: [
+          { field_id: 1, value: "nti", option_id: 1 },
+          { field_id: 2, value: "gt1", option_id: 2 },
+        ],
+      }),
+      getGanttGroupingFields(operationalHeaderConfig([front, level]))
+    );
+
+    expect(path.map((entry) => entry.value)).toEqual(["NTI", "GT1 N XC 2AS"]);
+    expect(formatGanttGroupingTitle(path)).toBe("NTI - GT1 N XC 2AS");
+  });
+
+  it("does not fall back to legacy Nivel and Frente when configured values are missing", () => {
+    const level = operationalHeaderField({
+      id: 1,
+      slug: "nivel",
+      label: "Nivel",
+      input_type: "select",
+      sort_order: 10,
+    });
+    const front = operationalHeaderField({
+      id: 2,
+      slug: "frente",
+      label: "Frente",
+      input_type: "select",
+      sort_order: 20,
+    });
+    const path = resolveGanttGroupingPath(
+      planningItem({ operational_header_values: [] }),
+      getGanttGroupingFields(operationalHeaderConfig([front, level]))
+    );
+
+    expect(path.map((entry) => entry.value)).toEqual(["Sin valor", "Sin valor"]);
+    expect(formatGanttGroupingTitle(path)).toBe("Sin valor - Sin valor");
   });
 
   it("builds calendar days with leading blanks and complete weeks", () => {

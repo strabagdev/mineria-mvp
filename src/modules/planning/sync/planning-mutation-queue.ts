@@ -5,7 +5,6 @@ import type { PendingPlanningMutation } from "./planning-sync-models";
 type ReplayPendingPlanningMutationsArgs = {
   mutations: PendingPlanningMutation[];
   sendMutation: (mutation: PendingPlanningMutation) => Promise<unknown>;
-  replayCustomFieldValues?: (mutation: PendingPlanningMutation, response: unknown) => Promise<void>;
   replayAssignmentPayload?: (mutation: PendingPlanningMutation, response: unknown) => Promise<void>;
   getErrorMessage: (error: unknown) => string;
   isRetryableError: (error: unknown) => boolean;
@@ -38,7 +37,6 @@ export function makePendingPlanningMutation(
   method: PendingPlanningMutation["method"],
   payload: Record<string, unknown>,
   input: {
-    customFieldValues?: PendingPlanningMutation["customFieldValues"];
     assignmentPayload?: PendingPlanningMutation["assignmentPayload"];
     syncedPlanningItemId?: PendingPlanningMutation["syncedPlanningItemId"];
   } = {}
@@ -49,7 +47,6 @@ export function makePendingPlanningMutation(
     id,
     method,
     payload: withClientMutationId(payload, id),
-    customFieldValues: input.customFieldValues,
     assignmentPayload: input.assignmentPayload,
     syncedPlanningItemId: input.syncedPlanningItemId,
     createdAt: new Date().toISOString(),
@@ -104,8 +101,6 @@ export function toOptimisticPlanningItem(mutation: PendingPlanningMutation): Pla
     start: startTime.slice(0, 5),
     end: endTime.slice(0, 5),
     shift: String(payload.shift ?? ""),
-    level: String(payload.level ?? ""),
-    front: String(payload.front ?? ""),
     category: category as PlanningItem["category"],
     tracking_type: trackingType as PlanningItem["tracking_type"],
     item_type: String(payload.item_type ?? ""),
@@ -162,7 +157,6 @@ export function discardConflictedPlanningMutations(mutations: PendingPlanningMut
 export async function replayPendingPlanningMutations({
   mutations,
   sendMutation,
-  replayCustomFieldValues,
   replayAssignmentPayload,
   getErrorMessage,
   isRetryableError,
@@ -195,7 +189,7 @@ export async function replayPendingPlanningMutations({
     try {
       const response = mutation.syncedPlanningItemId
         ? { item: { id: mutation.syncedPlanningItemId } }
-        : await sendMutation(mutation);
+        : await sendMutation(replayMutation);
       const responseItemId = Number((response as { item?: { id?: unknown } })?.item?.id);
       const payloadItemId = Number(mutation.payload.id);
       const syncedPlanningItemId =
@@ -205,11 +199,8 @@ export async function replayPendingPlanningMutations({
             ? payloadItemId
             : mutation.syncedPlanningItemId;
       replayMutation = syncedPlanningItemId
-        ? { ...mutation, syncedPlanningItemId }
-        : mutation;
-      if (mutation.customFieldValues?.length) {
-        await replayCustomFieldValues?.(replayMutation, response);
-      }
+        ? { ...replayMutation, syncedPlanningItemId }
+        : replayMutation;
       if (mutation.assignmentPayload !== undefined) {
         await replayAssignmentPayload?.(replayMutation, response);
       }

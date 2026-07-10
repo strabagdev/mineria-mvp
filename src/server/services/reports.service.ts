@@ -4,27 +4,26 @@ import {
   listReportSourceRows,
 } from "@/server/repositories/reports.repository";
 import {
-  listPlanningCustomFieldValuesByActivityGroupIds,
-  listPlanningCustomFieldValuesByExecutionSegmentIds,
-  listPlanningCustomFieldValuesByPlanningItemIds,
-} from "@/server/repositories/planning-custom-fields.repository";
-import { listPlanningCustomFields } from "@/server/services/planning-custom-fields.service";
-import {
   getPlanningAssignmentsForExecutionSegments,
   getPlanningAssignmentsForPlanningItems,
   listAssignmentTypes,
 } from "@/server/services/planning-assignments.service";
+import {
+  listOperationalHeaderFields,
+  listOperationalHeaderValuesByActivityGroupIds,
+  listOperationalHeaderValuesByExecutionSegmentIds,
+  listOperationalHeaderValuesByPlanningItemIds,
+} from "@/server/services/operational-header.service";
 import { buildReportFromSourceRows } from "@/modules/reporting/application/reporting-calculations";
 
 export type ReportQuery = {
   dateFrom: string;
   dateTo: string;
   shift: string;
-  level: string;
-  front: string;
   category: string;
   trackingType: string;
   itemType: string;
+  operational_header_filters?: Record<string, string>;
 };
 
 export async function getReport(query: ReportQuery) {
@@ -39,21 +38,21 @@ export async function getReport(query: ReportQuery) {
     ...realRows.map((row) => row.activity_group_id),
   ];
   const [
-    customFields,
-    planningItemValues,
-    executionSegmentValues,
-    activityGroupValues,
     assignmentTypes,
     planningAssignments,
     executionSegmentAssignments,
+    operationalHeaderFields,
+    planningOperationalHeaderValues,
+    executionOperationalHeaderValues,
+    activityGroupOperationalHeaderValues,
   ] = await Promise.all([
-    listPlanningCustomFields({ activeOnly: false }),
-    listPlanningCustomFieldValuesByPlanningItemIds(planningItemIds),
-    listPlanningCustomFieldValuesByExecutionSegmentIds(executionSegmentIds),
-    listPlanningCustomFieldValuesByActivityGroupIds(activityGroupIds),
     listAssignmentTypes({ activeOnly: false }),
     getPlanningAssignmentsForPlanningItems(planningItemIds),
     getPlanningAssignmentsForExecutionSegments(executionSegmentIds),
+    listOperationalHeaderFields({ activeOnly: false }),
+    listOperationalHeaderValuesByPlanningItemIds(planningItemIds),
+    listOperationalHeaderValuesByExecutionSegmentIds(executionSegmentIds),
+    listOperationalHeaderValuesByActivityGroupIds(activityGroupIds),
   ]);
 
   return buildReportFromSourceRows(
@@ -61,18 +60,18 @@ export async function getReport(query: ReportQuery) {
     planningRows,
     realRows,
     {
-      fields: customFields,
-      values: [
-        ...planningItemValues,
-        ...executionSegmentValues,
-        ...activityGroupValues,
-      ],
-    },
-    {
       types: assignmentTypes,
       assignments: [
         ...planningAssignments,
         ...executionSegmentAssignments,
+      ],
+    },
+    {
+      fields: operationalHeaderFields,
+      values: [
+        ...planningOperationalHeaderValues,
+        ...executionOperationalHeaderValues,
+        ...activityGroupOperationalHeaderValues,
       ],
     }
   );

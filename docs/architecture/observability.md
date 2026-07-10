@@ -45,7 +45,7 @@ recordOperationalEvent({
 | API principal | `recordOperationalEvent` | `writeAuditLog` |
 | Persistencia | Buffer local en memoria | Tabla `audit_logs` |
 | Objetivo | Diagnosticar estado tecnico/operacional | Reconstruir cambios de negocio |
-| Ejemplos | red, sync, realtime, fallback auth | planning, assignments, custom fields, usuarios |
+| Ejemplos | red, sync, realtime, fallback auth | planning, assignments, Cabecera Operacional, usuarios |
 | UI actual | Sin panel dedicado | `/admin/audit` y timeline del programado |
 | Acceso | Interno/runtime | Admin-only |
 | Offline | Puede registrar degradaciones locales | Consulta online-only |

@@ -3470,6 +3470,61 @@ select.field-input {
   grid-template-columns: 1fr;
 }
 
+.planning-sheet-section {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.operational-header-form-section {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--panel-solid) 88%, var(--background-soft));
+}
+
+.planning-sheet-section-heading {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.planning-sheet-section-heading h3 {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
+.planning-sheet-section-heading p:last-child {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.required-badge {
+  flex: 0 0 auto;
+  padding: 0.12rem 0.45rem;
+  border: 1px solid var(--accent-border);
+  border-radius: 999px;
+  color: var(--accent-text);
+  background: color-mix(in srgb, var(--accent-soft) 62%, transparent);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.field-help {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
 .planning-sheet-card .modal-actions {
   position: sticky;
   bottom: 0;
@@ -4039,6 +4094,8 @@ select.field-input {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
+  align-items: center;
+  overflow: visible;
   padding: 0.55rem;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -4048,7 +4105,10 @@ select.field-input {
 .catalog-page-nav button {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
   min-height: 2.2rem;
+  max-width: 100%;
   padding: 0.45rem 0.75rem;
   border: 1px solid transparent;
   border-radius: var(--radius-md);
@@ -4059,6 +4119,7 @@ select.field-input {
   font-family: inherit;
   text-decoration: none;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .catalog-page-nav button:hover,
@@ -4067,6 +4128,12 @@ select.field-input {
   border-color: var(--border);
   color: var(--foreground);
   background: var(--background-soft);
+}
+
+.catalog-page-nav .catalog-page-nav-priority {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 72%, var(--panel-solid));
+  color: var(--accent-text);
 }
 
 .catalog-admin-grid.custom-fields-only {
@@ -4206,6 +4273,182 @@ select.field-input {
   border: 1px solid var(--border);
   background: var(--background-soft);
   color: var(--muted);
+}
+
+.operational-header-admin {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.25rem;
+  padding: 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--panel-solid) 92%, transparent);
+}
+
+.operational-header-field-list,
+.operational-header-options,
+.operational-header-dependencies {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.operational-header-field-form {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--background-soft);
+}
+
+.operational-header-option-form {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.85rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  background: var(--panel-solid);
+}
+
+.operational-header-config-section {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--panel-solid) 86%, transparent);
+}
+
+.operational-header-form-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.operational-header-form-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.operational-header-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 1.9rem;
+  padding: 0.25rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel-solid);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.operational-header-field-row {
+  display: grid;
+  gap: 0.8rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, var(--panel-solid) 0%, var(--background-soft) 100%);
+}
+
+.operational-header-field-main,
+.operational-header-option-row,
+.operational-header-dependency-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.operational-header-field-main h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.operational-header-field-main p,
+.operational-header-options .body-copy,
+.operational-header-dependencies .body-copy {
+  margin: 0.25rem 0 0;
+}
+
+.operational-header-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.operational-header-flag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.85rem;
+  padding: 0.28rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--background-soft);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.operational-header-flag.enabled {
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 72%, var(--panel-solid));
+  color: var(--accent-text);
+}
+
+.operational-header-option-grid {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.operational-header-options-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.operational-header-option-row,
+.operational-header-dependency-row {
+  padding: 0.55rem 0;
+  border-top: 1px dashed var(--border);
+  font-size: 0.84rem;
+}
+
+.operational-header-dependency-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  border-top: 1px dashed var(--border);
+}
+
+.operational-header-dependency-item .operational-header-dependency-row {
+  flex: 1 1 26rem;
+  border-top: none;
+}
+
+.operational-header-option-metadata {
+  flex-basis: 100%;
+  white-space: pre-wrap;
+}
+
+.operational-header-option-row:first-child,
+.operational-header-dependency-row:first-of-type {
+  border-top: none;
+}
+
+.operational-header-dependency-arrow {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
 }
 
 .custom-fields-section {
@@ -5155,6 +5398,10 @@ select.field-input {
 
   .catalog-page-nav {
     position: static;
+  }
+
+  .operational-header-form-grid {
+    grid-template-columns: 1fr;
   }
 
   .reports-filter-grid {

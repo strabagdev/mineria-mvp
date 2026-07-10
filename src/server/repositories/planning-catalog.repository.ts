@@ -15,22 +15,14 @@ export type PlanningCatalogDetailRow = {
   label: string;
 };
 
-export type PlanningLevelRow = {
-  id: number;
-  slug: string;
-  label: string;
-};
-
 const typeSelect = "id, category, slug, label";
 const detailSelect = "id, type_id, label";
-const levelSelect = "id, slug, label";
 
 export async function listPlanningCatalogRows() {
   const db = getSupabaseServerClient();
   const [
     { data: types, error: typesError },
     { data: details, error: detailsError },
-    { data: levels, error: levelsError },
   ] =
     await Promise.all([
       db
@@ -42,10 +34,6 @@ export async function listPlanningCatalogRows() {
         .from("planning_catalog_details")
         .select(detailSelect)
         .order("label", { ascending: true }),
-      db
-        .from("planning_levels")
-        .select(levelSelect)
-        .order("id", { ascending: true }),
     ]);
 
   if (typesError) {
@@ -56,14 +44,9 @@ export async function listPlanningCatalogRows() {
     throw detailsError;
   }
 
-  if (levelsError) {
-    throw levelsError;
-  }
-
   return {
     types: (types ?? []) as PlanningCatalogTypeRow[],
     details: (details ?? []) as PlanningCatalogDetailRow[],
-    levels: (levels ?? []) as PlanningLevelRow[],
   };
 }
 
@@ -84,21 +67,6 @@ export async function createPlanningCatalogType(input: {
   }
 
   return data as PlanningCatalogTypeRow;
-}
-
-export async function findPlanningLevelByLabel(label: string) {
-  const db = getSupabaseServerClient();
-  const { data, error } = await db
-    .from("planning_levels")
-    .select("id")
-    .eq("label", label)
-    .maybeSingle();
-
-  if (error) {
-    throw error;
-  }
-
-  return data as { id: number } | null;
 }
 
 export async function findPlanningCatalogTypeByCategoryAndLabel(
@@ -161,21 +129,6 @@ export async function createPlanningCatalogDetail(input: {
   }
 
   return data as PlanningCatalogDetailRow;
-}
-
-export async function createPlanningLevel(input: { slug: string; label: string }) {
-  const db = getSupabaseServerClient();
-  const { data, error } = await db
-    .from("planning_levels")
-    .insert(input)
-    .select(levelSelect)
-    .single();
-
-  if (error) {
-    throw error;
-  }
-
-  return data as PlanningLevelRow;
 }
 
 export async function getPlanningCatalogTypeById(id: number) {
@@ -258,49 +211,6 @@ export async function updatePlanningCatalogDetail(
 export async function deletePlanningCatalogDetail(id: number) {
   const db = getSupabaseServerClient();
   const { error } = await db.from("planning_catalog_details").delete().eq("id", id);
-
-  if (error) {
-    throw error;
-  }
-}
-
-export async function getPlanningLevelById(id: number) {
-  const db = getSupabaseServerClient();
-  const { data, error } = await db
-    .from("planning_levels")
-    .select(levelSelect)
-    .eq("id", id)
-    .maybeSingle();
-
-  if (error) {
-    throw error;
-  }
-
-  return data as PlanningLevelRow | null;
-}
-
-export async function updatePlanningLevel(
-  id: number,
-  input: { label: string; slug: string }
-) {
-  const db = getSupabaseServerClient();
-  const { data, error } = await db
-    .from("planning_levels")
-    .update(input)
-    .eq("id", id)
-    .select(levelSelect)
-    .single();
-
-  if (error) {
-    throw error;
-  }
-
-  return data as PlanningLevelRow;
-}
-
-export async function deletePlanningLevel(id: number) {
-  const db = getSupabaseServerClient();
-  const { error } = await db.from("planning_levels").delete().eq("id", id);
 
   if (error) {
     throw error;

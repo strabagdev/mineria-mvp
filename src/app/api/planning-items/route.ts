@@ -14,10 +14,10 @@ import {
 import {
   findPlanningCatalogDetailByTypeAndLabel,
   findPlanningCatalogTypeByCategoryAndLabel,
-  findPlanningLevelByLabel,
 } from "@/server/repositories/planning-catalog.repository";
 import { findPlannedItemSummaryByActivityGroupId } from "@/server/repositories/planning-items.repository";
 import { listSegmentsForOverlap } from "@/server/repositories/planning-segments.repository";
+import { prepareOperationalHeaderMutationValues } from "@/server/services/operational-header.service";
 import {
   createPlannedPlanningItem,
   createRealPlanningSegments,
@@ -181,15 +181,6 @@ function buildRealSegments(payload: NormalizedPlanningItemPayloadDto) {
 }
 
 async function validateCatalogSelection(payload: NormalizedPlanningItemPayloadDto) {
-  const selectedLevel = await findPlanningLevelByLabel(payload.level);
-
-  if (!selectedLevel) {
-    return NextResponse.json(
-      { error: "El nivel seleccionado no es valido." },
-      { status: 400 }
-    );
-  }
-
   const selectedType = await findPlanningCatalogTypeByCategoryAndLabel(
     payload.category,
     payload.item_type
@@ -224,8 +215,6 @@ function toPlanningItemUpdatePayload(payload: NormalizedPlanningItemPayloadDto) 
     start_time: payload.start_time,
     end_time: payload.end_time,
     shift: payload.shift,
-    level: payload.level,
-    front: payload.front,
     category: payload.category,
     tracking_type: payload.tracking_type,
     item_type: payload.item_type,
@@ -282,15 +271,20 @@ async function validateAndNormalizePlanningItem(
   body: PlanningItemMutationPayloadDto
 ) {
   const { user, profile } = await requireOperationalUser(req);
-  const payload = normalizePlanningItemMutationPayload(body);
+  const rawPayload = normalizePlanningItemMutationPayload(body);
+  const preparedOperationalHeader = await prepareOperationalHeaderMutationValues(
+    rawPayload.operational_header_values
+  );
+  const payload: NormalizedPlanningItemPayloadDto = {
+    ...rawPayload,
+    operational_header_values: preparedOperationalHeader.values,
+  };
 
   if (
     !payload.item_date ||
     !payload.start_time ||
     !payload.end_time ||
     !payload.shift ||
-    !payload.level ||
-    !payload.front ||
     !payload.category ||
     !payload.tracking_type ||
     !payload.item_type ||
@@ -298,7 +292,7 @@ async function validateAndNormalizePlanningItem(
   ) {
     return {
       errorResponse: NextResponse.json(
-        { error: "Completa fecha, horario, turno, nivel, frente, categoria, vista, tipo y descripcion." },
+        { error: "Completa fecha, horario, turno, categoria, vista, tipo y descripcion." },
         { status: 400 }
       ),
     };
@@ -487,6 +481,7 @@ export async function PATCH(req: Request) {
         actor: { user, profile },
         id,
         updatePayload,
+        operationalHeaderValues: payload.operational_header_values,
       });
 
       return NextResponse.json({ item });
@@ -514,6 +509,7 @@ export async function PATCH(req: Request) {
     const realResult = await updateRealPlanningSegment({
       actor: { user, profile },
       id,
+      operationalHeaderValues: payload.operational_header_values,
       updatePayload: {
         planning_item_id: plannedItem?.id,
         activity_group_id: payload.activity_group_id,
@@ -521,8 +517,6 @@ export async function PATCH(req: Request) {
         start_time: payload.start_time,
         end_time: payload.end_time,
         shift: payload.shift,
-        level: payload.level,
-        front: payload.front,
         category: payload.category,
         item_type: payload.item_type,
         description: payload.description,

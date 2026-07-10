@@ -110,6 +110,7 @@ function OfflineReports() {
   const [report, setReport] = useState<ReportResponse | null>(null);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const rows = report?.rows ?? [];
+  const operationalHeaderColumns = report?.operational_header_columns ?? [];
 
   useEffect(() => {
     let active = true;
@@ -160,8 +161,9 @@ function OfflineReports() {
                 <th>Fecha</th>
                 <th>Vista</th>
                 <th>Turno</th>
-                <th>Nivel</th>
-                <th>Frente</th>
+                {operationalHeaderColumns.map((column) => (
+                  <th key={column.id}>{column.label}</th>
+                ))}
                 <th>Categoria</th>
                 <th>Tipo</th>
                 <th>Detalle</th>
@@ -175,8 +177,9 @@ function OfflineReports() {
                   <td>{formatReportDate(row.item_date)}</td>
                   <td>{toTrackingLabel(row.tracking_type)}</td>
                   <td>{row.shift}</td>
-                  <td>{row.level}</td>
-                  <td>{row.front}</td>
+                  {operationalHeaderColumns.map((column) => (
+                    <td key={column.id}>{row.operational_header_values?.[column.slug]?.value ?? ""}</td>
+                  ))}
                   <td>{toDisplayCategory(row.category)}</td>
                   <td>{row.item_type}</td>
                   <td>{row.description}</td>

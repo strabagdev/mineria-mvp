@@ -11,6 +11,7 @@ export {
   formatHours,
   formatReportDate,
   getInitialReportFilters,
+  getOperationalHeaderBreakdownGroups,
   toDisplayCategory,
   toLocalDateIso,
   toTrackingLabel,

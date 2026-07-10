@@ -19,13 +19,12 @@ function toPlanningItem(item: PlanningItemDto): PlanningItem {
     start: item.start_time.slice(0, 5),
     end: item.end_time.slice(0, 5),
     shift: item.shift,
-    level: item.level,
-    front: item.front,
     category: item.category,
     tracking_type: item.tracking_type,
     item_type: item.item_type,
     description: item.description,
     notes: item.notes ?? null,
+    operational_header_values: item.operational_header_values,
   };
 }
 
@@ -74,6 +73,5 @@ export async function fetchPlanningCatalog(accessToken?: string): Promise<Planni
   const payload = json as Partial<PlanningCatalogResponseDto>;
   return {
     categories: Array.isArray(payload.categories) ? payload.categories : [],
-    levels: Array.isArray(payload.levels) ? payload.levels : [],
   };
 }

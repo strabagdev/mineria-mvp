@@ -8,15 +8,12 @@ import type {
 } from "@/modules/planning/contracts/planning-catalog";
 import {
   createCatalogDetail,
-  createCatalogLevel,
   createCatalogType,
   deleteCatalogDetail,
-  deleteCatalogLevel,
   deleteCatalogType,
   getPlanningCatalog,
   slugifyPlanningCatalogValue,
   updateCatalogDetail,
-  updateCatalogLevel,
   updateCatalogType,
 } from "@/server/services/planning-catalog.service";
 
@@ -85,36 +82,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ detail }, { status: 201 });
     }
 
-    if (body.entity === "level") {
-      const label = String(body.label ?? "").trim().toUpperCase();
-
-      if (!label) {
-        return NextResponse.json(
-          { error: "Debes indicar un nombre para el nivel." },
-          { status: 400 }
-        );
-      }
-
-      const slug = slugifyPlanningCatalogValue(label);
-
-      if (!slug) {
-        return NextResponse.json(
-          { error: "El nombre del nivel no es valido." },
-          { status: 400 }
-        );
-      }
-
-      const level = await createCatalogLevel({
-        actor: { user, profile },
-        slug,
-        label,
-      });
-
-      return NextResponse.json({ level }, { status: 201 });
-    }
-
     return NextResponse.json(
-      { error: "Entidad no soportada. Usa type, detail o level." },
+      { error: "Entidad no soportada. Usa type o detail." },
       { status: 400 }
     );
   } catch (error: unknown) {
@@ -181,38 +150,8 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ detail });
     }
 
-    if (body.entity === "level") {
-      const id = Number(body.id);
-      const label = String(body.label ?? "").trim().toUpperCase();
-
-      if (!Number.isFinite(id) || id <= 0 || !label) {
-        return NextResponse.json(
-          { error: "Debes indicar un nivel valido y un nombre." },
-          { status: 400 }
-        );
-      }
-
-      const slug = slugifyPlanningCatalogValue(label);
-
-      if (!slug) {
-        return NextResponse.json(
-          { error: "El nombre del nivel no es valido." },
-          { status: 400 }
-        );
-      }
-
-      const level = await updateCatalogLevel({
-        actor: { user, profile },
-        id,
-        label,
-        slug,
-      });
-
-      return NextResponse.json({ level });
-    }
-
     return NextResponse.json(
-      { error: "Entidad no soportada. Usa type, detail o level." },
+      { error: "Entidad no soportada. Usa type o detail." },
       { status: 400 }
     );
   } catch (error: unknown) {
@@ -240,13 +179,8 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
-    if (body.entity === "level") {
-      await deleteCatalogLevel({ actor: { user, profile }, id });
-      return NextResponse.json({ ok: true });
-    }
-
     return NextResponse.json(
-      { error: "Entidad no soportada. Usa type, detail o level." },
+      { error: "Entidad no soportada. Usa type o detail." },
       { status: 400 }
     );
   } catch (error: unknown) {

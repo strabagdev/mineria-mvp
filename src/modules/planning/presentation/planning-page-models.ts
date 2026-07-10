@@ -1,14 +1,14 @@
 import type {
   PlanningCatalogCategoryDto,
   PlanningCatalogDetailDto,
-  PlanningCatalogLevelDto,
-  PlanningCatalogResponseDto,
   PlanningCatalogTypeDto,
 } from "@/modules/planning/contracts/planning-catalog";
 import type {
   PlanningCategoryDto,
+  PlanningItemOperationalHeaderValueDto,
   PlanningTrackingTypeDto,
 } from "@/modules/planning/contracts/planning-items";
+import type { GanttGroupingPathEntry } from "./planning-page-helpers";
 
 export type PlanningItem = {
   id: number;
@@ -18,20 +18,20 @@ export type PlanningItem = {
   start: string;
   end: string;
   shift: string;
-  level: string;
-  front: string;
   category: PlanningCategoryDto;
   tracking_type: PlanningTrackingTypeDto;
   item_type: string;
   notes?: string | null;
+  operational_header_values?: PlanningItemOperationalHeaderValueDto[];
   sync_status?: "pending";
 };
 
 export type CatalogDetail = PlanningCatalogDetailDto;
 export type CatalogType = PlanningCatalogTypeDto;
 export type CatalogCategory = PlanningCatalogCategoryDto;
-export type CatalogLevel = PlanningCatalogLevelDto;
-export type PlanningCatalog = PlanningCatalogResponseDto;
+export type PlanningCatalog = {
+  categories: CatalogCategory[];
+};
 
 export type PlanningItemForm = {
   activity_group_id: string;
@@ -39,8 +39,6 @@ export type PlanningItemForm = {
   start_time: string;
   end_time: string;
   shift: string;
-  level: string;
-  front: string;
   category: PlanningCategoryDto;
   tracking_type: PlanningTrackingTypeDto;
   item_type: string;
@@ -59,10 +57,6 @@ export type TypeAdminForm = {
   label: string;
 };
 
-export type LevelAdminForm = {
-  label: string;
-};
-
 export type EditTypeForm = {
   id: number;
   category: PlanningCategoryDto;
@@ -76,22 +70,16 @@ export type EditDetailForm = {
   label: string;
 };
 
-export type EditLevelForm = {
-  id: number;
-  label: string;
-};
-
 export type PlanningGroup = {
   key: string;
   activity_group_id: string;
   item_date: string;
   shift: string;
-  level: string;
-  front: string;
   category: PlanningCategoryDto;
   item_type: string;
   description: string;
   notes?: string | null;
   programado: PlanningItem | null;
   realSegments: PlanningItem[];
+  gantt_group_path?: GanttGroupingPathEntry[];
 };

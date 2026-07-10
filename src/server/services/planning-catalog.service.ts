@@ -4,17 +4,13 @@ import { writeAuditLog } from "@/lib/auditLog";
 import {
   createPlanningCatalogDetail,
   createPlanningCatalogType,
-  createPlanningLevel,
   deletePlanningCatalogDetail,
   deletePlanningCatalogType,
-  deletePlanningLevel,
   getPlanningCatalogDetailById,
   getPlanningCatalogTypeById,
-  getPlanningLevelById,
   listPlanningCatalogRows,
   updatePlanningCatalogDetail,
   updatePlanningCatalogType,
-  updatePlanningLevel,
 } from "@/server/repositories/planning-catalog.repository";
 
 const categoryLabels = {
@@ -35,7 +31,7 @@ export function slugifyPlanningCatalogValue(value: string) {
 }
 
 export async function getPlanningCatalog() {
-  const { types, details, levels } = await listPlanningCatalogRows();
+  const { types, details } = await listPlanningCatalogRows();
   const groupedDetails = new Map<number, Array<{ id: number; label: string }>>();
 
   for (const detail of details) {
@@ -59,7 +55,7 @@ export async function getPlanningCatalog() {
       })),
   }));
 
-  return { categories, levels };
+  return { categories };
 }
 
 export async function createCatalogType(input: {
@@ -104,24 +100,6 @@ export async function createCatalogDetail(input: {
   });
 
   return detail;
-}
-
-export async function createCatalogLevel(input: {
-  actor: AuditActor;
-  label: string;
-  slug: string;
-}) {
-  const level = await createPlanningLevel({ slug: input.slug, label: input.label });
-
-  await writeAuditLog({
-    actor: input.actor,
-    action: "catalog.level.created",
-    entityType: "planning_level",
-    entityId: level.id,
-    after: level,
-  });
-
-  return level;
 }
 
 export async function updateCatalogType(input: {
@@ -174,30 +152,6 @@ export async function updateCatalogDetail(input: {
   return detail;
 }
 
-export async function updateCatalogLevel(input: {
-  actor: AuditActor;
-  id: number;
-  label: string;
-  slug: string;
-}) {
-  const beforeData = await getPlanningLevelById(input.id);
-  const level = await updatePlanningLevel(input.id, {
-    label: input.label,
-    slug: input.slug,
-  });
-
-  await writeAuditLog({
-    actor: input.actor,
-    action: "catalog.level.updated",
-    entityType: "planning_level",
-    entityId: level.id,
-    before: beforeData,
-    after: level,
-  });
-
-  return level;
-}
-
 export async function deleteCatalogType(input: { actor: AuditActor; id: number }) {
   const beforeData = await getPlanningCatalogTypeById(input.id);
   await deletePlanningCatalogType(input.id);
@@ -219,19 +173,6 @@ export async function deleteCatalogDetail(input: { actor: AuditActor; id: number
     actor: input.actor,
     action: "catalog.detail.deleted",
     entityType: "planning_catalog_detail",
-    entityId: input.id,
-    before: beforeData,
-  });
-}
-
-export async function deleteCatalogLevel(input: { actor: AuditActor; id: number }) {
-  const beforeData = await getPlanningLevelById(input.id);
-  await deletePlanningLevel(input.id);
-
-  await writeAuditLog({
-    actor: input.actor,
-    action: "catalog.level.deleted",
-    entityType: "planning_level",
     entityId: input.id,
     before: beforeData,
   });

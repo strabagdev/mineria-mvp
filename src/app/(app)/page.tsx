@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { CirclePlus, Tag } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { CirclePlus } from "lucide-react";
 import { useAuth } from "@/providers/auth-provider";
 import { CatalogSheet } from "@/components/planning/catalog-sheet";
 import { DeleteConfirmationDialog } from "@/components/planning/delete-confirmation-dialog";
@@ -17,29 +17,8 @@ import {
   fetchPlanningCatalog,
   fetchPlanningItems,
 } from "@/modules/planning/application/planning-reads.client";
-import {
-  fetchPlanningCustomFields,
-  fetchPlanningCustomFieldValues,
-  fetchPlanningCustomFieldValuesForItems,
-  savePlanningCustomFieldValues,
-} from "@/modules/planning-custom-fields/application/planning-custom-fields.client";
-import type {
-  PlanningCustomFieldDto,
-  PlanningCustomFieldValueInputDto,
-  PlanningCustomFieldValueDto,
-} from "@/modules/planning-custom-fields/contracts/planning-custom-fields";
-import { PlanningCustomFieldsAdminPanel } from "@/modules/planning-custom-fields/presentation/planning-custom-fields-admin-panel";
-import { PlanningCustomFieldsForm } from "@/modules/planning-custom-fields/presentation/planning-custom-fields-form";
-import {
-  buildCustomFieldFormState,
-  fieldAppliesTo,
-  getCustomFieldDisplayEntries,
-  toCustomFieldValueInputs,
-  toDisplayCustomFieldValues,
-  type PlanningCustomFieldFormState,
-} from "@/modules/planning-custom-fields/presentation/planning-custom-fields-form-model";
-import { getPlanningCustomFieldIcon } from "@/modules/planning-custom-fields/presentation/planning-custom-field-icons";
-import { PlanningCustomFieldsSummary } from "@/modules/planning-custom-fields/presentation/planning-custom-fields-summary";
+import { fetchOperationalHeaderConfig } from "@/modules/operational-header/application/operational-header.client";
+import type { OperationalHeaderResponseDto } from "@/modules/operational-header/contracts/operational-header";
 import {
   fetchAssignmentTypes,
   fetchPlanningAssignmentsForTarget,
@@ -82,14 +61,9 @@ import {
 } from "@/lib/networkStatus";
 import {
   readCatalogCache,
-  readKeyValueCache,
-  readPlanningCustomFieldsCache,
   readPlanningCache,
   saveCatalogCache,
-  saveKeyValueCache,
-  savePlanningCustomFieldsCache,
   savePlanningCache,
-  OFFLINE_KEYS,
 } from "@/lib/localOfflineStore";
 import { recordOperationalEvent } from "../../lib/observability/logger";
 import {
@@ -109,6 +83,7 @@ import {
   getCurrentOperationalDate,
   getDefaultRealEventTimes,
   getDefaultShiftTimes,
+  getGanttGroupingFields,
   getInitialOperationalView,
   isSameCalendarMonth,
   positionMinutesInScale,
@@ -120,7 +95,6 @@ import {
 } from "@/modules/planning/presentation/planning-page-helpers";
 import type {
   CatalogCategory,
-  CatalogLevel,
   PlanningCatalog,
   PlanningGroup,
   PlanningItem,
@@ -158,6 +132,7 @@ import {
 type PlanningItemMutationPayload = PlanningItemForm & {
   id?: number;
   client_mutation_id?: string;
+  operational_header_values?: PlanningItem["operational_header_values"];
 };
 
 type EditingPlanningItem = {
@@ -171,10 +146,6 @@ type DeleteConfirmation = {
 } | null;
 
 type ViewingPlanningItem = PlanningItem | null;
-
-function buildCustomFieldValuesCacheKey(planningItemId: number) {
-  return `${OFFLINE_KEYS.planningCustomFieldValuesPrefix}:${planningItemId}`;
-}
 
 function toPlanningItemAssignmentTarget(planningItemId: number): AssignmentTarget {
   return { target_kind: "planning_item", target_id: planningItemId };
@@ -258,6 +229,29 @@ function extractLastSyncLabel(...messages: string[]) {
   return source.replace(/^.*Ultima sincronizacion:\s*/i, "").replace(/\.$/, "").trim();
 }
 
+function toOperationalHeaderValueInputs(
+  config: OperationalHeaderResponseDto | null,
+  values: Record<number, string>
+) {
+  if (!config) {
+    return [];
+  }
+
+  return config.fields
+    .filter((field) => field.active)
+    .map((field) => ({
+      field_id: field.id,
+      value: values[field.id] ?? "",
+    }));
+}
+
+function toOperationalHeaderFormState(item: Pick<PlanningItem, "operational_header_values">) {
+  return (item.operational_header_values ?? []).reduce<Record<number, string>>((accumulator, value) => {
+    accumulator[value.field_id] = value.value;
+    return accumulator;
+  }, {});
+}
+
 export default function Home() {
   const { session, profile } = useAuth();
   const networkStatus = useSyncExternalStore(
@@ -272,7 +266,6 @@ export default function Home() {
   const initialOperationalView = getInitialOperationalView(currentTime);
   const [planningItems, setPlanningItems] = useState<PlanningItem[]>([]);
   const [catalog, setCatalog] = useState<CatalogCategory[]>([]);
-  const [levels, setLevels] = useState<CatalogLevel[]>([]);
   const [selectedDate, setSelectedDate] = useState(initialOperationalView.selectedDate);
   const [historicalEditingEnabled, setHistoricalEditingEnabled] = useState(false);
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
@@ -286,16 +279,7 @@ export default function Home() {
   const [queueSyncing, setQueueSyncing] = useState(false);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState("");
-  const [customFieldsLoading, setCustomFieldsLoading] = useState(true);
-  const [customFieldsError, setCustomFieldsError] = useState("");
-  const [customFields, setCustomFields] = useState<PlanningCustomFieldDto[]>([]);
-  const [customFieldFormState, setCustomFieldFormState] = useState<PlanningCustomFieldFormState>({});
-  const [formCustomFieldsLoading, setFormCustomFieldsLoading] = useState(false);
-  const [formCustomFieldsError, setFormCustomFieldsError] = useState("");
-  const [viewingCustomFieldValues, setViewingCustomFieldValues] = useState<PlanningCustomFieldValueDto[]>([]);
-  const [customFieldValuesByItemId, setCustomFieldValuesByItemId] = useState<Record<number, PlanningCustomFieldValueDto[]>>({});
-  const [viewingCustomFieldsLoading, setViewingCustomFieldsLoading] = useState(false);
-  const [viewingCustomFieldsError, setViewingCustomFieldsError] = useState("");
+  const [operationalHeaderConfig, setOperationalHeaderConfig] = useState<OperationalHeaderResponseDto | null>(null);
   const [formAssignmentTypes, setFormAssignmentTypes] = useState<AssignmentTypeDto[]>([]);
   const [planningAssignmentsFormState, setPlanningAssignmentsFormState] = useState<PlanningAssignmentsFormState>({});
   const [formAssignmentsLoading, setFormAssignmentsLoading] = useState(false);
@@ -314,7 +298,8 @@ export default function Home() {
   const [formError, setFormError] = useState("");
   const [editingPlanningItem, setEditingPlanningItem] = useState<EditingPlanningItem | null>(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState<DeleteConfirmation>(null);
-  const [formState, setFormState] = useState<PlanningItemForm>(toInitialPlanningForm([], [], "Dia", formatLocalDateIso()));
+  const [formState, setFormState] = useState<PlanningItemForm>(toInitialPlanningForm([], "Dia", formatLocalDateIso()));
+  const [dynamicHeaderFormState, setDynamicHeaderFormState] = useState<Record<number, string>>({});
   const resumeRefreshInFlightRef = useRef(false);
 
   const selectActiveShift = useCallback((shift: ShiftKey) => {
@@ -336,8 +321,7 @@ export default function Home() {
 
   function syncAdminCatalogRefresh(nextCatalog: PlanningCatalog) {
     setCatalog(nextCatalog.categories);
-    setLevels(nextCatalog.levels);
-    setFormState((current) => syncPlanningForm(current, nextCatalog.categories, nextCatalog.levels));
+    setFormState((current) => syncPlanningForm(current, nextCatalog.categories));
   }
 
   const {
@@ -345,138 +329,23 @@ export default function Home() {
     catalogFormError,
     typeForm,
     setTypeForm,
-    levelForm,
-    setLevelForm,
     detailForm,
     setDetailForm,
     editingType,
     setEditingType,
-    editingLevel,
-    setEditingLevel,
     editingDetail,
     setEditingDetail,
     handleCreateType,
     handleCreateDetail,
-    handleCreateLevel,
     handleUpdateType,
     handleUpdateDetail,
-    handleUpdateLevel,
     handleDeleteType,
-    handleDeleteLevel,
     handleDeleteDetail,
   } = usePlanningCatalogAdmin({
     accessToken: session?.access_token,
     onRefresh: syncAdminCatalogRefresh,
     getRequestErrorMessage,
   });
-
-  const refreshCustomFields = useCallback(async (options: { allowCacheFallback?: boolean } = {}) => {
-    const allowCacheFallback = options.allowCacheFallback ?? true;
-
-    if (!session?.access_token) {
-      setCustomFields([]);
-      setCustomFieldsError("");
-      return [];
-    }
-
-    try {
-      const nextFields = await fetchPlanningCustomFields(session.access_token, { activeOnly: false });
-      setCustomFields(nextFields);
-      setCustomFieldsError("");
-      setCatalogError((current) => (isTransientConnectivityMessage(current) ? "" : current));
-      void savePlanningCustomFieldsCache(nextFields);
-      return nextFields;
-    } catch (error: unknown) {
-      if (!allowCacheFallback) {
-        const message = getRequestErrorMessage(error, "No se pudieron cargar los campos configurables.");
-        setCustomFieldsError(message);
-        throw error;
-      }
-
-      const cachedFields = await readPlanningCustomFieldsCache<PlanningCustomFieldDto[]>().catch(() => null);
-
-      if (cachedFields?.value) {
-        recordOperationalEvent({
-          name: "offline.cache_used",
-          source: "planningPage",
-          metadata: { dataset: "planning-custom-fields" },
-        });
-        setCustomFields(cachedFields.value);
-        setCustomFieldsError("");
-        setCatalogError(`Usando campos configurables locales. Ultima sincronizacion: ${formatLocalDateTime(cachedFields.updatedAt)}.`);
-        return cachedFields.value;
-      }
-
-      setCustomFieldsError(getRequestErrorMessage(error, "No se pudieron cargar los campos configurables."));
-      throw error;
-    }
-  }, [session?.access_token]);
-
-  const preloadCustomFieldValuesForItems = useCallback(async (items: PlanningItem[]) => {
-    if (!session?.access_token) {
-      return;
-    }
-
-    const planningItemIds = items
-      .filter((item) => item.tracking_type === "programado" && item.id > 0)
-      .map((item) => item.id);
-
-    if (!planningItemIds.length) {
-      return;
-    }
-
-    let values: PlanningCustomFieldValueDto[];
-
-    try {
-      values = await fetchPlanningCustomFieldValuesForItems(planningItemIds, session.access_token);
-    } catch {
-      recordOperationalEvent({
-        level: "warn",
-        name: "planning_custom_field_values.load_failed",
-        source: "planningPage",
-        metadata: { selectedDate, mode: "batch" },
-      });
-
-      const cachedEntries = await Promise.all(
-        planningItemIds.map(async (planningItemId) => {
-          const cachedValues = await readKeyValueCache<PlanningCustomFieldValueDto[]>(
-            buildCustomFieldValuesCacheKey(planningItemId)
-          ).catch(() => null);
-          return [planningItemId, cachedValues?.value ?? []] as const;
-        })
-      );
-
-      setCustomFieldValuesByItemId((current) => ({
-        ...current,
-        ...Object.fromEntries(cachedEntries),
-      }));
-      return;
-    }
-
-    const nextValuesByItemId = Object.fromEntries(planningItemIds.map((id) => [id, [] as PlanningCustomFieldValueDto[]]));
-
-    for (const value of values) {
-      if (!value.planning_item_id) {
-        continue;
-      }
-
-      nextValuesByItemId[value.planning_item_id] = [
-        ...(nextValuesByItemId[value.planning_item_id] ?? []),
-        value,
-      ];
-    }
-
-    setCustomFieldValuesByItemId((current) => ({
-      ...current,
-      ...nextValuesByItemId,
-    }));
-
-    await Promise.all(
-      Object.entries(nextValuesByItemId).map(([planningItemId, itemValues]) =>
-        saveKeyValueCache(buildCustomFieldValuesCacheKey(Number(planningItemId)), itemValues).catch(() => undefined)
-      )
-    );
-  }, [selectedDate, session?.access_token]);
 
   const preloadPlanningAssignmentsForItems = useCallback(async (items: PlanningItem[]) => {
     const planningItemIds = items
@@ -646,15 +515,13 @@ export default function Home() {
     setPlanningItems(nextItems);
     setItemsError((current) => (isTransientConnectivityMessage(current) ? "" : current));
     void savePlanningCache(selectedDate, nextItems);
-    void preloadCustomFieldValuesForItems(nextItems);
     void preloadPlanningAssignmentsForItems(nextItems);
-  }, [preloadCustomFieldValuesForItems, preloadPlanningAssignmentsForItems, selectedDate, session?.access_token]);
+  }, [preloadPlanningAssignmentsForItems, selectedDate, session?.access_token]);
 
   const refreshCatalog = useCallback(async () => {
     const nextCatalog = await fetchPlanningCatalog(session?.access_token);
     setCatalog(nextCatalog.categories);
-    setLevels(nextCatalog.levels);
-    setFormState((current) => syncPlanningForm(current, nextCatalog.categories, nextCatalog.levels));
+    setFormState((current) => syncPlanningForm(current, nextCatalog.categories));
     setDetailForm((current) => syncDetailAdminForm(current, nextCatalog.categories));
     setCatalogError((current) => (isTransientConnectivityMessage(current) ? "" : current));
     void saveCatalogCache(nextCatalog);
@@ -700,14 +567,12 @@ export default function Home() {
         const results = await Promise.allSettled([
           refreshPlanningItems(),
           refreshCatalog(),
-          refreshCustomFields({ allowCacheFallback: false }),
         ]);
         const failed = results.filter((result) => result.status === "rejected");
 
         if (failed.length === 0) {
           setItemsError((current) => (isTransientConnectivityMessage(current) ? "" : current));
           setCatalogError((current) => (isTransientConnectivityMessage(current) ? "" : current));
-          setCustomFieldsError((current) => (isTransientConnectivityMessage(current) ? "" : current));
           return;
         }
 
@@ -749,7 +614,7 @@ export default function Home() {
       window.removeEventListener("online", recoverFromNetworkStatus);
       document.removeEventListener("visibilitychange", recoverFromVisibility);
     };
-  }, [refreshCatalog, refreshCustomFields, refreshPlanningItems, selectedDate]);
+  }, [refreshCatalog, refreshPlanningItems, selectedDate]);
 
   useEffect(() => {
     let active = true;
@@ -781,9 +646,8 @@ export default function Home() {
               metadata: { dataset: "planning-catalog" },
             });
             setCatalog(cachedCatalog.value.categories);
-            setLevels(cachedCatalog.value.levels);
             setFormState((current) =>
-              syncPlanningForm(current, cachedCatalog.value.categories, cachedCatalog.value.levels)
+              syncPlanningForm(current, cachedCatalog.value.categories)
             );
             setDetailForm((current) => syncDetailAdminForm(current, cachedCatalog.value.categories));
             setCatalogError(`Usando catalogo local guardado. Ultima sincronizacion: ${formatLocalDateTime(cachedCatalog.updatedAt)}.`);
@@ -813,45 +677,28 @@ export default function Home() {
 
   useEffect(() => {
     if (!session?.access_token) {
-      setCustomFields([]);
-      setCustomFieldsLoading(false);
-      setCustomFieldsError("");
+      setOperationalHeaderConfig(null);
       return;
     }
 
     let active = true;
-    setCustomFieldsLoading(true);
-    setCustomFieldsError("");
 
-    refreshCustomFields()
-      .then((nextFields) => {
+    fetchOperationalHeaderConfig(session.access_token)
+      .then((config) => {
         if (active) {
-          setCustomFields(nextFields);
-          setCustomFieldsError("");
+          setOperationalHeaderConfig(config);
         }
       })
-      .catch((error: unknown) => {
+      .catch(() => {
         if (active) {
-          recordOperationalEvent({
-            level: "warn",
-            name: "planning_custom_fields.load_failed",
-            source: "planningPage",
-          });
-          const message = getRequestErrorMessage(error, "No se pudieron cargar los campos configurables.");
-          setCustomFieldsError(message);
-          setCatalogError(message);
-        }
-      })
-      .finally(() => {
-        if (active) {
-          setCustomFieldsLoading(false);
+          setOperationalHeaderConfig(null);
         }
       });
 
     return () => {
       active = false;
     };
-  }, [refreshCustomFields, session?.access_token]);
+  }, [session?.access_token]);
 
   useEffect(() => {
     let active = true;
@@ -884,7 +731,6 @@ export default function Home() {
 
         setPlanningItems(nextItems);
         void savePlanningCache(selectedDate, nextItems);
-        void preloadCustomFieldValuesForItems(nextItems);
         void preloadPlanningAssignmentsForItems(nextItems);
       } catch (error: unknown) {
         const message = getRequestErrorMessage(error, "No se pudo cargar la planificacion.");
@@ -899,7 +745,6 @@ export default function Home() {
               metadata: { dataset: "planning-by-date", selectedDate },
             });
             setPlanningItems(cachedPlanning.items);
-            void preloadCustomFieldValuesForItems(cachedPlanning.items);
             void preloadPlanningAssignmentsForItems(cachedPlanning.items);
             setItemsError(
               `Usando planificacion local guardada. Ultima sincronizacion: ${formatLocalDateTime(cachedPlanning.updatedAt)}.`
@@ -926,7 +771,7 @@ export default function Home() {
     return () => {
       active = false;
     };
-  }, [preloadCustomFieldValuesForItems, preloadPlanningAssignmentsForItems, selectedDate, session?.access_token]);
+  }, [preloadPlanningAssignmentsForItems, selectedDate, session?.access_token]);
 
   useEffect(() => {
     if (formState.tracking_type !== "programado") {
@@ -1013,30 +858,6 @@ export default function Home() {
     };
   }, [isDatePickerOpen]);
 
-  async function cacheCustomFieldValues(planningItemId: number, values: PlanningCustomFieldValueDto[]) {
-    if (planningItemId <= 0) {
-      return;
-    }
-
-    setCustomFieldValuesByItemId((current) => ({
-      ...current,
-      [planningItemId]: values,
-    }));
-    await saveKeyValueCache(buildCustomFieldValuesCacheKey(planningItemId), values).catch(() => undefined);
-  }
-
-  async function readCachedCustomFieldValues(planningItemId: number) {
-    if (planningItemId <= 0) {
-      return null;
-    }
-
-    const cachedValues = await readKeyValueCache<PlanningCustomFieldValueDto[]>(
-      buildCustomFieldValuesCacheKey(planningItemId)
-    ).catch(() => null);
-
-    return cachedValues?.value && Array.isArray(cachedValues.value) ? cachedValues.value : null;
-  }
-
   function findPendingPlanningMutationForItemId(planningItemId: number) {
     return pendingPlanningMutations.find((mutation) => {
       const payloadId = Number(mutation.payload.id);
@@ -1046,14 +867,6 @@ export default function Home() {
 
       return toOptimisticPlanningItem(mutation)?.id === planningItemId;
     });
-  }
-
-  function getPendingCustomFieldValuesForItem(item: PlanningItem) {
-    const pendingMutation = findPendingPlanningMutationForItemId(item.id);
-
-    return pendingMutation?.customFieldValues
-      ? toDisplayCustomFieldValues(pendingMutation.customFieldValues, { planningItemId: item.id })
-      : null;
   }
 
   function getPendingAssignmentsForItem(item: PlanningItem) {
@@ -1071,15 +884,10 @@ export default function Home() {
     return getPendingAssignmentsForItem(item) ?? planningAssignmentsByTargetKey[getAssignmentTargetKey(getAssignmentTargetForItem(item))] ?? [];
   }
 
-  function getCustomFieldValuesForGanttPopover(item: PlanningItem) {
-    return getPendingCustomFieldValuesForItem(item) ?? customFieldValuesByItemId[item.id] ?? [];
-  }
-
   function resetPlanningForm() {
-    const nextForm = syncPlanningForm(toInitialPlanningForm(catalog, levels, activeShift, selectedDate), catalog, levels);
+    const nextForm = syncPlanningForm(toInitialPlanningForm(catalog, activeShift, selectedDate), catalog);
     setFormState({ ...nextForm, item_date: selectedDate, shift: activeShift });
-    setCustomFieldFormState({});
-    setFormCustomFieldsError("");
+    setDynamicHeaderFormState({});
     setFormAssignmentTypes([]);
     setPlanningAssignmentsFormState({});
     setFormAssignmentsLoading(false);
@@ -1093,20 +901,16 @@ export default function Home() {
     const assignmentTarget = getAssignmentTargetForItem(item);
     const assignmentTargetKey = getAssignmentTargetKey(assignmentTarget);
     setViewingPlanningItem(item);
-    setViewingCustomFieldValues(getPendingCustomFieldValuesForItem(item) ?? []);
-    setViewingCustomFieldsError("");
     setViewingAssignmentTypes(assignmentTypes);
     setViewingPlanningAssignments(getAssignmentsForItem(item));
     setViewingAssignmentsError("");
 
     if (item.id <= 0) {
-      setViewingCustomFieldsLoading(false);
       setViewingAssignmentsLoading(false);
       return;
     }
 
     if (!session?.access_token) {
-      setViewingCustomFieldsLoading(false);
       setViewingAssignmentsLoading(false);
       if (!getPendingAssignmentsForItem(item)) {
         void Promise.all([
@@ -1120,39 +924,7 @@ export default function Home() {
       return;
     }
 
-    setViewingCustomFieldsLoading(item.tracking_type === "programado");
     setViewingAssignmentsLoading(!isBrowserOffline());
-    if (item.tracking_type === "programado") {
-      void fetchPlanningCustomFieldValues({ planningItemId: item.id }, session.access_token)
-        .then((values) => {
-          setViewingCustomFieldValues(values);
-          setViewingCustomFieldsError("");
-          void cacheCustomFieldValues(item.id, values);
-        })
-        .catch(async (error: unknown) => {
-          const cachedValues = await readCachedCustomFieldValues(item.id);
-          if (cachedValues) {
-            setViewingCustomFieldValues(cachedValues);
-            setViewingCustomFieldsError("");
-            return;
-          }
-
-          recordOperationalEvent({
-            level: "warn",
-            name: "planning_custom_field_values.load_failed",
-            source: "planningPage",
-            metadata: { planningItemId: item.id },
-          });
-          const message = getRequestErrorMessage(error, "No se pudieron cargar los campos configurables.");
-          setViewingCustomFieldsError(message);
-          setItemsError(message);
-        })
-        .finally(() => {
-          setViewingCustomFieldsLoading(false);
-        });
-    } else {
-      setViewingCustomFieldsLoading(false);
-    }
 
     if (isBrowserOffline()) {
       if (!getPendingAssignmentsForItem(item)) {
@@ -1336,23 +1108,6 @@ export default function Home() {
     return sendPlanningMutationRequest(method, payload, session?.access_token);
   }
 
-  function getPlannedCustomFieldValuesForQueue(): PlanningCustomFieldValueInputDto[] | undefined {
-    if (formState.tracking_type !== "programado") {
-      return undefined;
-    }
-
-    if (editingPlanningItem && Object.keys(customFieldFormState).length === 0) {
-      return undefined;
-    }
-
-    const values = toCustomFieldValueInputs(
-      customFields.filter((field) => fieldAppliesTo(field, "planned")),
-      customFieldFormState
-    );
-
-    return values.length ? values : undefined;
-  }
-
   function getPlannedAssignmentsForQueue(): PlanningAssignmentInputDto[] | undefined {
     if (formState.tracking_type !== "programado" || !formAssignmentsReady) {
       return undefined;
@@ -1365,7 +1120,6 @@ export default function Home() {
     method: PendingPlanningMutation["method"],
     payload: Record<string, unknown>,
     input: {
-      customFieldValues?: PlanningCustomFieldValueInputDto[];
       assignmentPayload?: PlanningAssignmentInputDto[];
       syncedPlanningItemId?: number;
     } = {}
@@ -1399,33 +1153,6 @@ export default function Home() {
     const replayResult = await replayPendingPlanningMutations({
       mutations: pendingPlanningMutations,
       sendMutation: (mutation) => sendPlanningMutation(mutation.method, mutation.payload),
-      replayCustomFieldValues: async (mutation, response) => {
-        if (mutation.method === "DELETE" || !mutation.customFieldValues?.length) {
-          return;
-        }
-
-        const responseItemId = Number((response as { item?: { id?: unknown } })?.item?.id);
-        const payloadItemId = Number(mutation.payload.id);
-        const planningItemId =
-          Number.isFinite(responseItemId) && responseItemId > 0
-            ? responseItemId
-            : Number.isFinite(payloadItemId) && payloadItemId > 0
-              ? payloadItemId
-              : null;
-
-        if (!planningItemId) {
-          throw new Error("No se pudo asociar los campos configurables al programado sincronizado.");
-        }
-
-        const savedCustomFieldValues = await savePlanningCustomFieldValues(
-          {
-            planning_item_id: planningItemId,
-            values: mutation.customFieldValues,
-          },
-          session.access_token
-        );
-        void cacheCustomFieldValues(planningItemId, savedCustomFieldValues);
-      },
       replayAssignmentPayload: async (mutation, response) => {
         if (mutation.method === "DELETE" || mutation.assignmentPayload === undefined) {
           return;
@@ -1500,9 +1227,14 @@ export default function Home() {
     }
 
     const method = editingPlanningItem ? "PATCH" : "POST";
+    const operationalHeaderValues = toOperationalHeaderValueInputs(operationalHeaderConfig, dynamicHeaderFormState);
+    const mutationPayload = {
+      ...formState,
+      operational_header_values: operationalHeaderValues,
+    };
     const payload: PlanningItemMutationPayload = editingPlanningItem
-      ? { id: editingPlanningItem.id, ...formState }
-      : withClientMutationId({ ...formState }) as PlanningItemMutationPayload;
+      ? { id: editingPlanningItem.id, ...mutationPayload }
+      : withClientMutationId(mutationPayload) as PlanningItemMutationPayload;
 
     if (!session?.access_token) {
       if (isBrowserOffline()) {
@@ -1513,7 +1245,6 @@ export default function Home() {
         }
 
         enqueuePlanningMutation(method, payload, {
-          customFieldValues: getPlannedCustomFieldValuesForQueue(),
           assignmentPayload: getPlannedAssignmentsForQueue(),
         });
         setItemsError(
@@ -1535,33 +1266,6 @@ export default function Home() {
       const savedItemId = Number(
         (mutationResult as { item?: { id?: unknown } }).item?.id ?? editingPlanningItem?.id
       );
-
-      if (formState.tracking_type === "programado" && Number.isFinite(savedItemId) && savedItemId > 0) {
-        try {
-          const savedCustomFieldValues = await savePlanningCustomFieldValues(
-            {
-              planning_item_id: savedItemId,
-              values: toCustomFieldValueInputs(
-                customFields.filter((field) => fieldAppliesTo(field, "planned")),
-                customFieldFormState
-              ),
-            },
-            session.access_token
-          );
-          void cacheCustomFieldValues(savedItemId, savedCustomFieldValues);
-        } catch (error: unknown) {
-          recordOperationalEvent({
-            level: "warn",
-            name: "planning_custom_field_values.save_failed",
-            source: "planningPage",
-            metadata: { planningItemId: savedItemId },
-          });
-          setEditingPlanningItem({ id: savedItemId });
-          setFormError(getRequestErrorMessage(error, "La programacion se guardo, pero no se pudieron guardar sus campos configurables. Reintenta guardar para completar los campos."));
-          await refreshPlanningItems().catch(() => undefined);
-          return;
-        }
-      }
 
       if (formAssignmentsReady && Number.isFinite(savedItemId) && savedItemId > 0) {
         const assignmentPayload = toPlanningAssignmentInputs(formAssignmentTypes, planningAssignmentsFormState);
@@ -1618,7 +1322,6 @@ export default function Home() {
     } catch (error: unknown) {
       if (shouldQueuePlanningMutation(error)) {
         enqueuePlanningMutation(method, payload, {
-          customFieldValues: getPlannedCustomFieldValuesForQueue(),
           assignmentPayload: getPlannedAssignmentsForQueue(),
         });
         setItemsError(
@@ -1663,17 +1366,14 @@ export default function Home() {
       start_time: item.start,
       end_time: item.end,
       shift: item.shift,
-      level: item.level,
-      front: item.front,
       category: item.category,
       tracking_type: item.tracking_type,
       item_type: nextType?.label ?? item.item_type,
       description: nextDetail?.label ?? item.description,
       notes: item.notes ?? "",
     });
+    setDynamicHeaderFormState(toOperationalHeaderFormState(item));
     setEditingPlanningItem({ id: item.id });
-    setCustomFieldFormState({});
-    setFormCustomFieldsError("");
     setFormAssignmentTypes([]);
     setPlanningAssignmentsFormState({});
     setFormAssignmentsError("");
@@ -1683,50 +1383,6 @@ export default function Home() {
     setIsModalOpen(true);
 
     void loadAssignmentsForEdit(item);
-
-    if (item.tracking_type === "programado" && session?.access_token) {
-      const pendingValues = getPendingCustomFieldValuesForItem(item);
-      if (pendingValues) {
-        setCustomFieldFormState(buildCustomFieldFormState(pendingValues));
-      }
-
-      if (item.id <= 0) {
-        setFormCustomFieldsLoading(false);
-        return;
-      }
-
-      setFormCustomFieldsLoading(true);
-      void fetchPlanningCustomFieldValues({ planningItemId: item.id }, session.access_token)
-        .then((values) => {
-          setCustomFieldFormState(buildCustomFieldFormState(values));
-          setFormCustomFieldsError("");
-          void cacheCustomFieldValues(item.id, values);
-        })
-        .catch(async (error: unknown) => {
-          const cachedValues = await readCachedCustomFieldValues(item.id);
-          if (cachedValues) {
-            setCustomFieldFormState(buildCustomFieldFormState(cachedValues));
-            setFormCustomFieldsError("");
-            return;
-          }
-
-          recordOperationalEvent({
-            level: "warn",
-            name: "planning_custom_field_values.load_failed",
-            source: "planningPage",
-            metadata: { planningItemId: item.id, mode: "edit" },
-          });
-          const message = getRequestErrorMessage(error, "No se pudieron cargar los campos configurables.");
-          setFormCustomFieldsError(message);
-          setFormError(message);
-        })
-        .finally(() => {
-          setFormCustomFieldsLoading(false);
-        });
-    } else {
-      setFormCustomFieldsLoading(false);
-      setFormAssignmentsLoading(false);
-    }
   }
 
   async function handleDeletePlanningItem(id: number, trackingType: PlanningItem["tracking_type"]) {
@@ -1848,7 +1504,11 @@ export default function Home() {
     pendingPlanningMutations,
     selectedDate
   );
-  const allPlanningGroups = groupPlanningItems(visiblePlanningItems);
+  const ganttGroupingFields = useMemo(
+    () => (operationalHeaderConfig ? getGanttGroupingFields(operationalHeaderConfig) : []),
+    [operationalHeaderConfig]
+  );
+  const allPlanningGroups = groupPlanningItems(visiblePlanningItems, ganttGroupingFields);
   const planningGroupsByShift: Record<ShiftKey, PlanningGroup[]> = {
     Dia: allPlanningGroups.filter(
       (group) => group.programado?.shift === "Dia" || group.realSegments.some((segment) => segment.shift === "Dia")
@@ -1934,19 +1594,13 @@ export default function Home() {
     const duration = formatDuration(item.start, item.end);
     const ariaLabel = buildPlanningItemAriaLabel(item, duration);
     const barLabel = buildGanttBarLabel(item, layer);
-    const locationLabel = buildEventSubtitle(item) || "Sin ubicacion";
-    const customFieldBadges = getCustomFieldDisplayEntries(
-      customFields,
-      item.tracking_type === "programado" ? getCustomFieldValuesForGanttPopover(item) : []
-    );
+    const locationLabel = buildEventSubtitle() || "Sin ubicacion";
     const assignmentBadges = getPlanningAssignmentTypeSummaries(
       assignmentTypes,
       getAssignmentsForItem(item)
     );
     const visibleAssignmentBadges = assignmentBadges.slice(0, 5);
     const hiddenAssignmentBadges = assignmentBadges.slice(5);
-    const visibleCustomFieldBadges = customFieldBadges.slice(0, 4);
-    const hiddenCustomFieldBadges = customFieldBadges.slice(4);
 
     return (
       <button
@@ -2022,35 +1676,6 @@ export default function Home() {
                 ) : null}
               </span>
             ) : null}
-            {customFieldBadges.length ? (
-              <span className="gantt-tooltip-custom-fields" aria-label="Campos configurables">
-                {visibleCustomFieldBadges.map(({ field, value }) => {
-                  const FieldIcon = getPlanningCustomFieldIcon(field.icon_key) ?? Tag;
-
-                  return (
-                    <span
-                      key={field.id}
-                      className="gantt-tooltip-custom-field"
-                      data-tooltip={`${field.label}: ${value}`}
-                      title={`${field.label}: ${value}`}
-                      aria-label={`${field.label}: ${value}`}
-                    >
-                      <FieldIcon aria-hidden="true" />
-                    </span>
-                  );
-                })}
-                {hiddenCustomFieldBadges.length ? (
-                  <span
-                    className="gantt-tooltip-custom-field more"
-                    data-tooltip={hiddenCustomFieldBadges.map(({ field, value }) => `${field.label}: ${value}`).join(" · ")}
-                    title={hiddenCustomFieldBadges.map(({ field, value }) => `${field.label}: ${value}`).join(" · ")}
-                    aria-label={`${hiddenCustomFieldBadges.length} campos configurables adicionales`}
-                  >
-                    +{hiddenCustomFieldBadges.length}
-                  </span>
-                ) : null}
-              </span>
-            ) : null}
           </span>
         </GanttTooltipPortal>
       </button>
@@ -2115,18 +1740,18 @@ export default function Home() {
       start_time: trackingType === "real" ? defaultTimes.start_time : sourceItem?.start ?? defaultTimes.start_time,
       end_time: trackingType === "real" ? defaultTimes.end_time : sourceItem?.end ?? defaultTimes.end_time,
       shift: sourceItem?.shift ?? group.shift,
-      level: sourceItem?.level ?? group.level,
-      front: sourceItem?.front ?? group.front,
       category: group.category,
       tracking_type: trackingType,
       item_type: nextType?.label ?? group.item_type,
       description: nextDetail?.label ?? group.description,
       notes: trackingType === "real" ? "" : sourceItem?.notes ?? group.notes ?? "",
     });
+    setDynamicHeaderFormState(
+      sourceItem
+        ? toOperationalHeaderFormState(sourceItem)
+        : {}
+    );
     setEditingPlanningItem(null);
-    setCustomFieldFormState({});
-    setFormCustomFieldsLoading(false);
-    setFormCustomFieldsError("");
     setFormAssignmentTypes([]);
     setPlanningAssignmentsFormState({});
     setFormAssignmentsError("");
@@ -2175,24 +1800,9 @@ export default function Home() {
 
           resetPlanningForm();
           setFormState((current) => ({ ...current, tracking_type: "programado" }));
-          setFormCustomFieldsLoading(true);
-          setFormCustomFieldsError("");
           setFormAssignmentsError("");
           setIsModalOpen(true);
           void loadAssignmentTypesForCreate();
-          void refreshCustomFields().catch((error: unknown) => {
-            recordOperationalEvent({
-              level: "warn",
-              name: "planning_custom_fields.load_failed",
-              source: "planningPage",
-              metadata: { target: "open-planning-modal" },
-            });
-            const message = getRequestErrorMessage(error, "No se pudieron cargar los campos configurables.");
-            setFormCustomFieldsError(message);
-            setCatalogError(message);
-          }).finally(() => {
-            setFormCustomFieldsLoading(false);
-          });
         }}
       />
 
@@ -2243,25 +1853,14 @@ export default function Home() {
           availableFormCategories={availableFormCategories}
           availableTypes={availableTypes}
           availableDescriptions={availableDescriptions}
-          levels={levels}
+          operationalHeaderConfig={operationalHeaderConfig}
+          dynamicHeaderValues={dynamicHeaderFormState}
+          onDynamicHeaderValuesChange={setDynamicHeaderFormState}
           error={formError}
           busy={formBusy}
           isEditing={Boolean(editingPlanningItem)}
           deleteLabel={planningDeleteLabel}
           submitLabel={planningSubmitLabel}
-          customFieldsSlot={
-            formState.tracking_type === "programado" ? (
-              <PlanningCustomFieldsForm
-                fields={customFields}
-                phase="planned"
-                value={customFieldFormState}
-                onChange={setCustomFieldFormState}
-                disabled={formBusy}
-                loading={customFieldsLoading || formCustomFieldsLoading}
-                error={formCustomFieldsError || customFieldsError}
-              />
-            ) : null
-          }
           assignmentsSlot={
             <PlanningAssignmentsForm
               title={getAssignmentTitleForItem(formState)}
@@ -2290,16 +1889,7 @@ export default function Home() {
           formatDuration={formatDuration}
           toDisplayCategory={toDisplayCategory}
           toTrackingTypeLabel={toTrackingTypeLabel}
-          customFieldsSlot={
-            viewingPlanningItem.tracking_type === "programado" ? (
-              <PlanningCustomFieldsSummary
-                fields={customFields}
-                values={viewingCustomFieldValues}
-                loading={customFieldsLoading || viewingCustomFieldsLoading}
-                error={viewingCustomFieldsError || customFieldsError}
-              />
-            ) : null
-          }
+          operationalHeaderConfig={operationalHeaderConfig}
           assignmentsSlot={
             <PlanningAssignmentsSummary
               title={getAssignmentTitleForItem(viewingPlanningItem)}
@@ -2336,43 +1926,25 @@ export default function Home() {
       {isCatalogModalOpen ? (
         <CatalogSheet
           catalog={catalog}
-          levels={levels}
           catalogLoading={catalogLoading}
           catalogBusy={catalogBusy}
           catalogFormError={catalogFormError}
           typeForm={typeForm}
           setTypeForm={setTypeForm}
-          levelForm={levelForm}
-          setLevelForm={setLevelForm}
           detailForm={detailForm}
           setDetailForm={setDetailForm}
           editingType={editingType}
           setEditingType={setEditingType}
-          editingLevel={editingLevel}
-          setEditingLevel={setEditingLevel}
           editingDetail={editingDetail}
           setEditingDetail={setEditingDetail}
           syncDetailAdminForm={syncDetailAdminForm}
-          onClose={() => {
-            void refreshCustomFields()
-              .catch(() => undefined)
-              .finally(() => setIsCatalogModalOpen(false));
-          }}
+          onClose={() => setIsCatalogModalOpen(false)}
           onCreateType={handleCreateType}
-          onCreateLevel={handleCreateLevel}
           onCreateDetail={handleCreateDetail}
           onUpdateType={handleUpdateType}
-          onUpdateLevel={handleUpdateLevel}
           onUpdateDetail={handleUpdateDetail}
           onDeleteType={(id) => void handleDeleteType(id)}
-          onDeleteLevel={(id) => void handleDeleteLevel(id)}
           onDeleteDetail={(id) => void handleDeleteDetail(id)}
-          customFieldsAdminSlot={
-            <PlanningCustomFieldsAdminPanel
-              accessToken={session?.access_token}
-              onFieldsChange={setCustomFields}
-            />
-          }
         />
       ) : null}
     </section>

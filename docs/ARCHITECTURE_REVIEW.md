@@ -361,7 +361,7 @@ Para criterio industrial, todavia no esta completa. Los riesgos principales esta
 
 - SQL versionado en `supabase/sql`.
 - Constraints para rangos, roles, categorias y tracking.
-- Indices por fecha, shift, front, categoria, grupos y mutation id.
+- Indices por fecha, shift, Cabecera Operacional, categoria, grupos y mutation id.
 - RLS habilitado en tablas principales.
 - Realtime publication para planning y execution segments.
 

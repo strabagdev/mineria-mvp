@@ -1,7 +1,7 @@
 import type {
-  PlanningCustomFieldDto,
-  PlanningCustomFieldValueDto,
-} from "@/modules/planning-custom-fields/contracts/planning-custom-fields";
+  OperationalHeaderFieldDto,
+  OperationalHeaderValueDto,
+} from "@/modules/operational-header/contracts/operational-header";
 import type {
   AssignmentFieldDto,
   AssignmentTypeDto,
@@ -10,18 +10,17 @@ import type {
 } from "@/modules/planning-assignments/contracts/planning-assignments";
 import type {
   ReportAssignmentRow,
-  ReportCustomFieldColumn,
-  ReportCustomFieldValue,
+  ReportOperationalHeaderColumn,
+  ReportOperationalHeaderValue,
   ReportRow,
 } from "../contracts/reporting";
 
 export type ReportSourceQuery = {
   shift: string;
-  level: string;
-  front: string;
   category: string;
   trackingType: string;
   itemType: string;
+  operational_header_filters?: Record<string, string>;
 };
 
 export type PlannedReportSourceRow = {
@@ -31,8 +30,6 @@ export type PlannedReportSourceRow = {
   start_time: string;
   end_time: string;
   shift: string;
-  level: string;
-  front: string;
   category: "actividad" | "interferencia";
   item_type: string;
   description: string;
@@ -47,22 +44,20 @@ export type RealReportSourceRow = {
   start_time: string;
   end_time: string;
   shift: string;
-  level: string;
-  front: string;
   category: "actividad" | "interferencia";
   item_type: string;
   description: string;
   notes: string | null;
 };
 
-type ReportBreakdownKey = "level" | "shift" | "front" | "category" | "tracking_type" | "item_type";
-type ReportCustomFieldTargetKind = "planning_item" | "execution_segment" | "activity_group";
+type ReportBreakdownKey = "shift" | "category" | "tracking_type" | "item_type";
+type ReportOperationalHeaderTargetKind = "planning_item" | "execution_segment" | "activity_group";
 type ReportAssignmentTargetKind = ReportAssignmentRow["target_kind"];
-type ReportCustomFieldValuesByTarget = Map<string, Map<number, PlanningCustomFieldValueDto[]>>;
+type ReportOperationalHeaderValuesByTarget = Map<string, Map<number, OperationalHeaderValueDto>>;
 
-export type ReportCustomFieldInput = {
-  fields: PlanningCustomFieldDto[];
-  values: PlanningCustomFieldValueDto[];
+export type ReportOperationalHeaderInput = {
+  fields: OperationalHeaderFieldDto[];
+  values: OperationalHeaderValueDto[];
 };
 
 export type ReportAssignmentInput = {
@@ -90,8 +85,24 @@ function matchesOptionalFilter(value: string, filter: string) {
   return !filter || value === filter;
 }
 
-function matchesFront(value: string, filter: string) {
-  return !filter || value.toLowerCase().includes(filter.toLowerCase());
+function matchesOperationalHeaderFilter(
+  row: ReportRow,
+  column: ReportOperationalHeaderColumn,
+  filter: string
+) {
+  const normalizedFilter = filter.trim();
+
+  if (!normalizedFilter) {
+    return true;
+  }
+
+  const value = row.operational_header_values?.[column.slug]?.value ?? "";
+
+  if (column.input_type === "select") {
+    return value === normalizedFilter;
+  }
+
+  return value.toLowerCase().includes(normalizedFilter.toLowerCase());
 }
 
 function groupTotals(rows: ReportRow[], key: ReportBreakdownKey) {
@@ -114,7 +125,33 @@ function groupTotals(rows: ReportRow[], key: ReportBreakdownKey) {
   });
 }
 
-function getCustomFieldTargetKey(kind: ReportCustomFieldTargetKind, id: number | string) {
+function groupOperationalHeaderTotals(
+  rows: ReportRow[],
+  column: ReportOperationalHeaderColumn
+) {
+  const totals = new Map<string, { label: string; count: number; hours: number }>();
+
+  for (const row of rows) {
+    const label = row.operational_header_values?.[column.slug]?.value || "Sin valor";
+    const current = totals.get(label) ?? { label, count: 0, hours: 0 };
+    current.count += 1;
+    current.hours += row.duration_minutes / 60;
+    totals.set(label, current);
+  }
+
+  return Array.from(totals.values()).sort((left, right) => {
+    if (right.hours !== left.hours) {
+      return right.hours - left.hours;
+    }
+
+    if (left.label === "Sin valor") return 1;
+    if (right.label === "Sin valor") return -1;
+
+    return left.label.localeCompare(right.label);
+  });
+}
+
+function getOperationalHeaderTargetKey(kind: ReportOperationalHeaderTargetKind, id: number | string) {
   return `${kind}:${id}`;
 }
 
@@ -140,25 +177,25 @@ function getPlanningAssignmentTarget(assignment: PlanningAssignmentDto) {
   return null;
 }
 
-function indexCustomFieldValues(values: PlanningCustomFieldValueDto[]) {
-  const valuesByTarget: ReportCustomFieldValuesByTarget = new Map();
+function indexOperationalHeaderValues(values: OperationalHeaderValueDto[]) {
+  const valuesByTarget: ReportOperationalHeaderValuesByTarget = new Map();
 
   for (const value of values) {
     const targetKeys = [
       value.planning_item_id
-        ? getCustomFieldTargetKey("planning_item", value.planning_item_id)
+        ? getOperationalHeaderTargetKey("planning_item", value.planning_item_id)
         : "",
       value.execution_segment_id
-        ? getCustomFieldTargetKey("execution_segment", value.execution_segment_id)
+        ? getOperationalHeaderTargetKey("execution_segment", value.execution_segment_id)
         : "",
       value.activity_group_id
-        ? getCustomFieldTargetKey("activity_group", value.activity_group_id)
+        ? getOperationalHeaderTargetKey("activity_group", value.activity_group_id)
         : "",
     ].filter(Boolean);
 
     for (const targetKey of targetKeys) {
-      const valuesByField = valuesByTarget.get(targetKey) ?? new Map<number, PlanningCustomFieldValueDto[]>();
-      valuesByField.set(value.field_id, [...(valuesByField.get(value.field_id) ?? []), value]);
+      const valuesByField = valuesByTarget.get(targetKey) ?? new Map<number, OperationalHeaderValueDto>();
+      valuesByField.set(value.field_id, value);
       valuesByTarget.set(targetKey, valuesByField);
     }
   }
@@ -166,136 +203,151 @@ function indexCustomFieldValues(values: PlanningCustomFieldValueDto[]) {
   return valuesByTarget;
 }
 
-function getReportCustomFieldValuesForRow(
+function getOperationalHeaderValueForRow(
   row: ReportRow,
   fieldId: number,
-  valuesByTarget: ReportCustomFieldValuesByTarget
+  valuesByTarget: ReportOperationalHeaderValuesByTarget
 ) {
   const specificTargetKey = row.source_table === "planning_items"
-    ? getCustomFieldTargetKey("planning_item", row.id)
-    : getCustomFieldTargetKey("execution_segment", row.id);
+    ? getOperationalHeaderTargetKey("planning_item", row.id)
+    : getOperationalHeaderTargetKey("execution_segment", row.id);
   const groupTargetKey = row.activity_group_id
-    ? getCustomFieldTargetKey("activity_group", row.activity_group_id)
+    ? getOperationalHeaderTargetKey("activity_group", row.activity_group_id)
     : "";
-  const specificValues = valuesByTarget.get(specificTargetKey)?.get(fieldId) ?? [];
 
-  if (specificValues.length) {
-    return specificValues;
-  }
-
-  return groupTargetKey ? valuesByTarget.get(groupTargetKey)?.get(fieldId) ?? [] : [];
+  return valuesByTarget.get(specificTargetKey)?.get(fieldId) ??
+    (groupTargetKey ? valuesByTarget.get(groupTargetKey)?.get(fieldId) : undefined) ??
+    null;
 }
 
-function getOptionLabels(field: PlanningCustomFieldDto, values: PlanningCustomFieldValueDto[]) {
-  return values
-    .map((value) => field.options.find((option) => option.id === value.option_id)?.label)
-    .filter((label): label is string => Boolean(label));
-}
+function serializeOperationalHeaderValue(
+  field: OperationalHeaderFieldDto,
+  value: OperationalHeaderValueDto | null
+): ReportOperationalHeaderValue | null {
+  const option = value?.option_id
+    ? field.options.find((candidate) => candidate.id === value.option_id)
+    : value?.value_text
+      ? field.options.find((candidate) =>
+        candidate.value.trim().toLowerCase() === value.value_text?.trim().toLowerCase() ||
+        candidate.label.trim().toLowerCase() === value.value_text?.trim().toLowerCase()
+      )
+      : null;
+  const displayValue = option?.label || option?.value || value?.value_text || "";
 
-function getOptionRawValues(field: PlanningCustomFieldDto, values: PlanningCustomFieldValueDto[]) {
-  return values
-    .map((value) => {
-      const option = field.options.find((candidate) => candidate.id === value.option_id);
-      return option?.value ?? option?.label ?? (value.option_id ? String(value.option_id) : "");
-    })
-    .filter(Boolean);
-}
-
-function serializeReportCustomFieldValue(
-  field: PlanningCustomFieldDto,
-  values: PlanningCustomFieldValueDto[]
-): ReportCustomFieldValue | null {
-  if (!values.length) {
+  if (!displayValue) {
     return null;
   }
 
-  if (field.input_type === "select") {
-    const label = getOptionLabels(field, values)[0] ?? "";
-    const rawValue = getOptionRawValues(field, values)[0] ?? null;
-    if (!label && rawValue === null) return null;
-    return { field_id: field.id, slug: field.slug, label: field.label, value: label || String(rawValue), raw_value: rawValue };
-  }
-
-  if (field.input_type === "multi_select") {
-    const labels = getOptionLabels(field, values);
-    const rawValues = getOptionRawValues(field, values);
-    if (!labels.length && !rawValues.length) return null;
-    return {
-      field_id: field.id,
-      slug: field.slug,
-      label: field.label,
-      value: labels.length ? labels.join(", ") : rawValues.join(", "),
-      raw_value: rawValues,
-    };
-  }
-
-  const value = values[0];
-
-  if (field.input_type === "number") {
-    if (value.value_number === null) return null;
-    return { field_id: field.id, slug: field.slug, label: field.label, value: String(value.value_number), raw_value: value.value_number };
-  }
-
-  if (field.input_type === "date") {
-    if (!value.value_date) return null;
-    return { field_id: field.id, slug: field.slug, label: field.label, value: value.value_date, raw_value: value.value_date };
-  }
-
-  if (field.input_type === "boolean") {
-    if (value.value_boolean === null) return null;
-    return {
-      field_id: field.id,
-      slug: field.slug,
-      label: field.label,
-      value: value.value_boolean ? "Sí" : "No",
-      raw_value: value.value_boolean,
-    };
-  }
-
-  if (!value.value_text) return null;
-  return { field_id: field.id, slug: field.slug, label: field.label, value: value.value_text, raw_value: value.value_text };
+  return {
+    field_id: field.id,
+    slug: field.slug,
+    label: field.label,
+    value: displayValue,
+    option_id: value?.option_id,
+  };
 }
 
-function applyCustomFieldsToRows(rows: ReportRow[], customFields?: ReportCustomFieldInput) {
-  if (!customFields?.fields.length || !customFields.values.length) {
-    return { rows, customFieldColumns: [] };
+function applyOperationalHeaderToRows(rows: ReportRow[], operationalHeader?: ReportOperationalHeaderInput) {
+  const exportableFields = (operationalHeader?.fields ?? [])
+    .filter((field) => field.active && field.exportable);
+  const columns = exportableFields
+    .sort((left, right) => left.sort_order - right.sort_order || left.label.localeCompare(right.label))
+    .map((field): ReportOperationalHeaderColumn => ({
+      id: field.id,
+      slug: field.slug,
+      label: field.label,
+      input_type: field.input_type,
+      sort_order: field.sort_order,
+    }));
+
+  if (!operationalHeader || !exportableFields.length) {
+    return { rows, operationalHeaderColumns: [] };
   }
 
-  const fieldsById = new Map(customFields.fields.map((field) => [field.id, field]));
-  const valuesByTarget = indexCustomFieldValues(customFields.values);
-  const columnsByFieldId = new Map<number, ReportCustomFieldColumn>();
-  const rowsWithCustomFields = rows.map((row): ReportRow => {
-    const rowCustomFields: Record<string, ReportCustomFieldValue> = {};
+  const valuesByTarget = indexOperationalHeaderValues(operationalHeader.values);
+  const rowsWithOperationalHeader = rows.map((row): ReportRow => {
+    const rowValues: Record<string, ReportOperationalHeaderValue> = {};
 
-    for (const field of customFields.fields) {
-      const values = getReportCustomFieldValuesForRow(row, field.id, valuesByTarget);
-      const serialized = serializeReportCustomFieldValue(field, values);
+    for (const field of exportableFields) {
 
-      if (!serialized) {
-        continue;
-      }
+      const value = serializeOperationalHeaderValue(
+        field,
+        getOperationalHeaderValueForRow(row, field.id, valuesByTarget)
+      );
 
-      rowCustomFields[field.slug] = serialized;
-      if (!columnsByFieldId.has(field.id) && fieldsById.has(field.id)) {
-        columnsByFieldId.set(field.id, {
-          id: field.id,
-          slug: field.slug,
-          label: field.label,
-          input_type: field.input_type,
-          active: field.active,
-        });
+      if (value) {
+        rowValues[field.slug] = value;
       }
     }
 
-    return Object.keys(rowCustomFields).length
-      ? { ...row, custom_fields: rowCustomFields }
-      : row;
+    return { ...row, operational_header_values: rowValues };
   });
 
-  return {
-    rows: rowsWithCustomFields,
-    customFieldColumns: Array.from(columnsByFieldId.values()),
-  };
+  return { rows: rowsWithOperationalHeader, operationalHeaderColumns: columns };
+}
+
+function getOperationalHeaderFilterColumns(columns: ReportOperationalHeaderColumn[]) {
+  return new Map(columns.map((column) => [column.slug, column]));
+}
+
+function getOperationalHeaderFilters(query: ReportSourceQuery) {
+  const filters: Record<string, string> = {};
+
+  for (const [slug, value] of Object.entries(query.operational_header_filters ?? {})) {
+    const normalizedValue = value.trim();
+    if (normalizedValue) {
+      filters[slug] = normalizedValue;
+    }
+  }
+
+  return filters;
+}
+
+function applyOperationalHeaderFilters(
+  rows: ReportRow[],
+  columns: ReportOperationalHeaderColumn[],
+  query: ReportSourceQuery
+) {
+  const columnsBySlug = getOperationalHeaderFilterColumns(columns);
+  const filters = getOperationalHeaderFilters(query);
+  const entries = Object.entries(filters);
+
+  if (!entries.length) {
+    return rows;
+  }
+
+  return rows.filter((row) =>
+    entries.every(([slug, filter]) => {
+      const column = columnsBySlug.get(slug);
+
+      if (column) {
+        return matchesOperationalHeaderFilter(row, column, filter);
+      }
+
+      return false;
+    })
+  );
+}
+
+function buildOperationalHeaderBreakdowns(
+  rows: ReportRow[],
+  columns: ReportOperationalHeaderColumn[],
+  operationalHeader?: ReportOperationalHeaderInput
+) {
+  const groupableSlugs = new Set(
+    (operationalHeader?.fields ?? [])
+      .filter((field) => field.active && field.groupable && field.exportable)
+      .map((field) => field.slug)
+  );
+  const breakdowns: Record<string, ReturnType<typeof groupOperationalHeaderTotals>> = {};
+
+  for (const column of columns) {
+    if (groupableSlugs.has(column.slug)) {
+      breakdowns[column.slug] = groupOperationalHeaderTotals(rows, column);
+    }
+  }
+
+  return breakdowns;
 }
 
 function indexAssignmentCatalog(types: AssignmentTypeDto[]) {
@@ -503,8 +555,6 @@ function mapPlannedRow(row: PlannedReportSourceRow): ReportRow {
     start_time: row.start_time.slice(0, 5),
     end_time: row.end_time.slice(0, 5),
     shift: row.shift,
-    level: row.level,
-    front: row.front,
     category: row.category,
     tracking_type: "programado" as const,
     item_type: row.item_type,
@@ -523,8 +573,6 @@ function mapRealRow(row: RealReportSourceRow): ReportRow {
     start_time: row.start_time.slice(0, 5),
     end_time: row.end_time.slice(0, 5),
     shift: row.shift,
-    level: row.level,
-    front: row.front,
     category: row.category,
     tracking_type: "real" as const,
     item_type: row.item_type,
@@ -538,25 +586,24 @@ export function buildReportFromSourceRows(
   query: ReportSourceQuery,
   planningRows: PlannedReportSourceRow[],
   realRows: RealReportSourceRow[],
-  customFields?: ReportCustomFieldInput,
-  assignmentsInput?: ReportAssignmentInput
+  assignmentsInput?: ReportAssignmentInput,
+  operationalHeader?: ReportOperationalHeaderInput
 ) {
   const baseRows: ReportRow[] = [
     ...planningRows.map(mapPlannedRow),
     ...realRows.map(mapRealRow),
   ]
     .filter((row) => matchesOptionalFilter(row.shift, query.shift))
-    .filter((row) => matchesOptionalFilter(row.level, query.level))
     .filter((row) => matchesOptionalFilter(row.category, query.category))
     .filter((row) => matchesOptionalFilter(row.tracking_type, query.trackingType))
     .filter((row) => matchesOptionalFilter(row.item_type, query.itemType))
-    .filter((row) => matchesFront(row.front, query.front))
     .sort((left, right) =>
       `${right.item_date}-${right.start_time}-${right.id}`.localeCompare(
         `${left.item_date}-${left.start_time}-${left.id}`
       )
     );
-  const { rows, customFieldColumns } = applyCustomFieldsToRows(baseRows, customFields);
+  const { rows: rowsWithOperationalHeader, operationalHeaderColumns } = applyOperationalHeaderToRows(baseRows, operationalHeader);
+  const rows = applyOperationalHeaderFilters(rowsWithOperationalHeader, operationalHeaderColumns, query);
   const assignmentRows = buildReportAssignmentRows(rows, assignmentsInput);
 
   const plannedRowsFiltered = rows.filter((row) => row.tracking_type === "programado");
@@ -588,12 +635,11 @@ export function buildReportFromSourceRows(
       real_hours: realHours,
       variance_hours: varianceHours,
     },
-    custom_field_columns: customFieldColumns,
+    operational_header_columns: operationalHeaderColumns,
     assignment_rows: assignmentRows,
     breakdowns: {
-      by_level: groupTotals(rows, "level"),
+      by_operational_header: buildOperationalHeaderBreakdowns(rows, operationalHeaderColumns, operationalHeader),
       by_shift: groupTotals(rows, "shift"),
-      by_front: groupTotals(rows, "front"),
       by_category: groupTotals(rows, "category"),
       by_tracking_type: groupTotals(rows, "tracking_type"),
       by_item_type: groupTotals(rows, "item_type"),

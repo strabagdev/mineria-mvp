@@ -14,8 +14,6 @@ export type PlannedReportRow = {
   start_time: string;
   end_time: string;
   shift: string;
-  level: string;
-  front: string;
   category: "actividad" | "interferencia";
   item_type: string;
   description: string;
@@ -30,8 +28,6 @@ export type RealReportRow = {
   start_time: string;
   end_time: string;
   shift: string;
-  level: string;
-  front: string;
   category: "actividad" | "interferencia";
   item_type: string;
   description: string;
@@ -39,9 +35,9 @@ export type RealReportRow = {
 };
 
 const plannedSelect =
-  "id, activity_group_id, item_date, start_time, end_time, shift, level, front, category, item_type, description, notes, tracking_type";
+  "id, activity_group_id, item_date, start_time, end_time, shift, category, item_type, description, notes, tracking_type";
 const realSelect =
-  "id, activity_group_id, item_date, start_time, end_time, shift, level, front, category, item_type, description, notes";
+  "id, activity_group_id, item_date, start_time, end_time, shift, category, item_type, description, notes";
 
 export async function listReportSourceRows({ dateFrom, dateTo }: ReportFilters) {
   const db = getSupabaseServerClient();
@@ -85,4 +81,3 @@ export async function listReportSourceRows({ dateFrom, dateTo }: ReportFilters) 
     realRows: (realRows ?? []) as RealReportRow[],
   };
 }
-

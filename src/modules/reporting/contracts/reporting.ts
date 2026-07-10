@@ -1,17 +1,17 @@
-export type ReportCustomFieldColumn = {
+export type ReportOperationalHeaderColumn = {
   id: number;
   slug: string;
   label: string;
-  input_type: "text" | "number" | "boolean" | "date" | "select" | "multi_select";
-  active: boolean;
+  input_type: "text" | "select";
+  sort_order: number;
 };
 
-export type ReportCustomFieldValue = {
+export type ReportOperationalHeaderValue = {
   field_id: number;
   slug: string;
   label: string;
   value: string;
-  raw_value: string | number | boolean | string[] | null;
+  option_id?: number | null;
 };
 
 export type ReportAssignmentRow = {
@@ -42,15 +42,13 @@ export type ReportRow = {
   start_time: string;
   end_time: string;
   shift: string;
-  level: string;
-  front: string;
   category: "actividad" | "interferencia";
   tracking_type: "programado" | "real";
   item_type: string;
   description: string;
   notes: string | null;
   duration_minutes: number;
-  custom_fields?: Record<string, ReportCustomFieldValue>;
+  operational_header_values?: Record<string, ReportOperationalHeaderValue>;
 };
 
 export type ReportBreakdown = {
@@ -79,12 +77,11 @@ export type ReportSummary = {
 export type ReportResponse = {
   rows: ReportRow[];
   summary: ReportSummary;
-  custom_field_columns?: ReportCustomFieldColumn[];
+  operational_header_columns?: ReportOperationalHeaderColumn[];
   assignment_rows?: ReportAssignmentRow[];
   breakdowns: {
-    by_level: ReportBreakdown[];
+    by_operational_header: Record<string, ReportBreakdown[]>;
     by_shift: ReportBreakdown[];
-    by_front: ReportBreakdown[];
     by_category: ReportBreakdown[];
     by_tracking_type: ReportBreakdown[];
     by_item_type: ReportBreakdown[];
@@ -95,9 +92,8 @@ export type ReportFilters = {
   date_from: string;
   date_to: string;
   shift: string;
-  level: string;
-  front: string;
   category: string;
   tracking_type: string;
   item_type: string;
+  operational_header_filters: Record<string, string>;
 };

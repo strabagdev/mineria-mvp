@@ -1,7 +1,13 @@
-import { formatLocalDateIso, getDefaultShiftTimes, type ShiftKey } from "./planning-page-helpers";
+import {
+  compareGanttGroupingPaths,
+  formatLocalDateIso,
+  getDefaultShiftTimes,
+  resolveGanttGroupingPath,
+  type GanttGroupingField,
+  type ShiftKey,
+} from "./planning-page-helpers";
 import type {
   CatalogCategory,
-  CatalogLevel,
   CatalogType,
   DetailAdminForm,
   PlanningGroup,
@@ -39,7 +45,6 @@ export function getProgrammablePlanningTypes(category: CatalogCategory | null | 
 
 export function toInitialPlanningForm(
   categories: CatalogCategory[],
-  levels: CatalogLevel[],
   shift: ShiftKey = "Dia",
   itemDate = formatLocalDateIso()
 ): PlanningItemForm {
@@ -50,7 +55,6 @@ export function toInitialPlanningForm(
   };
   const defaultType = getProgrammableActivityTypes(defaultCategory)[0];
   const defaultDetail = defaultType?.details[0];
-  const defaultLevel = levels[0];
   const defaultTimes = getDefaultShiftTimes(shift);
 
   return {
@@ -59,8 +63,6 @@ export function toInitialPlanningForm(
     start_time: defaultTimes.start_time,
     end_time: defaultTimes.end_time,
     shift,
-    level: defaultLevel?.label ?? "",
-    front: "",
     category: defaultCategory.slug,
     tracking_type: "programado",
     item_type: defaultType?.label ?? "",
@@ -71,10 +73,9 @@ export function toInitialPlanningForm(
 
 export function syncPlanningForm(
   form: PlanningItemForm,
-  categories: CatalogCategory[],
-  levels: CatalogLevel[]
+  categories: CatalogCategory[]
 ) {
-  const fallback = toInitialPlanningForm(categories, levels);
+  const fallback = toInitialPlanningForm(categories);
   const programmableCategories = getProgrammablePlanningCategories(categories);
   const normalizedCategory =
     form.tracking_type === "programado" &&
@@ -101,13 +102,12 @@ export function syncPlanningForm(
   return {
     ...form,
     category: selectedCategory.slug,
-    level: levels.some((level) => level.label === form.level) ? form.level : fallback.level,
     item_type: selectedType?.label ?? "",
     description: selectedDetail?.label ?? "",
   };
 }
 
-export function groupPlanningItems(items: PlanningItem[]) {
+export function groupPlanningItems(items: PlanningItem[], groupingFields?: GanttGroupingField[]) {
   const groups = new Map<string, PlanningGroup>();
 
   function syncGroupSummary(group: PlanningGroup) {
@@ -119,12 +119,13 @@ export function groupPlanningItems(items: PlanningItem[]) {
 
     group.item_date = displayItem.item_date;
     group.shift = displayItem.shift;
-    group.level = displayItem.level;
-    group.front = displayItem.front;
     group.category = displayItem.category;
     group.item_type = displayItem.item_type;
     group.description = displayItem.description;
     group.notes = group.programado?.notes ?? group.realSegments[0]?.notes ?? null;
+    group.gantt_group_path = groupingFields?.length
+      ? resolveGanttGroupingPath(displayItem, groupingFields)
+      : undefined;
   }
 
   for (const item of items) {
@@ -148,8 +149,6 @@ export function groupPlanningItems(items: PlanningItem[]) {
       activity_group_id: item.activity_group_id,
       item_date: item.item_date,
       shift: item.shift,
-      level: item.level,
-      front: item.front,
       category: item.category,
       item_type: item.item_type,
       description: item.description,
@@ -162,6 +161,14 @@ export function groupPlanningItems(items: PlanningItem[]) {
   }
 
   return Array.from(groups.values()).sort((left, right) => {
+    if (left.gantt_group_path?.length && right.gantt_group_path?.length) {
+      const groupingDelta = compareGanttGroupingPaths(left.gantt_group_path, right.gantt_group_path);
+
+      if (groupingDelta !== 0) {
+        return groupingDelta;
+      }
+    }
+
     const leftItem = left.programado ?? left.realSegments[0] ?? null;
     const rightItem = right.programado ?? right.realSegments[0] ?? null;
 

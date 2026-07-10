@@ -9,7 +9,9 @@ import {
   syncPlanningForm,
   toInitialPlanningForm,
 } from "./planning-page-transformers";
-import type { CatalogCategory, CatalogLevel, PlanningItem, PlanningItemForm } from "./planning-page-models";
+import { getGanttGroupingFields } from "./planning-page-helpers";
+import type { CatalogCategory, PlanningItem, PlanningItemForm } from "./planning-page-models";
+import type { OperationalHeaderFieldDto, OperationalHeaderResponseDto } from "@/modules/operational-header/contracts/operational-header";
 
 const catalog: CatalogCategory[] = [
   {
@@ -49,8 +51,6 @@ const catalog: CatalogCategory[] = [
   },
 ];
 
-const levels: CatalogLevel[] = [{ id: 1, slug: "nti", label: "NTI" }];
-
 function planningItem(overrides: Partial<PlanningItem> = {}): PlanningItem {
   return {
     id: 1,
@@ -60,14 +60,30 @@ function planningItem(overrides: Partial<PlanningItem> = {}): PlanningItem {
     start: "08:00",
     end: "09:00",
     shift: "Dia",
-    level: "NTI",
-    front: "GT1",
     category: "actividad",
     tracking_type: "programado",
     item_type: "unitaria",
     notes: null,
     ...overrides,
   };
+}
+
+function operationalHeaderField(input: Partial<OperationalHeaderFieldDto> & Pick<OperationalHeaderFieldDto, "id" | "slug" | "label" | "input_type">): OperationalHeaderFieldDto {
+  return {
+    required: false,
+    active: true,
+    sort_order: 100,
+    groupable: true,
+    filterable: true,
+    visible_in_gantt: true,
+    exportable: true,
+    options: [],
+    ...input,
+  };
+}
+
+function operationalHeaderConfig(fields: OperationalHeaderFieldDto[]): OperationalHeaderResponseDto {
+  return { fields, dependencies: [] };
 }
 
 describe("planning page transformers", () => {
@@ -87,14 +103,13 @@ describe("planning page transformers", () => {
   });
 
   it("creates an initial planning form from catalog defaults", () => {
-    const form = toInitialPlanningForm(catalog, levels, "Noche", "2026-05-06");
+    const form = toInitialPlanningForm(catalog, "Noche", "2026-05-06");
 
     expect(form).toMatchObject({
       item_date: "2026-05-06",
       start_time: "20:00",
       end_time: "21:00",
       shift: "Noche",
-      level: "NTI",
       category: "actividad",
       tracking_type: "programado",
       item_type: "unitaria",
@@ -111,8 +126,6 @@ describe("planning page transformers", () => {
       start_time: "08:00",
       end_time: "09:00",
       shift: "Dia",
-      level: "OLD",
-      front: "GT1",
       category: "interferencia",
       tracking_type: "programado",
       item_type: "missing",
@@ -120,9 +133,8 @@ describe("planning page transformers", () => {
       notes: "",
     };
 
-    expect(syncPlanningForm(staleForm, catalog, levels)).toMatchObject({
+    expect(syncPlanningForm(staleForm, catalog)).toMatchObject({
       category: "interferencia",
-      level: "NTI",
       item_type: "mantencion",
       description: "MX",
     });
@@ -135,8 +147,6 @@ describe("planning page transformers", () => {
       start_time: "08:00",
       end_time: "09:00",
       shift: "Dia",
-      level: "NTI",
-      front: "GT1",
       category: "actividad",
       tracking_type: "programado",
       item_type: "desarrollo",
@@ -144,7 +154,7 @@ describe("planning page transformers", () => {
       notes: "",
     };
 
-    expect(syncPlanningForm(nonUnitaryForm, catalog, levels)).toMatchObject({
+    expect(syncPlanningForm(nonUnitaryForm, catalog)).toMatchObject({
       category: "actividad",
       item_type: "unitaria",
       description: "Extraccion",
@@ -179,16 +189,13 @@ describe("planning page transformers", () => {
         start_time: "08:00",
         end_time: "09:00",
         shift: "Dia",
-        level: "NTI",
-        front: "GT1",
         category: "actividad",
         tracking_type: "programado",
         item_type: "desarrollo",
         description: "Avance galeria",
         notes: "",
       },
-      catalogWithoutProgrammableActivityType,
-      levels
+      catalogWithoutProgrammableActivityType
     );
 
     expect(form).toMatchObject({
@@ -217,6 +224,67 @@ describe("planning page transformers", () => {
     expect(groups[0].programado?.id).toBe(1);
     expect(groups[0].realSegments.map((segment) => segment.id)).toEqual([4, 2]);
     expect(groups[1].activity_group_id).toBe("group-2");
+  });
+
+  it("does not add legacy gantt grouping path when operational header config is missing", () => {
+    const groups = groupPlanningItems([planningItem()], getGanttGroupingFields(null));
+
+    expect(groups[0].gantt_group_path).toBeUndefined();
+  });
+
+  it("adds dynamic operational header grouping path from the planned item", () => {
+    const fields = getGanttGroupingFields(operationalHeaderConfig([
+      operationalHeaderField({ id: 10, slug: "departamento", label: "Departamento", input_type: "text", sort_order: 10 }),
+      operationalHeaderField({ id: 11, slug: "especialidad", label: "Especialidad", input_type: "text", sort_order: 20 }),
+    ]));
+    const groups = groupPlanningItems([
+      planningItem({
+        operational_header_values: [
+          { field_id: 10, value: "Mina" },
+          { field_id: 11, value: "Perforacion" },
+        ],
+      }),
+    ], fields);
+
+    expect(groups[0].gantt_group_path?.map((entry) => entry.value)).toEqual(["Mina", "Perforacion"]);
+  });
+
+  it("keeps planned and real segments together using the planned grouping source", () => {
+    const fields = getGanttGroupingFields(operationalHeaderConfig([
+      operationalHeaderField({ id: 10, slug: "departamento", label: "Departamento", input_type: "text" }),
+    ]));
+    const groups = groupPlanningItems([
+      planningItem({
+        id: 1,
+        operational_header_values: [{ field_id: 10, value: "Planificado" }],
+      }),
+      planningItem({
+        id: 2,
+        tracking_type: "real",
+        operational_header_values: [{ field_id: 10, value: "Real" }],
+      }),
+    ], fields);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].programado?.id).toBe(1);
+    expect(groups[0].realSegments.map((segment) => segment.id)).toEqual([2]);
+    expect(groups[0].gantt_group_path?.map((entry) => entry.value)).toEqual(["Planificado"]);
+  });
+
+  it("orders gantt groups by dynamic grouping path with Sin valor at the end", () => {
+    const fields = getGanttGroupingFields(operationalHeaderConfig([
+      operationalHeaderField({ id: 10, slug: "departamento", label: "Departamento", input_type: "text" }),
+    ]));
+    const groups = groupPlanningItems([
+      planningItem({ id: 1, activity_group_id: "empty", operational_header_values: [] }),
+      planningItem({
+        id: 2,
+        activity_group_id: "mina",
+        operational_header_values: [{ field_id: 10, value: "Mina" }],
+      }),
+    ], fields);
+
+    expect(groups.map((group) => group.gantt_group_path?.[0]?.value)).toEqual(["Mina", "Sin valor"]);
   });
 
   it("keeps planned interferences visible as planned Gantt groups", () => {

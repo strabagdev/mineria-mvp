@@ -90,7 +90,7 @@ Assignments:
 - `assignment_field_option.updated`
 - `assignment_field_option.deleted`
 
-Custom fields:
+Custom Fields historicos:
 
 - `planning_custom_field.created`
 - `planning_custom_field.updated`
@@ -99,6 +99,9 @@ Custom fields:
 - `planning_custom_field_option.updated`
 - `planning_custom_field_option.deleted`
 - `planning_custom_field_values.saved`
+
+Estos eventos pueden existir solo en auditoria historica. Custom Fields no
+forma parte del runtime ni de la arquitectura operacional vigente.
 
 Usuarios:
 
@@ -120,12 +123,11 @@ Eventos enriquecidos:
 
 - `planning_assignments.replaced` guarda `before_data`, `after_data`,
   labels denormalizados y `metadata.summary`.
-- `planning_custom_field_values.saved` apunta a la entidad operacional cuando
-  corresponde, por ejemplo `entity_type = planning_item`, y guarda
-  `before_data`, `after_data` y metadata con `planningItemId`, `targetType` y
-  `valueCount`.
-- `planning_custom_field.updated` guarda `before_data` y `after_data`.
-- Deletes de custom field y opciones guardan snapshot en `before_data`.
+- Los eventos historicos de Custom Fields pueden apuntar a entidades
+  operacionales y guardar snapshots antiguos en `before_data`, `after_data` o
+  `metadata`.
+- Snapshots antiguos pueden contener `level` y `front`; son trazabilidad, no
+  fuente funcional del modelo actual.
 
 Limitaciones:
 

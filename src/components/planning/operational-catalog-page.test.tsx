@@ -10,16 +10,20 @@ vi.mock("@/components/planning/catalog-admin-workspace", () => ({
   CatalogAdminWorkspace: () => null,
 }));
 
+vi.mock("@/components/planning/operational-header-admin-panel", () => ({
+  OperationalHeaderAdminPanel: () => <section>Cabecera Operacional</section>,
+}));
+
 vi.mock("@/modules/planning-assignments/presentation/planning-assignments-admin-panel", () => ({
   PlanningAssignmentsAdminPanel: () => null,
 }));
 
-vi.mock("@/modules/planning-custom-fields/presentation/planning-custom-fields-admin-panel", () => ({
-  PlanningCustomFieldsAdminPanel: () => null,
-}));
-
 vi.mock("@/modules/planning/application/planning-reads.client", () => ({
   fetchPlanningCatalog: () => Promise.resolve({ categories: [], levels: [] }),
+}));
+
+vi.mock("@/modules/operational-header/application/operational-header.client", () => ({
+  fetchOperationalHeaderConfig: () => Promise.resolve({ fields: [], dependencies: [] }),
 }));
 
 vi.mock("@/modules/planning/presentation/planning-page-transformers", () => ({
@@ -58,24 +62,17 @@ vi.mock("@/modules/planning/presentation/use-planning-catalog-admin", () => ({
       catalogFormError: "",
       typeForm: { category: "actividad", label: "" },
       setTypeForm: noop,
-      levelForm: { label: "" },
-      setLevelForm: noop,
       detailForm: { typeId: "", label: "" },
       setDetailForm: noop,
       editingType: null,
       setEditingType: noop,
-      editingLevel: null,
-      setEditingLevel: noop,
       editingDetail: null,
       setEditingDetail: noop,
       handleCreateType: noop,
       handleCreateDetail: noop,
-      handleCreateLevel: noop,
       handleUpdateType: noop,
       handleUpdateDetail: noop,
-      handleUpdateLevel: noop,
       handleDeleteType: noop,
-      handleDeleteLevel: noop,
       handleDeleteDetail: noop,
     };
   },
@@ -104,5 +101,19 @@ describe("OperationalCatalogPage permissions", () => {
     expect(html).toContain(
       "Puedes seguir usando la operación, pero la administración del catálogo está restringida a administradores."
     );
+  });
+
+  it("shows the operational header section entry for admin users", () => {
+    authMock.role = "admin";
+
+    const html = renderToStaticMarkup(<OperationalCatalogPage />);
+
+    expect(html).toContain("Cabecera Operacional");
+    expect(html).toContain("<button");
+    expect(html).toMatch(/<button[^>]*>Cabecera Operacional<\/button>/);
+    expect(html).toMatch(/<button[^>]*aria-pressed="true"[^>]*>Cabecera Operacional<\/button>/);
+    expect(html.indexOf("Cabecera Operacional")).toBeLessThan(html.indexOf("Actividades"));
+    expect(html).not.toContain("Niveles");
+    expect(html).not.toContain("Campos configurables");
   });
 });

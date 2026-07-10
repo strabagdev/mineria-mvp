@@ -1,4 +1,4 @@
-import { useState, type Dispatch, type FormEventHandler, type ReactNode, type SetStateAction } from "react";
+import { useState, type Dispatch, type FormEventHandler, type SetStateAction } from "react";
 import { DeleteConfirmationDialog } from "@/components/planning/delete-confirmation-dialog";
 
 type CatalogDetail = {
@@ -19,12 +19,6 @@ type CatalogCategory = {
   types: CatalogType[];
 };
 
-type CatalogLevel = {
-  id: number;
-  slug: string;
-  label: string;
-};
-
 type TypeAdminForm = {
   category: "actividad" | "interferencia";
   label: string;
@@ -33,10 +27,6 @@ type TypeAdminForm = {
 type DetailAdminForm = {
   category: "actividad" | "interferencia";
   typeId: string;
-  label: string;
-};
-
-type LevelAdminForm = {
   label: string;
 };
 
@@ -53,44 +43,30 @@ type EditDetailForm = {
   label: string;
 };
 
-type EditLevelForm = {
-  id: number;
-  label: string;
-};
-
-export type CatalogAdminSection = "all" | "activities" | "levels" | "custom-fields";
+export type CatalogAdminSection = "all" | "activities";
 
 export type CatalogAdminWorkspaceProps = {
   catalog: CatalogCategory[];
-  levels: CatalogLevel[];
   catalogLoading: boolean;
   catalogBusy: boolean;
   catalogFormError: string;
   typeForm: TypeAdminForm;
   setTypeForm: Dispatch<SetStateAction<TypeAdminForm>>;
-  levelForm: LevelAdminForm;
-  setLevelForm: Dispatch<SetStateAction<LevelAdminForm>>;
   detailForm: DetailAdminForm;
   setDetailForm: Dispatch<SetStateAction<DetailAdminForm>>;
   editingType: EditTypeForm | null;
   setEditingType: Dispatch<SetStateAction<EditTypeForm | null>>;
-  editingLevel: EditLevelForm | null;
-  setEditingLevel: Dispatch<SetStateAction<EditLevelForm | null>>;
   editingDetail: EditDetailForm | null;
   setEditingDetail: Dispatch<SetStateAction<EditDetailForm | null>>;
   syncDetailAdminForm: (form: DetailAdminForm, categories: CatalogCategory[]) => DetailAdminForm;
   onCreateType: FormEventHandler<HTMLFormElement>;
-  onCreateLevel: FormEventHandler<HTMLFormElement>;
   onCreateDetail: FormEventHandler<HTMLFormElement>;
   onUpdateType: FormEventHandler<HTMLFormElement>;
-  onUpdateLevel: FormEventHandler<HTMLFormElement>;
   onUpdateDetail: FormEventHandler<HTMLFormElement>;
   onDeleteType: (id: number) => void;
-  onDeleteLevel: (id: number) => void;
   onDeleteDetail: (id: number) => void;
   activeSection?: CatalogAdminSection;
   showCounts?: boolean;
-  customFieldsAdminSlot?: ReactNode;
 };
 
 type CatalogDeletionRequest = {
@@ -102,43 +78,32 @@ type CatalogDeletionRequest = {
 
 export function CatalogAdminWorkspace({
   catalog,
-  levels,
   catalogLoading,
   catalogBusy,
   catalogFormError,
   typeForm,
   setTypeForm,
-  levelForm,
-  setLevelForm,
   detailForm,
   setDetailForm,
   editingType,
   setEditingType,
-  editingLevel,
-  setEditingLevel,
   editingDetail,
   setEditingDetail,
   syncDetailAdminForm,
   onCreateType,
-  onCreateLevel,
   onCreateDetail,
   onUpdateType,
-  onUpdateLevel,
   onUpdateDetail,
   onDeleteType,
-  onDeleteLevel,
   onDeleteDetail,
   activeSection = "all",
   showCounts = true,
-  customFieldsAdminSlot,
 }: CatalogAdminWorkspaceProps) {
   const [pendingDeletion, setPendingDeletion] = useState<CatalogDeletionRequest | null>(null);
   const detailTypesForAdmin =
     catalog.find((category) => category.slug === detailForm.category)?.types ?? [];
   const showActivities = activeSection === "all" || activeSection === "activities";
-  const showLevels = activeSection === "all" || activeSection === "levels";
-  const showCustomFields = activeSection === "all" || activeSection === "custom-fields";
-  const showTree = showActivities || showLevels;
+  const showTree = showActivities;
 
   function requestDeletion(request: CatalogDeletionRequest) {
     setPendingDeletion(request);
@@ -154,7 +119,7 @@ export function CatalogAdminWorkspace({
   }
 
   return (
-    <div className={`catalog-admin-grid ${activeSection === "custom-fields" ? "custom-fields-only" : ""}`}>
+    <div className="catalog-admin-grid">
       {pendingDeletion ? (
         <DeleteConfirmationDialog
           title="Eliminar elemento del catalogo"
@@ -281,111 +246,12 @@ export function CatalogAdminWorkspace({
           </>
         ) : null}
 
-        {showLevels ? (
-          <article className="surface-card soft padded">
-            <p className="eyebrow">Nuevo nivel</p>
-            <form className="modal-form" onSubmit={onCreateLevel}>
-              <label className="field">
-                Nombre del nivel
-                <input
-                  className="field-input"
-                  value={levelForm.label}
-                  onChange={(event) => setLevelForm({ label: event.target.value.toUpperCase() })}
-                  placeholder="Ej: NTI"
-                />
-              </label>
+        {catalogFormError && showActivities ? <p className="feedback">{catalogFormError}</p> : null}
 
-              <button type="submit" className="button primary" disabled={catalogBusy || !levelForm.label.trim()}>
-                Agregar nivel
-              </button>
-            </form>
-          </article>
-        ) : null}
-
-        {catalogFormError && (showActivities || showLevels) ? <p className="feedback">{catalogFormError}</p> : null}
-
-        {showCustomFields ? <div className="catalog-custom-fields-panel">{customFieldsAdminSlot}</div> : null}
       </div>
 
       {showTree ? <div className="catalog-tree">
         {catalogLoading ? <p className="body-copy">Cargando catalogo...</p> : null}
-
-        {showLevels ? <article className="catalog-category-card">
-          <div className="catalog-category-header">
-            <div>
-              <p className="eyebrow">Niveles</p>
-              <h3 className="card-title" style={{ marginTop: 10 }}>
-                Lista administrable
-              </h3>
-            </div>
-            {showCounts ? <span className="catalog-count">{levels.length} niveles</span> : null}
-          </div>
-
-          <div className="catalog-detail-list">
-            {levels.map((level) => (
-              <div key={level.id} className="catalog-detail-row">
-                {editingLevel?.id === level.id ? (
-                  <form className="catalog-edit-form detail" onSubmit={onUpdateLevel}>
-                    <label className="field">
-                      Nivel
-                      <input
-                        className="field-input"
-                        value={editingLevel.label}
-                        onChange={(event) =>
-                          setEditingLevel((current) =>
-                            current ? { ...current, label: event.target.value.toUpperCase() } : current
-                          )
-                        }
-                      />
-                    </label>
-
-                    <div className="catalog-inline-actions">
-                      <button type="submit" className="button small primary" disabled={catalogBusy || !editingLevel.label.trim()}>
-                        Guardar
-                      </button>
-                      <button type="button" className="button small" onClick={() => setEditingLevel(null)}>
-                        Cancelar
-                      </button>
-                    </div>
-                  </form>
-                ) : (
-                  <>
-                    <span className="catalog-detail-chip">{level.label}</span>
-                    <div className="catalog-inline-actions">
-                      <button
-                        type="button"
-                        className="button small"
-                        onClick={() =>
-                          setEditingLevel({
-                            id: level.id,
-                            label: level.label,
-                          })
-                        }
-                      >
-                        Editar
-                      </button>
-                      <button
-                        type="button"
-                        className="button small danger"
-                        onClick={() =>
-                          requestDeletion({
-                            entityType: "Nivel",
-                            label: level.label,
-                            warning: "El nivel dejara de estar disponible para nuevas selecciones del catalogo.",
-                            onConfirm: () => onDeleteLevel(level.id),
-                          })
-                        }
-                        disabled={catalogBusy}
-                      >
-                        Eliminar
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            ))}
-          </div>
-        </article> : null}
 
         {showActivities ? catalog.map((category) => (
           <article key={category.slug} className="catalog-category-card">

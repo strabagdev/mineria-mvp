@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { buildReportFromSourceRows, getReportDurationMinutes } from "../../modules/reporting/application/reporting-calculations";
 import type {
-  PlanningCustomFieldDto,
-  PlanningCustomFieldValueDto,
-} from "@/modules/planning-custom-fields/contracts/planning-custom-fields";
-import type {
   AssignmentFieldDto,
   AssignmentTypeDto,
   PlanningAssignmentDto,
   PlanningAssignmentValueDto,
 } from "@/modules/planning-assignments/contracts/planning-assignments";
+import type {
+  OperationalHeaderFieldDto,
+  OperationalHeaderValueDto,
+} from "@/modules/operational-header/contracts/operational-header";
 import type { PlannedReportRow, RealReportRow } from "../repositories/reports.repository";
 
 const basePlanned: PlannedReportRow = {
@@ -19,8 +19,6 @@ const basePlanned: PlannedReportRow = {
   start_time: "08:00:00",
   end_time: "10:00:00",
   shift: "Dia",
-  level: "Nivel 1",
-  front: "Frente A",
   category: "actividad",
   item_type: "desarrollo",
   description: "Excavacion programada",
@@ -35,8 +33,6 @@ const baseReal: RealReportRow = {
   start_time: "08:30:00",
   end_time: "09:45:00",
   shift: "Dia",
-  level: "Nivel 1",
-  front: "Frente A",
   category: "actividad",
   item_type: "desarrollo",
   description: "Excavacion real",
@@ -45,39 +41,37 @@ const baseReal: RealReportRow = {
 
 const emptyQuery = {
   shift: "",
-  level: "",
-  front: "",
   category: "",
   trackingType: "",
   itemType: "",
 };
 
-function customField(input: Partial<PlanningCustomFieldDto> & Pick<PlanningCustomFieldDto, "id" | "slug" | "label" | "input_type">): PlanningCustomFieldDto {
+function operationalHeaderField(input: Partial<OperationalHeaderFieldDto> & Pick<OperationalHeaderFieldDto, "id" | "slug" | "label" | "input_type">): OperationalHeaderFieldDto {
   return {
-    icon_key: null,
-    active: true,
     required: false,
-    applies_to: "both",
+    active: true,
     sort_order: 100,
-    config: {},
+    groupable: true,
+    filterable: true,
+    visible_in_gantt: true,
+    exportable: true,
     options: [],
     ...input,
   };
 }
 
-function customFieldValue(input: Partial<PlanningCustomFieldValueDto> & Pick<PlanningCustomFieldValueDto, "field_id">): PlanningCustomFieldValueDto {
+function operationalHeaderValue(input: Partial<OperationalHeaderValueDto> & Pick<OperationalHeaderValueDto, "field_id">): OperationalHeaderValueDto {
+  const { field_id: fieldId, ...rest } = input;
+
   return {
     id: 1,
+    field_id: fieldId,
+    activity_group_id: "",
     planning_item_id: null,
     execution_segment_id: null,
-    activity_group_id: null,
     option_id: null,
     value_text: null,
-    value_number: null,
-    value_date: null,
-    value_boolean: null,
-    value_json: {},
-    ...input,
+    ...rest,
   };
 }
 
@@ -133,7 +127,6 @@ describe("reports service calculations", () => {
     const report = buildReportFromSourceRows(emptyQuery, [], []);
 
     expect(report.rows).toEqual([]);
-    expect(report.custom_field_columns).toEqual([]);
     expect(report.summary).toMatchObject({
       total_programados: 0,
       total_reales: 0,
@@ -155,7 +148,7 @@ describe("reports service calculations", () => {
     expect(report.summary.diferencia_horas_real_vs_programado).toBe(-2);
   });
 
-  it("counts real rows, interferences, hours and front/type breakdowns", () => {
+  it("counts real rows, interferences, hours and type breakdowns", () => {
     const interference: RealReportRow = {
       ...baseReal,
       id: 11,
@@ -176,7 +169,6 @@ describe("reports service calculations", () => {
     expect(report.summary.horas_reales).toBe(2.75);
     expect(report.summary.horas_interferencias).toBe(1.5);
     expect(report.summary.diferencia_horas_real_vs_programado).toBe(0.75);
-    expect(report.breakdowns.by_front).toEqual([{ label: "Frente A", count: 3, hours: 4.75 }]);
     expect(report.breakdowns.by_item_type).toEqual([
       { label: "desarrollo", count: 2, hours: 3.25 },
       { label: "espera", count: 1, hours: 1.5 },
@@ -187,7 +179,7 @@ describe("reports service calculations", () => {
     expect(getReportDurationMinutes("23:30:00", "01:00:00")).toBe(90);
   });
 
-  it("applies date-independent filters by shift, level and front", () => {
+  it("applies date-independent filters by shift and type without legacy level/front", () => {
     const nightReal: RealReportRow = {
       ...baseReal,
       id: 12,
@@ -195,154 +187,369 @@ describe("reports service calculations", () => {
       start_time: "21:00:00",
       end_time: "22:00:00",
       shift: "Noche",
-      level: "Nivel 2",
-      front: "Frente B",
     };
 
     const report = buildReportFromSourceRows(
-      { ...emptyQuery, shift: "Noche", level: "Nivel 2", front: "b" },
+      { ...emptyQuery, shift: "Noche", itemType: "desarrollo" },
       [basePlanned],
       [baseReal, nightReal]
     );
 
     expect(report.rows).toHaveLength(1);
-    expect(report.rows[0]).toMatchObject({ id: 12, shift: "Noche", level: "Nivel 2", front: "Frente B" });
+    expect(report.rows[0]).toMatchObject({ id: 12, shift: "Noche" });
   });
 
-  it("adds a planning item custom field to a planned row", () => {
-    const field = customField({ id: 20, slug: "contratista", label: "Contratista", input_type: "text" });
-    const report = buildReportFromSourceRows(emptyQuery, [basePlanned], [], {
-      fields: [field],
-      values: [customFieldValue({ id: 200, field_id: field.id, planning_item_id: basePlanned.id, value_text: "Equipo Norte" })],
-    });
-
-    expect(report.rows[0]?.custom_fields?.contratista).toEqual({
-      field_id: field.id,
-      slug: "contratista",
-      label: "Contratista",
-      value: "Equipo Norte",
-      raw_value: "Equipo Norte",
-    });
-    expect(report.custom_field_columns).toEqual([
-      { id: field.id, slug: "contratista", label: "Contratista", input_type: "text", active: true },
-    ]);
-  });
-
-  it("adds an execution segment custom field to a real row", () => {
-    const field = customField({ id: 21, slug: "metros", label: "Metros", input_type: "number" });
-    const report = buildReportFromSourceRows(emptyQuery, [], [baseReal], {
-      fields: [field],
-      values: [customFieldValue({ id: 201, field_id: field.id, execution_segment_id: baseReal.id, value_number: 12.5 })],
-    });
-
-    expect(report.rows[0]?.custom_fields?.metros).toMatchObject({
-      value: "12.5",
-      raw_value: 12.5,
-    });
-  });
-
-  it("uses activity group custom fields as fallback for planned and real rows", () => {
-    const field = customField({ id: 22, slug: "area", label: "Area", input_type: "text" });
-    const report = buildReportFromSourceRows(emptyQuery, [basePlanned], [baseReal], {
-      fields: [field],
-      values: [customFieldValue({ id: 202, field_id: field.id, activity_group_id: "group-1", value_text: "Rampa" })],
-    });
-
-    expect(report.rows).toHaveLength(2);
-    expect(report.rows.every((row) => row.custom_fields?.area?.value === "Rampa")).toBe(true);
-  });
-
-  it("prefers row-specific custom fields over activity group fallback", () => {
-    const field = customField({ id: 23, slug: "estado", label: "Estado", input_type: "text" });
-    const report = buildReportFromSourceRows(emptyQuery, [basePlanned], [], {
-      fields: [field],
-      values: [
-        customFieldValue({ id: 203, field_id: field.id, activity_group_id: "group-1", value_text: "Grupo" }),
-        customFieldValue({ id: 204, field_id: field.id, planning_item_id: basePlanned.id, value_text: "Especifico" }),
-      ],
-    });
-
-    expect(report.rows[0]?.custom_fields?.estado?.value).toBe("Especifico");
-  });
-
-  it("serializes select custom fields with option label and raw value", () => {
-    const field = customField({
-      id: 24,
-      slug: "turno-extra",
-      label: "Turno extra",
+  it("adds exportable operational header values for planned and real rows", () => {
+    const levelField = operationalHeaderField({
+      id: 40,
+      slug: "nivel",
+      label: "Nivel",
       input_type: "select",
-      options: [{ id: 501, field_id: 24, value: "si", label: "Sí aplica", active: false, sort_order: 100, metadata: {} }],
+      sort_order: 10,
+      options: [{ id: 901, field_id: 40, value: "nivel_1", label: "Nivel 1", active: true, sort_order: 10, metadata: {} }],
     });
-    const report = buildReportFromSourceRows(emptyQuery, [basePlanned], [], {
-      fields: [field],
-      values: [customFieldValue({ id: 205, field_id: field.id, planning_item_id: basePlanned.id, option_id: 501 })],
+    const frontField = operationalHeaderField({
+      id: 41,
+      slug: "frente",
+      label: "Frente",
+      input_type: "select",
+      sort_order: 20,
+      options: [{ id: 902, field_id: 41, value: "frente_a", label: "Frente A", active: true, sort_order: 10, metadata: {} }],
     });
+    const departmentField = operationalHeaderField({
+      id: 42,
+      slug: "departamento",
+      label: "Departamento",
+      input_type: "select",
+      sort_order: 30,
+      options: [{ id: 903, field_id: 42, value: "mina", label: "Mina", active: true, sort_order: 10, metadata: {} }],
+    });
+    const specialtyField = operationalHeaderField({
+      id: 43,
+      slug: "especialidad",
+      label: "Especialidad",
+      input_type: "text",
+      sort_order: 40,
+    });
+    const report = buildReportFromSourceRows(
+      emptyQuery,
+      [basePlanned],
+      [baseReal],
+      undefined,
+      {
+        fields: [specialtyField, departmentField, frontField, levelField],
+        values: [
+          operationalHeaderValue({ id: 400, field_id: departmentField.id, planning_item_id: basePlanned.id, option_id: 903 }),
+          operationalHeaderValue({ id: 401, field_id: specialtyField.id, planning_item_id: basePlanned.id, value_text: "Perforacion" }),
+          operationalHeaderValue({ id: 402, field_id: departmentField.id, execution_segment_id: baseReal.id, option_id: 903 }),
+          operationalHeaderValue({ id: 403, field_id: specialtyField.id, execution_segment_id: baseReal.id, value_text: "Fortificacion" }),
+        ],
+      }
+    );
 
-    expect(report.rows[0]?.custom_fields?.["turno-extra"]).toMatchObject({
-      value: "Sí aplica",
-      raw_value: "si",
-    });
+    expect(report.operational_header_columns?.map((column) => column.label)).toEqual([
+      "Nivel",
+      "Frente",
+      "Departamento",
+      "Especialidad",
+    ]);
+    const plannedRow = report.rows.find((row) => row.source_table === "planning_items");
+    const realRow = report.rows.find((row) => row.source_table === "activity_execution_segments");
+
+    expect(plannedRow?.operational_header_values?.departamento?.value).toBe("Mina");
+    expect(plannedRow?.operational_header_values?.especialidad?.value).toBe("Perforacion");
+    expect(realRow?.operational_header_values?.departamento?.value).toBe("Mina");
+    expect(realRow?.operational_header_values?.especialidad?.value).toBe("Fortificacion");
   });
 
-  it("serializes multi-select custom fields as joined labels and raw array", () => {
-    const field = customField({
-      id: 25,
-      slug: "equipos",
-      label: "Equipos",
-      input_type: "multi_select",
+  it("does not fallback to legacy level and front for operational header columns", () => {
+    const levelField = operationalHeaderField({
+      id: 44,
+      slug: "nivel",
+      label: "Nivel",
+      input_type: "select",
+      sort_order: 10,
+    });
+    const frontField = operationalHeaderField({
+      id: 45,
+      slug: "frente",
+      label: "Frente",
+      input_type: "text",
+      sort_order: 20,
+    });
+    const report = buildReportFromSourceRows(
+      emptyQuery,
+      [basePlanned],
+      [baseReal],
+      undefined,
+      { fields: [frontField, levelField], values: [] }
+    );
+
+    expect(report.operational_header_columns?.map((column) => column.slug)).toEqual(["nivel", "frente"]);
+    expect(report.rows[0]?.operational_header_values?.nivel).toBeUndefined();
+    expect(report.rows[0]?.operational_header_values?.frente).toBeUndefined();
+    expect(report.rows[1]?.operational_header_values?.nivel).toBeUndefined();
+    expect(report.rows[1]?.operational_header_values?.frente).toBeUndefined();
+  });
+
+  it("filters by dynamic operational header select values after enriching rows", () => {
+    const departmentField = operationalHeaderField({
+      id: 50,
+      slug: "departamento",
+      label: "Departamento",
+      input_type: "select",
       options: [
-        { id: 601, field_id: 25, value: "jumbo", label: "Jumbo", active: true, sort_order: 100, metadata: {} },
-        { id: 602, field_id: 25, value: "shotcrete", label: "Shotcrete", active: true, sort_order: 200, metadata: {} },
+        { id: 950, field_id: 50, value: "mina", label: "Mina", active: true, sort_order: 10, metadata: {} },
+        { id: 951, field_id: 50, value: "planta", label: "Planta", active: true, sort_order: 20, metadata: {} },
       ],
     });
-    const report = buildReportFromSourceRows(emptyQuery, [basePlanned], [], {
-      fields: [field],
-      values: [
-        customFieldValue({ id: 206, field_id: field.id, planning_item_id: basePlanned.id, option_id: 601 }),
-        customFieldValue({ id: 207, field_id: field.id, planning_item_id: basePlanned.id, option_id: 602 }),
+    const report = buildReportFromSourceRows(
+      {
+        ...emptyQuery,
+        operational_header_filters: { departamento: "Mina" },
+      },
+      [basePlanned],
+      [{ ...baseReal, id: 11 }],
+      undefined,
+      {
+        fields: [departmentField],
+        values: [
+          operationalHeaderValue({ id: 500, field_id: departmentField.id, planning_item_id: basePlanned.id, option_id: 950 }),
+          operationalHeaderValue({ id: 501, field_id: departmentField.id, execution_segment_id: 11, option_id: 951 }),
+        ],
+      }
+    );
+
+    expect(report.rows).toHaveLength(1);
+    expect(report.rows[0]?.source_table).toBe("planning_items");
+    expect(report.rows[0]?.operational_header_values?.departamento?.value).toBe("Mina");
+  });
+
+  it("uses exact matching for select operational header filters", () => {
+    const departmentField = operationalHeaderField({
+      id: 51,
+      slug: "departamento",
+      label: "Departamento",
+      input_type: "select",
+      options: [
+        { id: 952, field_id: 51, value: "mina_norte", label: "Mina Norte", active: true, sort_order: 10, metadata: {} },
       ],
     });
+    const report = buildReportFromSourceRows(
+      {
+        ...emptyQuery,
+        operational_header_filters: { departamento: "Mina" },
+      },
+      [basePlanned],
+      [],
+      undefined,
+      {
+        fields: [departmentField],
+        values: [
+          operationalHeaderValue({ id: 502, field_id: departmentField.id, planning_item_id: basePlanned.id, option_id: 952 }),
+        ],
+      }
+    );
 
-    expect(report.rows[0]?.custom_fields?.equipos).toMatchObject({
-      value: "Jumbo, Shotcrete",
-      raw_value: ["jumbo", "shotcrete"],
-    });
+    expect(report.rows).toEqual([]);
   });
 
-  it("serializes boolean custom fields with Sí and No display values", () => {
-    const field = customField({ id: 26, slug: "requiere-corte", label: "Requiere corte", input_type: "boolean" });
-    const report = buildReportFromSourceRows(emptyQuery, [basePlanned], [], {
-      fields: [field],
-      values: [customFieldValue({ id: 208, field_id: field.id, planning_item_id: basePlanned.id, value_boolean: false })],
+  it("uses contains matching for text operational header filters", () => {
+    const specialtyField = operationalHeaderField({
+      id: 52,
+      slug: "especialidad",
+      label: "Especialidad",
+      input_type: "text",
     });
+    const report = buildReportFromSourceRows(
+      {
+        ...emptyQuery,
+        operational_header_filters: { especialidad: "fort" },
+      },
+      [basePlanned],
+      [{ ...baseReal, id: 12 }],
+      undefined,
+      {
+        fields: [specialtyField],
+        values: [
+          operationalHeaderValue({ id: 503, field_id: specialtyField.id, planning_item_id: basePlanned.id, value_text: "Perforacion" }),
+          operationalHeaderValue({ id: 504, field_id: specialtyField.id, execution_segment_id: 12, value_text: "Fortificacion" }),
+        ],
+      }
+    );
 
-    expect(report.rows[0]?.custom_fields?.["requiere-corte"]).toMatchObject({
-      value: "No",
-      raw_value: false,
-    });
+    expect(report.rows).toHaveLength(1);
+    expect(report.rows[0]?.source_table).toBe("activity_execution_segments");
+    expect(report.rows[0]?.operational_header_values?.especialidad?.value).toBe("Fortificacion");
   });
 
-  it("includes inactive custom field columns when they have historical values", () => {
-    const field = customField({ id: 27, slug: "historico", label: "Historico", input_type: "date", active: false });
-    const report = buildReportFromSourceRows(emptyQuery, [basePlanned], [], {
-      fields: [field],
-      values: [customFieldValue({ id: 209, field_id: field.id, planning_item_id: basePlanned.id, value_date: "2026-06-01" })],
+  it("maps legacy level and front query filters to operational header aliases", () => {
+    const levelField = operationalHeaderField({
+      id: 53,
+      slug: "nivel",
+      label: "Nivel",
+      input_type: "select",
+      options: [
+        { id: 953, field_id: 53, value: "nti", label: "NTI", active: true, sort_order: 10, metadata: {} },
+        { id: 954, field_id: 53, value: "nnm", label: "NNM", active: true, sort_order: 20, metadata: {} },
+      ],
     });
+    const frontField = operationalHeaderField({
+      id: 54,
+      slug: "frente",
+      label: "Frente",
+      input_type: "text",
+    });
+    const planned = {
+      ...basePlanned,
+    };
+    const report = buildReportFromSourceRows(
+      {
+        ...emptyQuery,
+      },
+      [planned],
+      [],
+      undefined,
+      {
+        fields: [levelField, frontField],
+        values: [
+          operationalHeaderValue({ id: 505, field_id: levelField.id, planning_item_id: planned.id, option_id: 953 }),
+          operationalHeaderValue({ id: 506, field_id: frontField.id, planning_item_id: planned.id, value_text: "Frente XC 12" }),
+        ],
+      }
+    );
 
-    expect(report.custom_field_columns).toEqual([
-      { id: field.id, slug: "historico", label: "Historico", input_type: "date", active: false },
+    expect(report.rows).toHaveLength(1);
+    expect(report.rows[0]?.operational_header_values?.nivel?.value).toBe("NTI");
+    expect(report.rows[0]?.operational_header_values?.frente?.value).toBe("Frente XC 12");
+  });
+
+  it("builds operational header breakdowns by groupable exported fields", () => {
+    const levelField = operationalHeaderField({
+      id: 55,
+      slug: "nivel",
+      label: "Nivel",
+      input_type: "select",
+    });
+    const frontField = operationalHeaderField({
+      id: 56,
+      slug: "frente",
+      label: "Frente",
+      input_type: "text",
+    });
+    const departmentField = operationalHeaderField({
+      id: 57,
+      slug: "departamento",
+      label: "Departamento",
+      input_type: "text",
+    });
+    const nonGroupableField = operationalHeaderField({
+      id: 58,
+      slug: "turno_admin",
+      label: "Turno Admin",
+      input_type: "text",
+      groupable: false,
+    });
+    const report = buildReportFromSourceRows(
+      emptyQuery,
+      [basePlanned],
+      [baseReal],
+      undefined,
+      {
+        fields: [levelField, frontField, departmentField, nonGroupableField],
+        values: [
+          operationalHeaderValue({ id: 507, field_id: departmentField.id, planning_item_id: basePlanned.id, value_text: "Mina" }),
+          operationalHeaderValue({ id: 508, field_id: departmentField.id, execution_segment_id: baseReal.id, value_text: "Mina" }),
+          operationalHeaderValue({ id: 509, field_id: nonGroupableField.id, planning_item_id: basePlanned.id, value_text: "A" }),
+        ],
+      }
+    );
+
+    expect(Object.keys(report.breakdowns.by_operational_header).sort()).toEqual([
+      "departamento",
+      "frente",
+      "nivel",
+    ]);
+    expect(report.breakdowns.by_operational_header.nivel).toEqual([
+      { label: "Sin valor", count: 2, hours: 3.25 },
+    ]);
+    expect(report.breakdowns.by_operational_header.frente).toEqual([
+      { label: "Sin valor", count: 2, hours: 3.25 },
+    ]);
+    expect(report.breakdowns.by_operational_header.departamento).toEqual([
+      { label: "Mina", count: 2, hours: 3.25 },
     ]);
   });
 
-  it("keeps rows without custom fields compatible when no values are present", () => {
-    const field = customField({ id: 28, slug: "sin-valor", label: "Sin valor", input_type: "text" });
-    const report = buildReportFromSourceRows(emptyQuery, [basePlanned], [], {
-      fields: [field],
-      values: [],
+  it("keeps exportable operational header columns even when a row has no value", () => {
+    const departmentField = operationalHeaderField({
+      id: 46,
+      slug: "departamento",
+      label: "Departamento",
+      input_type: "text",
+      sort_order: 30,
     });
+    const report = buildReportFromSourceRows(
+      emptyQuery,
+      [basePlanned],
+      [],
+      undefined,
+      { fields: [departmentField], values: [] }
+    );
 
-    expect(report.rows[0]?.custom_fields).toBeUndefined();
-    expect(report.custom_field_columns).toEqual([]);
+    expect(report.operational_header_columns).toEqual([
+      {
+        id: departmentField.id,
+        slug: "departamento",
+        label: "Departamento",
+        input_type: "text",
+        sort_order: 30,
+      },
+    ]);
+    expect(report.rows[0]?.operational_header_values?.departamento).toBeUndefined();
+  });
+
+  it("does not expose inactive or non-exportable operational header fields in reports", () => {
+    const activeExportableField = operationalHeaderField({
+      id: 47,
+      slug: "area",
+      label: "Area",
+      input_type: "text",
+      sort_order: 10,
+    });
+    const inactiveField = operationalHeaderField({
+      id: 48,
+      slug: "sector",
+      label: "Sector",
+      input_type: "text",
+      active: false,
+      sort_order: 20,
+    });
+    const nonExportableField = operationalHeaderField({
+      id: 49,
+      slug: "guardia",
+      label: "Guardia",
+      input_type: "text",
+      exportable: false,
+      sort_order: 30,
+    });
+    const report = buildReportFromSourceRows(
+      emptyQuery,
+      [basePlanned],
+      [],
+      undefined,
+      {
+        fields: [activeExportableField, inactiveField, nonExportableField],
+        values: [
+          operationalHeaderValue({ id: 404, field_id: activeExportableField.id, planning_item_id: basePlanned.id, value_text: "Norte" }),
+          operationalHeaderValue({ id: 405, field_id: inactiveField.id, planning_item_id: basePlanned.id, value_text: "S1" }),
+          operationalHeaderValue({ id: 406, field_id: nonExportableField.id, planning_item_id: basePlanned.id, value_text: "A" }),
+        ],
+      }
+    );
+
+    expect(report.operational_header_columns?.map((column) => column.slug)).toEqual(["area"]);
+    expect(Object.keys(report.rows[0]?.operational_header_values ?? {})).toEqual(["area"]);
   });
 
   it("adds assignment rows for filtered planned rows without changing report rows", () => {
@@ -356,12 +563,11 @@ describe("reports service calculations", () => {
       values: [assignmentValue({ id: 4001, assignment_id: 3001, field_id: field.id, value_text: "Ana Perez" })],
     });
 
-    const report = buildReportFromSourceRows(emptyQuery, [basePlanned], [], undefined, {
+    const report = buildReportFromSourceRows(emptyQuery, [basePlanned], [], {
       types: [type],
       assignments: [assignment],
     });
 
-    expect(report.rows[0]?.custom_fields).toBeUndefined();
     expect(report.assignment_rows).toEqual([
       {
         target_kind: "planning_item",
@@ -397,7 +603,7 @@ describe("reports service calculations", () => {
       values: [assignmentValue({ id: 4007, assignment_id: 3005, field_id: field.id, value_text: "Jumbo 03" })],
     });
 
-    const report = buildReportFromSourceRows(emptyQuery, [], [baseReal], undefined, {
+    const report = buildReportFromSourceRows(emptyQuery, [], [baseReal], {
       types: [type],
       assignments: [assignment],
     });
@@ -443,7 +649,7 @@ describe("reports service calculations", () => {
       values: [assignmentValue({ id: 4009, assignment_id: 3007, field_id: field.id, value_text: "Real" })],
     });
 
-    const report = buildReportFromSourceRows(emptyQuery, [basePlanned], [baseReal], undefined, {
+    const report = buildReportFromSourceRows(emptyQuery, [basePlanned], [baseReal], {
       types: [type],
       assignments: [plannedAssignment, realAssignment],
     });
@@ -469,7 +675,6 @@ describe("reports service calculations", () => {
       { ...emptyQuery, shift: "Noche" },
       [basePlanned],
       [],
-      undefined,
       {
         types: [type],
         assignments: [
@@ -511,7 +716,7 @@ describe("reports service calculations", () => {
     });
     const booleanField = assignmentField({ id: 305, assignment_type_id: 32, slug: "validado", label: "Validado", input_type: "boolean", sort_order: 300 });
     const type = assignmentType({ id: 32, slug: "dotacion", label: "Dotacion", fields: [selectField, multiField, booleanField] });
-    const report = buildReportFromSourceRows(emptyQuery, [basePlanned], [baseReal], undefined, {
+    const report = buildReportFromSourceRows(emptyQuery, [basePlanned], [baseReal], {
       types: [type],
       assignments: [
         planningAssignment({
@@ -546,7 +751,7 @@ describe("reports service calculations", () => {
       config: { suffix: "personas" },
     });
     const type = assignmentType({ id: 33, slug: "historico", label: "Historico", active: false, fields: [field] });
-    const report = buildReportFromSourceRows(emptyQuery, [basePlanned], [], undefined, {
+    const report = buildReportFromSourceRows(emptyQuery, [basePlanned], [], {
       types: [type],
       assignments: [
         planningAssignment({

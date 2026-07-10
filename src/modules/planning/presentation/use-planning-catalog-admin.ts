@@ -7,9 +7,7 @@ import { saveCatalogCache } from "@/lib/localOfflineStore";
 import type {
   DetailAdminForm,
   EditDetailForm,
-  EditLevelForm,
   EditTypeForm,
-  LevelAdminForm,
   PlanningCatalog,
   TypeAdminForm,
 } from "./planning-page-models";
@@ -32,14 +30,12 @@ export function usePlanningCatalogAdmin({
     category: "actividad",
     label: "",
   });
-  const [levelForm, setLevelForm] = useState<LevelAdminForm>({ label: "" });
   const [detailForm, setDetailForm] = useState<DetailAdminForm>({
     category: "actividad",
     typeId: "",
     label: "",
   });
   const [editingType, setEditingType] = useState<EditTypeForm | null>(null);
-  const [editingLevel, setEditingLevel] = useState<EditLevelForm | null>(null);
   const [editingDetail, setEditingDetail] = useState<EditDetailForm | null>(null);
 
   async function refreshCatalog() {
@@ -48,9 +44,6 @@ export function usePlanningCatalogAdmin({
     setDetailForm((current) => syncDetailAdminForm(current, nextCatalog.categories));
     setEditingDetail((current) =>
       current ? { ...current, ...syncDetailAdminForm(current, nextCatalog.categories) } : null
-    );
-    setEditingLevel((current) =>
-      current && nextCatalog.levels.some((level) => level.id === current.id) ? current : null
     );
     onRefresh(nextCatalog);
   }
@@ -110,30 +103,6 @@ export function usePlanningCatalogAdmin({
     }
   }
 
-  async function handleCreateLevel(event: FormEvent) {
-    event.preventDefault();
-    setCatalogFormError("");
-
-    if (!accessToken) {
-      setCatalogFormError("Necesitas iniciar sesion para administrar el catalogo.");
-      return;
-    }
-
-    setCatalogBusy(true);
-
-    try {
-      await mutateCatalog("POST", {
-        entity: "level",
-        label: levelForm.label,
-      });
-      setLevelForm({ label: "" });
-    } catch (error: unknown) {
-      setCatalogFormError(getRequestErrorMessage(error, "No se pudo crear el nivel."));
-    } finally {
-      setCatalogBusy(false);
-    }
-  }
-
   async function handleUpdateType(event: FormEvent) {
     event.preventDefault();
     if (!editingType) {
@@ -182,29 +151,6 @@ export function usePlanningCatalogAdmin({
     }
   }
 
-  async function handleUpdateLevel(event: FormEvent) {
-    event.preventDefault();
-    if (!editingLevel) {
-      return;
-    }
-
-    setCatalogFormError("");
-    setCatalogBusy(true);
-
-    try {
-      await mutateCatalog("PATCH", {
-        entity: "level",
-        id: editingLevel.id,
-        label: editingLevel.label,
-      });
-      setEditingLevel(null);
-    } catch (error: unknown) {
-      setCatalogFormError(getRequestErrorMessage(error, "No se pudo editar el nivel."));
-    } finally {
-      setCatalogBusy(false);
-    }
-  }
-
   async function handleDeleteType(id: number) {
     setCatalogFormError("");
     setCatalogBusy(true);
@@ -222,25 +168,6 @@ export function usePlanningCatalogAdmin({
       }
     } catch (error: unknown) {
       setCatalogFormError(getRequestErrorMessage(error, "No se pudo eliminar el tipo."));
-    } finally {
-      setCatalogBusy(false);
-    }
-  }
-
-  async function handleDeleteLevel(id: number) {
-    setCatalogFormError("");
-    setCatalogBusy(true);
-
-    try {
-      await mutateCatalog("DELETE", {
-        entity: "level",
-        id,
-      });
-      if (editingLevel?.id === id) {
-        setEditingLevel(null);
-      }
-    } catch (error: unknown) {
-      setCatalogFormError(getRequestErrorMessage(error, "No se pudo eliminar el nivel."));
     } finally {
       setCatalogBusy(false);
     }
@@ -270,24 +197,17 @@ export function usePlanningCatalogAdmin({
     catalogFormError,
     typeForm,
     setTypeForm,
-    levelForm,
-    setLevelForm,
     detailForm,
     setDetailForm,
     editingType,
     setEditingType,
-    editingLevel,
-    setEditingLevel,
     editingDetail,
     setEditingDetail,
     handleCreateType,
     handleCreateDetail,
-    handleCreateLevel,
     handleUpdateType,
     handleUpdateDetail,
-    handleUpdateLevel,
     handleDeleteType,
-    handleDeleteLevel,
     handleDeleteDetail,
   };
 }

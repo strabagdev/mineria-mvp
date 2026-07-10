@@ -9,13 +9,18 @@ export type PlanningItemDto = {
   start_time: string;
   end_time: string;
   shift: string;
-  level: string;
-  front: string;
   category: PlanningCategoryDto;
   tracking_type: PlanningTrackingTypeDto;
   item_type: string;
   description: string;
   notes: string | null;
+  operational_header_values?: PlanningItemOperationalHeaderValueDto[];
+};
+
+export type PlanningItemOperationalHeaderValueDto = {
+  field_id: number;
+  value: string;
+  option_id?: number | null;
 };
 
 export type PlanningItemsResponseDto = {
@@ -29,14 +34,13 @@ export type PlanningItemMutationPayloadDto = {
   start_time?: string;
   end_time?: string;
   shift?: string;
-  level?: string;
-  front?: string;
   category?: string;
   tracking_type?: string;
   item_type?: string;
   description?: string;
   notes?: string | null;
   client_mutation_id?: string | null;
+  operational_header_values?: PlanningItemOperationalHeaderValueDto[];
 };
 
 export type PlanningItemDeleteRequestDto = {
@@ -51,14 +55,29 @@ export type NormalizedPlanningItemPayloadDto = {
   start_time: string;
   end_time: string;
   shift: string;
-  level: string;
-  front: string;
   category: string;
   tracking_type: string;
   item_type: string;
   description: string;
   notes: string | null;
+  operational_header_values: PlanningItemOperationalHeaderValueDto[];
 };
+
+function normalizeOperationalHeaderValues(
+  values: PlanningItemMutationPayloadDto["operational_header_values"]
+) {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+
+  return values
+    .map((value) => ({
+      field_id: Number(value?.field_id),
+      value: String(value?.value ?? "").trim(),
+      option_id: value?.option_id === undefined || value?.option_id === null ? null : Number(value.option_id),
+    }))
+    .filter((value) => Number.isFinite(value.field_id) && value.field_id > 0);
+}
 
 export type RealSegmentRangeInputDto = {
   id?: number;
@@ -78,13 +97,12 @@ export function normalizePlanningItemMutationPayload(
     start_time: String(body.start_time ?? "").trim(),
     end_time: String(body.end_time ?? "").trim(),
     shift: String(body.shift ?? "").trim(),
-    level: String(body.level ?? "").trim(),
-    front: String(body.front ?? "").trim(),
     category: String(body.category ?? "").trim().toLowerCase(),
     tracking_type: String(body.tracking_type ?? "").trim().toLowerCase(),
     item_type: String(body.item_type ?? "").trim(),
     description: String(body.description ?? "").trim(),
     notes: String(body.notes ?? "").trim() || null,
+    operational_header_values: normalizeOperationalHeaderValues(body.operational_header_values),
   };
 }
 

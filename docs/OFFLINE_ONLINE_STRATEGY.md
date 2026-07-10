@@ -179,7 +179,6 @@ Cada mutacion pendiente incluye:
 - `createdAt`.
 - `status` opcional (`conflict` para conflictos no retryables).
 - `client_mutation_id` inyectado en el payload si no existe.
-- `customFieldValues` opcional, lateral al payload core.
 - `assignmentPayload` opcional, lateral al payload core.
 - `syncedPlanningItemId` opcional cuando el core ya se sincronizo y solo falta
   completar un replay lateral.

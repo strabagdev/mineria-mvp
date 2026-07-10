@@ -11,7 +11,7 @@ export function CatalogSheet({ onClose, ...workspaceProps }: CatalogSheetProps) 
       titleId="catalog-modal-title"
       eyebrow="Catalogo"
       title="Configuracion jerarquica"
-      description="Aqui administras como se comporta el formulario: nivel, categoria, tipo y detalle."
+      description="Aqui administras categorias, tipos y detalles. Nivel se administra desde Cabecera Operacional."
       className="catalog-modal-card catalog-sheet-card"
       onClose={onClose}
     >

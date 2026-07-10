@@ -1,7 +1,11 @@
 import type { CSSProperties, ReactNode } from "react";
 import { Fragment } from "react";
-import { GanttLegend } from "@/components/planning/gantt-legend";
-import { GanttRowMeta } from "@/components/planning/gantt-row-meta";
+import { GanttLegend } from "./gantt-legend";
+import { GanttRowMeta } from "./gantt-row-meta";
+import {
+  formatGanttGroupingTitle,
+  type GanttGroupingPathEntry,
+} from "../../modules/planning/presentation/planning-page-helpers";
 
 type ShiftKey = "Dia" | "Noche";
 
@@ -12,13 +16,12 @@ type GanttPlanningItem = {
 
 type GanttPlanningGroup<TItem extends GanttPlanningItem> = {
   key: string;
-  level: string;
-  front: string;
   category: "actividad" | "interferencia";
   item_type: string;
   description: string;
   programado: TItem | null;
   realSegments: TItem[];
+  gantt_group_path?: GanttGroupingPathEntry[];
 };
 
 type GanttScale = {
@@ -66,10 +69,11 @@ export function GanttShiftSection<
   renderCreateRealButton,
 }: GanttShiftSectionProps<TItem, TGroup>) {
   const groupedRows = groups.reduce<Array<{ key: string; title: string; rows: TGroup[] }>>((accumulator, group) => {
-    const level = String(group.level ?? "").trim();
-    const front = String(group.front ?? "").trim();
-    const title = [level || "Sin nivel", front || "Sin frente"].join(" - ");
-    const key = `${level.toLowerCase()}::${front.toLowerCase()}`;
+    const path = group.gantt_group_path ?? [];
+    const title = path.length ? formatGanttGroupingTitle(path) : "Sin cabecera";
+    const key = path.length
+      ? path.map((entry) => `${entry.field_id}:${entry.value.trim().toLocaleLowerCase("es-CL")}`).join("::")
+      : "sin-cabecera";
     const existingGroup = accumulator.find((entry) => entry.key === key);
 
     if (existingGroup) {

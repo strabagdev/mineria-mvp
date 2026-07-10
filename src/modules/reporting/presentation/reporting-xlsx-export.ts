@@ -20,7 +20,7 @@ type AssignmentColumn = {
   header: string;
 };
 
-const detailCoreHeaders = [
+const detailCorePrefixHeaders = [
   "ID",
   "Fuente",
   "Grupo actividad",
@@ -29,23 +29,30 @@ const detailCoreHeaders = [
   "Horas",
   "Vista",
   "Turno",
-  "Nivel",
-  "Frente",
+];
+const detailCoreSuffixHeaders = [
   "Categoría",
   "Tipo",
   "Detalle",
   "Notas",
 ];
 
-function getCustomFieldHeaders(report: ReportResponse) {
-  const coreHeaders = new Set(detailCoreHeaders);
-  const seenCustomLabels = new Map<string, number>();
+function getDetailCoreHeaders(report: ReportResponse) {
+  return [
+    ...detailCorePrefixHeaders,
+    ...(report.operational_header_columns ?? []).map((column) => column.label),
+    ...detailCoreSuffixHeaders,
+  ];
+}
 
-  return (report.custom_field_columns ?? []).map((column) => {
-    const count = seenCustomLabels.get(column.label) ?? 0;
-    seenCustomLabels.set(column.label, count + 1);
-    return coreHeaders.has(column.label) || count > 0 ? `${column.label} (${column.slug})` : column.label;
-  });
+function getOperationalHeaderCellValue(row: ReportRow, column: NonNullable<ReportResponse["operational_header_columns"]>[number]) {
+  const value = row.operational_header_values?.[column.slug]?.value;
+
+  if (value) {
+    return value;
+  }
+
+  return "";
 }
 
 function buildUniqueAssignmentHeader(
@@ -88,7 +95,7 @@ function buildUniqueAssignmentHeader(
 
 function buildAssignmentColumns(report: ReportResponse, reservedHeaders: string[]) {
   const seenColumnKeys = new Set<string>();
-  const seenHeaders = new Set([...detailCoreHeaders, ...reservedHeaders]);
+  const seenHeaders = new Set([...getDetailCoreHeaders(report), ...reservedHeaders]);
   const seenLabels = new Map<string, number>();
 
   return [...(report.assignment_rows ?? [])]
@@ -175,11 +182,11 @@ export function formatAssignmentsForExcel(
 }
 
 export function buildReportXlsxSheets(report: ReportResponse) {
-  const customFieldHeaders = getCustomFieldHeaders(report);
-  const assignmentColumns = buildAssignmentColumns(report, customFieldHeaders);
+  const detailCoreHeaders = getDetailCoreHeaders(report);
+  const assignmentColumns = buildAssignmentColumns(report, []);
   const assignmentRowsByTarget = groupAssignmentsByTarget(report);
   const detalle: ReportXlsxSheet = [
-    [...detailCoreHeaders, ...customFieldHeaders, ...assignmentColumns.map((column) => column.header)],
+    [...detailCoreHeaders, ...assignmentColumns.map((column) => column.header)],
     ...report.rows.map((row: ReportRow) => {
       const target = getReportRowAssignmentTarget(row);
       const targetKey = getAssignmentTargetKey(target.target_kind, target.target_id);
@@ -194,13 +201,11 @@ export function buildReportXlsxSheets(report: ReportResponse) {
         formatHours(row.duration_minutes / 60),
         toTrackingLabel(row.tracking_type),
         row.shift,
-        row.level,
-        row.front,
+        ...(report.operational_header_columns ?? []).map((column) => getOperationalHeaderCellValue(row, column)),
         toDisplayCategory(row.category),
         row.item_type,
         row.description,
         row.notes ?? "",
-        ...(report.custom_field_columns ?? []).map((column) => row.custom_fields?.[column.slug]?.value ?? ""),
         ...assignmentColumns.map((column) => formatAssignmentsForExcel(
           target.target_kind,
           target.target_id,

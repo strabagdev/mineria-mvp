@@ -20,8 +20,6 @@ const baseMutation: PendingPlanningMutation = {
     start_time: "08:00",
     end_time: "10:00",
     shift: "Dia",
-    level: "NTI",
-    front: "GT1",
     category: "actividad",
     tracking_type: "programado",
     item_type: "unitaria",
@@ -57,18 +55,6 @@ describe("planning mutation queue helpers", () => {
     expect(optimisticItem?.id).toBeLessThan(0);
   });
 
-  it("keeps custom field values outside the core planning payload", () => {
-    const mutation = makePendingPlanningMutation(
-      "POST",
-      { description: "Extraccion" },
-      { customFieldValues: [{ field_id: 1, option_id: 10 }] }
-    );
-
-    expect(mutation.payload).toMatchObject({ description: "Extraccion" });
-    expect(mutation.payload).not.toHaveProperty("customFieldValues");
-    expect(mutation.customFieldValues).toEqual([{ field_id: 1, option_id: 10 }]);
-  });
-
   it("keeps assignments outside the core planning payload", () => {
     const assignmentPayload = [{ assignment_type_id: 1, instance_order: 1, values: [{ field_id: 10, value_number: 8 }] }];
     const mutation = makePendingPlanningMutation(
@@ -92,8 +78,6 @@ describe("planning mutation queue helpers", () => {
           start: "09:00",
           end: "10:00",
           shift: "Dia",
-          level: "NTI",
-          front: "GT1",
           category: "actividad",
           tracking_type: "programado",
           item_type: "unitaria",
@@ -169,52 +153,6 @@ describe("planning mutation queue helpers", () => {
     expect(result.retryableError).toBe(retryableError);
     expect(result.retryableErrorMessage).toBe("Invalid session");
     expect(result.nextQueue).toEqual([baseMutation, pendingAfterRetry]);
-  });
-
-  it("replays custom field values after the core mutation succeeds", async () => {
-    const mutation: PendingPlanningMutation = {
-      ...baseMutation,
-      customFieldValues: [{ field_id: 1, value_text: "Apoyo" }],
-    };
-    const sendMutation = vi.fn().mockResolvedValueOnce({ item: { id: 123 } });
-    const replayCustomFieldValues = vi.fn().mockResolvedValueOnce(undefined);
-
-    const result = await replayPendingPlanningMutations({
-      mutations: [mutation],
-      sendMutation,
-      replayCustomFieldValues,
-      getErrorMessage: (error) => (error instanceof Error ? error.message : "error"),
-      isRetryableError: () => false,
-    });
-
-    expect(sendMutation).toHaveBeenCalledWith(mutation);
-    expect(replayCustomFieldValues).toHaveBeenCalledWith({ ...mutation, syncedPlanningItemId: 123 }, { item: { id: 123 } });
-    expect(result.syncedCount).toBe(1);
-    expect(result.nextQueue).toEqual([]);
-  });
-
-  it("keeps the mutation retryable when custom field replay fails after core sync", async () => {
-    const mutation: PendingPlanningMutation = {
-      ...baseMutation,
-      customFieldValues: [{ field_id: 1, value_text: "Apoyo" }],
-    };
-    const retryableError = new Error("Network offline");
-    const sendMutation = vi.fn().mockResolvedValueOnce({ item: { id: 123 } });
-    const replayCustomFieldValues = vi.fn().mockRejectedValueOnce(retryableError);
-
-    const result = await replayPendingPlanningMutations({
-      mutations: [mutation],
-      sendMutation,
-      replayCustomFieldValues,
-      getErrorMessage: (error) => (error instanceof Error ? error.message : "error"),
-      isRetryableError: () => true,
-    });
-
-    expect(sendMutation).toHaveBeenCalledWith(mutation);
-    expect(replayCustomFieldValues).toHaveBeenCalledWith({ ...mutation, syncedPlanningItemId: 123 }, { item: { id: 123 } });
-    expect(result.syncedCount).toBe(0);
-    expect(result.stoppedForRetryableError).toBe(true);
-    expect(result.nextQueue).toEqual([{ ...mutation, syncedPlanningItemId: 123 }]);
   });
 
   it("retries assignment replay without sending an already synced core again", async () => {

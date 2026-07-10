@@ -10,8 +10,8 @@ const mocks = vi.hoisted(() => ({
   normalizePlanningItemMutationPayload: vi.fn(),
   findPlanningCatalogDetailByTypeAndLabel: vi.fn(),
   findPlanningCatalogTypeByCategoryAndLabel: vi.fn(),
-  findPlanningLevelByLabel: vi.fn(),
   findPlannedItemSummaryByActivityGroupId: vi.fn(),
+  prepareOperationalHeaderMutationValues: vi.fn(),
   createPlannedPlanningItem: vi.fn(),
   createRealPlanningSegments: vi.fn(),
   listPlanningItems: vi.fn(),
@@ -40,7 +40,6 @@ vi.mock("@/modules/planning/contracts/planning-items", () => ({
 vi.mock("@/server/repositories/planning-catalog.repository", () => ({
   findPlanningCatalogDetailByTypeAndLabel: mocks.findPlanningCatalogDetailByTypeAndLabel,
   findPlanningCatalogTypeByCategoryAndLabel: mocks.findPlanningCatalogTypeByCategoryAndLabel,
-  findPlanningLevelByLabel: mocks.findPlanningLevelByLabel,
 }));
 
 vi.mock("@/server/repositories/planning-items.repository", () => ({
@@ -49,6 +48,10 @@ vi.mock("@/server/repositories/planning-items.repository", () => ({
 
 vi.mock("@/server/repositories/planning-segments.repository", () => ({
   listSegmentsForOverlap: vi.fn(),
+}));
+
+vi.mock("@/server/services/operational-header.service", () => ({
+  prepareOperationalHeaderMutationValues: mocks.prepareOperationalHeaderMutationValues,
 }));
 
 vi.mock("@/server/services/planning-items.service", () => ({
@@ -118,20 +121,24 @@ describe("operational permissions", () => {
       start_time: "08:00",
       end_time: "09:00",
       shift: "Dia",
-      level: "NTI",
-      front: "GT1",
       category: "interferencia",
       tracking_type: "programado",
       item_type: "Administrativa",
       description: "Permiso interno",
       notes: null,
+      operational_header_values: [
+        { field_id: 1, value: "NTI", option_id: 10 },
+        { field_id: 2, value: "GT1", option_id: 20 },
+      ],
     };
     mocks.requireOperationalUser.mockResolvedValue({
       user: { id: "user-1" },
       profile: { id: "profile-1" },
     });
     mocks.normalizePlanningItemMutationPayload.mockReturnValue(payload);
-    mocks.findPlanningLevelByLabel.mockResolvedValue({ id: 1 });
+    mocks.prepareOperationalHeaderMutationValues.mockResolvedValue({
+      values: payload.operational_header_values,
+    });
     mocks.findPlanningCatalogTypeByCategoryAndLabel.mockResolvedValue({ id: 20 });
     mocks.findPlanningCatalogDetailByTypeAndLabel.mockResolvedValue({ id: 200 });
     mocks.createPlannedPlanningItem.mockResolvedValue({

@@ -1,5 +1,7 @@
 import { Calendar, Clock, FileText, Layers, Link2, MapPin, Pencil, Timer, X } from "lucide-react";
 import type { ReactNode } from "react";
+import type { OperationalHeaderResponseDto } from "@/modules/operational-header/contracts/operational-header";
+import type { PlanningItemOperationalHeaderValueDto } from "@/modules/planning/contracts/planning-items";
 
 type PlanningDetailItem = {
   tracking_type: "programado" | "real";
@@ -9,9 +11,8 @@ type PlanningDetailItem = {
   shift: string;
   start: string;
   end: string;
-  level: string;
-  front: string;
   notes?: string | null;
+  operational_header_values?: PlanningItemOperationalHeaderValueDto[];
 };
 
 type SegmentContinuation = {
@@ -28,12 +29,49 @@ type PlanningDetailDialogProps = {
   formatDuration: (start: string, end: string) => string;
   toDisplayCategory: (category: PlanningDetailItem["category"]) => string;
   toTrackingTypeLabel: (trackingType: PlanningDetailItem["tracking_type"]) => string;
-  customFieldsSlot?: ReactNode;
+  operationalHeaderConfig?: OperationalHeaderResponseDto | null;
   assignmentsSlot?: ReactNode;
   historySlot?: ReactNode;
   onClose: () => void;
   onEdit: () => void;
 };
+
+type OperationalHeaderDetailValue = {
+  fieldId: number;
+  label: string;
+  value: string;
+};
+
+function resolveOperationalHeaderDetailValues(
+  item: PlanningDetailItem,
+  config: OperationalHeaderResponseDto | null | undefined
+): OperationalHeaderDetailValue[] {
+  if (!config) {
+    return [];
+  }
+
+  const valuesByFieldId = new Map(
+    (item.operational_header_values ?? []).map((value) => [value.field_id, value])
+  );
+
+  return config.fields
+    .filter((field) => field.active)
+    .sort((left, right) => left.sort_order - right.sort_order || left.label.localeCompare(right.label))
+    .map((field) => {
+      const storedValue = valuesByFieldId.get(field.id);
+      const option = storedValue?.option_id
+        ? field.options.find((candidate) => candidate.id === storedValue.option_id)
+        : field.options.find((candidate) =>
+          candidate.value.trim().toLowerCase() === storedValue?.value.trim().toLowerCase() ||
+          candidate.label.trim().toLowerCase() === storedValue?.value.trim().toLowerCase()
+        ) ?? null;
+      return {
+        fieldId: field.id,
+        label: field.label,
+        value: option?.label || option?.value || storedValue?.value || "Sin valor",
+      };
+    });
+}
 
 export function PlanningDetailDialog({
   item,
@@ -44,7 +82,7 @@ export function PlanningDetailDialog({
   formatDuration,
   toDisplayCategory,
   toTrackingTypeLabel,
-  customFieldsSlot,
+  operationalHeaderConfig,
   assignmentsSlot,
   historySlot,
   onClose,
@@ -52,6 +90,8 @@ export function PlanningDetailDialog({
 }: PlanningDetailDialogProps) {
   const categoryLabel = toDisplayCategory(item.category);
   const trackingTypeLabel = toTrackingTypeLabel(item.tracking_type);
+  const operationalHeaderValues = resolveOperationalHeaderDetailValues(item, operationalHeaderConfig);
+  const hasOperationalHeaderFields = Boolean(operationalHeaderConfig?.fields.some((field) => field.active));
 
   return (
     <div className="modal-backdrop" role="presentation" onClick={onClose}>
@@ -122,23 +162,26 @@ export function PlanningDetailDialog({
           <section className="detail-content-section detail-location-section">
             <div className="detail-section-title">
               <MapPin aria-hidden="true" />
-              <p className="eyebrow">Ubicacion</p>
+              <p className="eyebrow">Cabecera Operacional</p>
             </div>
             <div className="detail-location-grid">
-              <article className="detail-location-card">
-                <p className="detail-label">Nivel</p>
-                <p className="detail-location-value">{item.level}</p>
-              </article>
-              <article className="detail-location-card">
-                <p className="detail-label">Frente</p>
-                <p className="detail-location-value">{item.front}</p>
-              </article>
+              {hasOperationalHeaderFields ? (
+                operationalHeaderValues.map((value) => (
+                  <article key={value.fieldId} className="detail-location-card">
+                    <p className="detail-label">{value.label}</p>
+                    <p className="detail-location-value">{value.value}</p>
+                  </article>
+                ))
+              ) : (
+                <article className="detail-location-card">
+                  <p className="detail-label">Estado</p>
+                  <p className="detail-location-value">Sin cabecera</p>
+                </article>
+              )}
             </div>
           </section>
 
           {assignmentsSlot}
-
-          {customFieldsSlot}
 
           {continuation ? (
             <article className="detail-notes-card">

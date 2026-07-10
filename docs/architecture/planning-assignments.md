@@ -23,8 +23,7 @@ Cuadrilla #1
 
 ## Diferencia con custom fields
 
-- `planning_custom_fields`: datos simples laterales con un valor por campo y
-  target.
+- Custom Fields fue retirado de backend/API/UI operacional.
 - `planning assignments`: grupos configurables repetibles por programado.
 - Assignments no usan `entity_reference` ni entidades prearmadas.
 - Assignments no se guardan dentro del payload core de `planning_items`.

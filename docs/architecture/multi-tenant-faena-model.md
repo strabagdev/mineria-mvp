@@ -155,7 +155,7 @@ sites
   1 ── * site_memberships
   1 ── * planning_items
   1 ── * activity_execution_segments
-  1 ── * planning_levels
+  1 ── * operational_header_fields / options
   1 ── * reports scope
   1 ── * realtime channels scope
 
@@ -189,7 +189,7 @@ audit_logs.site_id -> sites.id nullable
 | `activity_execution_segments` | `organization_id` + `site_id`. | Debe compartir scope con planning y reportes. |
 | `planning_catalog_types` | Global base + organizacion/sitio opcional. | Permite catalogo comun y personalizacion gradual. |
 | `planning_catalog_details` | Hereda scope del tipo. | Evita detalles mezclados entre catalogos. |
-| `planning_levels` | Sitio o catalogo base con overrides. | Niveles suelen ser especificos de faena. |
+| Cabecera Operacional | Sitio o catalogo base con overrides. | Nivel, Frente y otros ejes suelen ser especificos de faena. |
 | `reports` | Query obligatoria por `organization_id` y `site_id`. | Evita reportes cruzados accidentales. |
 | `audit_logs` | `organization_id` obligatorio cuando aplique, `site_id` nullable. | Auditoria debe filtrarse por alcance. |
 | Offline cache | `user_id` + `organization_id` + `site_id` + version. | Evita mezcla local entre faenas/sesiones. |
@@ -199,7 +199,8 @@ audit_logs.site_id -> sites.id nullable
 
 ### Alternativa A: Catalogo global unico
 
-Todos los tenants/faenas comparten `planning_catalog_types`, `planning_catalog_details` y `planning_levels`.
+Todos los tenants/faenas comparten `planning_catalog_types`,
+`planning_catalog_details` y Cabecera Operacional.
 
 Ventajas:
 
@@ -227,14 +228,14 @@ Ventajas:
 
 Desventajas:
 
-- Si una faena tiene niveles/frentes propios, se requieren excepciones.
-- Los niveles mineros suelen ser mas locales que organizacionales.
+- Si una faena tiene cabeceras operacionales propias, se requieren excepciones.
+- Los ejes operacionales mineros suelen ser mas locales que organizacionales.
 
 Veredicto: buena base para tipos/detalles generales.
 
 ### Alternativa C: Catalogo por faena
 
-Cada faena define tipos, detalles y niveles propios.
+Cada faena define tipos, detalles y Cabecera Operacional propios.
 
 Ventajas:
 
@@ -248,7 +249,8 @@ Desventajas:
 - Mas carga administrativa.
 - Puede fragmentar reportabilidad corporativa.
 
-Veredicto: recomendable para `planning_levels` y, si hay diferencias reales, para overrides de tipos/detalles.
+Veredicto: recomendable para Cabecera Operacional y, si hay diferencias reales,
+para overrides de tipos/detalles.
 
 ### Alternativa D: Catalogo global base + overrides por organizacion/faena
 
@@ -284,7 +286,7 @@ Con estas decisiones:
 - `reports` deben requerir scope explicito en backend, no solo en UI.
 - `audit_logs` deben registrar `organization_id`, `site_id` cuando aplique, y actor.
 - Catalogo:
-  - Fase inicial: catalogo por organizacion para tipos/detalles; niveles por faena.
+  - Fase inicial: catalogo por organizacion para tipos/detalles; Cabecera Operacional por faena si hay diferencias reales.
   - Fase objetivo: catalogo base + overrides por organizacion/faena si aparecen diferencias recurrentes.
 - Realtime:
   - Canales y filtros por `site_id` + fecha.
@@ -314,7 +316,7 @@ Columnas futuras:
 | `activity_execution_segments` | `organization_id uuid not null`, `site_id uuid not null` |
 | `planning_catalog_types` | `organization_id uuid null`, `site_id uuid null`, `scope text` si se adopta overrides |
 | `planning_catalog_details` | scope heredado por FK al tipo |
-| `planning_levels` | `organization_id uuid null`, `site_id uuid null` |
+| Cabecera Operacional | `organization_id uuid null`, `site_id uuid null` si se adopta scope multi-faena |
 | `audit_logs` | `organization_id uuid null`, `site_id uuid null` |
 
 Indices futuros:

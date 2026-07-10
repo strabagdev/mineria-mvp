@@ -1,4 +1,11 @@
-import type { ReportFilters, ReportRow, ReportSummary } from "../contracts/reporting";
+import type { OperationalHeaderResponseDto } from "../../operational-header/contracts/operational-header";
+import type {
+  ReportBreakdown,
+  ReportFilters,
+  ReportOperationalHeaderColumn,
+  ReportRow,
+  ReportSummary,
+} from "../contracts/reporting";
 
 export const emptyReportSummary: ReportSummary = {
   total_records: 0,
@@ -24,21 +31,52 @@ export function toLocalDateIso(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
-export function getInitialReportFilters(): ReportFilters {
+type ReportFilterSearchParams = {
+  get(name: string): string | null;
+  forEach(callbackfn: (value: string, key: string) => void): void;
+};
+
+export function getInitialReportFilters(searchParams?: ReportFilterSearchParams): ReportFilters {
   const dateTo = new Date();
   const dateFrom = new Date();
   dateFrom.setDate(dateTo.getDate() - 6);
-
-  return {
+  const filters: ReportFilters = {
     date_from: toLocalDateIso(dateFrom),
     date_to: toLocalDateIso(dateTo),
     shift: "",
-    level: "",
-    front: "",
     category: "",
     tracking_type: "",
     item_type: "",
+    operational_header_filters: {},
   };
+
+  if (!searchParams) {
+    return filters;
+  }
+
+  const scalarKeys = [
+    "date_from",
+    "date_to",
+    "shift",
+    "category",
+    "tracking_type",
+    "item_type",
+  ] as const;
+
+  for (const key of scalarKeys) {
+    filters[key] = searchParams.get(key) ?? filters[key];
+  }
+
+  searchParams.forEach((value, key) => {
+    if (key.startsWith("header_")) {
+      const slug = key.slice("header_".length).trim();
+      if (slug) {
+        filters.operational_header_filters[slug] = value;
+      }
+    }
+  });
+
+  return filters;
 }
 
 export function formatHours(hours: number) {
@@ -66,12 +104,55 @@ export function toTrackingLabel(trackingType: ReportRow["tracking_type"]) {
 
 export function buildReportQuery(filters: ReportFilters) {
   const params = new URLSearchParams();
+  const { operational_header_filters: operationalHeaderFilters, ...scalarFilters } = filters;
 
-  for (const [key, value] of Object.entries(filters)) {
+  for (const [key, value] of Object.entries(scalarFilters)) {
     if (value.trim()) {
       params.set(key, value.trim());
     }
   }
 
+  for (const [slug, value] of Object.entries(operationalHeaderFilters)) {
+    const normalizedSlug = slug.trim();
+    const normalizedValue = value.trim();
+    if (normalizedSlug && normalizedValue) {
+      params.set(`header_${normalizedSlug}`, normalizedValue);
+    }
+  }
+
   return params.toString();
+}
+
+export type ReportOperationalHeaderBreakdownGroup = {
+  slug: string;
+  title: string;
+  rows: ReportBreakdown[];
+};
+
+export function getOperationalHeaderBreakdownGroups(
+  config: OperationalHeaderResponseDto | null,
+  columns: ReportOperationalHeaderColumn[],
+  breakdowns: Record<string, ReportBreakdown[]> | undefined
+): ReportOperationalHeaderBreakdownGroup[] {
+  const fieldsBySlug = new Map((config?.fields ?? []).map((field) => [field.slug, field]));
+  const fields = columns
+    .map((column) => {
+      const field = fieldsBySlug.get(column.slug);
+      return {
+        slug: column.slug,
+        label: field?.label ?? column.label,
+        sort_order: field?.sort_order ?? column.sort_order,
+        groupable: field ? field.active && field.groupable : true,
+      };
+    })
+    .filter((field) => field.groupable)
+    .sort((left, right) => left.sort_order - right.sort_order || left.label.localeCompare(right.label));
+
+  return fields
+    .map((field) => ({
+      slug: field.slug,
+      title: `Por ${field.label}`,
+      rows: breakdowns?.[field.slug] ?? [],
+    }))
+    .filter((group) => group.rows.length > 0);
 }

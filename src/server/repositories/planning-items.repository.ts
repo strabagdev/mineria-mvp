@@ -9,8 +9,6 @@ export type PlanningItemReadRow = {
   start_time: string;
   end_time: string;
   shift: string;
-  level: string;
-  front: string;
   category: "actividad" | "interferencia";
   item_type: string;
   description: string;
@@ -19,7 +17,7 @@ export type PlanningItemReadRow = {
 };
 
 export const planningItemReadSelect =
-  "id, activity_group_id, item_date, start_time, end_time, shift, level, front, category, item_type, description, notes, tracking_type";
+  "id, activity_group_id, item_date, start_time, end_time, shift, category, item_type, description, notes, tracking_type";
 
 export async function listPlannedItemsByDate(date: string) {
   const db = getSupabaseServerClient();
@@ -87,8 +85,6 @@ export async function insertPlannedItem(input: {
   start_time: string;
   end_time: string;
   shift: string;
-  level: string;
-  front: string;
   category: string;
   tracking_type: string;
   item_type: string;
@@ -115,8 +111,6 @@ export type PlanningItemUpdateInput = {
   start_time: string;
   end_time: string;
   shift: string;
-  level: string;
-  front: string;
   category: string;
   tracking_type: string;
   item_type: string;

@@ -78,7 +78,6 @@ Datos cacheados:
 
 - Items de planning por fecha en `planningByDate`.
 - Catalogo operativo en `keyval: planning-catalog`.
-- Campos configurables en `keyval: planning-custom-fields`.
 - Definiciones operacionales de assignments en `keyval: planning-assignment-types`.
 - Instancias de assignments en `keyval: planning-assignments:{planningItemId}`.
 - Mutaciones pendientes en `keyval: planning-mutation-queue`.
@@ -95,8 +94,8 @@ Escritura:
 - Online: intenta POST/PATCH/DELETE `/api/planning-items`.
 - Offline, error de red o sesion invalida recuperable: encola mutacion local.
 - Cada mutacion pendiente incluye `id`, `method`, `payload`, `createdAt`,
-  `client_mutation_id` y estado opcional. Puede adjuntar `customFieldValues` y
-  `assignmentPayload` como datos laterales sin contaminar el payload core.
+  `client_mutation_id` y estado opcional. Puede adjuntar `assignmentPayload`
+  como dato lateral sin contaminar el payload core.
 - Las mutaciones pendientes se renderizan de forma optimista con `sync_status: "pending"`.
 
 Sincronizacion:
@@ -166,7 +165,7 @@ Incluye:
 
 - Categorias, tipos, detalles y niveles administrables.
 - Tipos de asignacion, campos y opciones.
-- Campos configurables y opciones.
+- Cabecera Operacional.
 - Configuraciones futuras expuestas desde `/catalog`.
 
 Comportamiento offline:

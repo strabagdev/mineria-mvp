@@ -18,18 +18,11 @@ export type PlanningCatalogCategoryDto = {
   types: PlanningCatalogTypeDto[];
 };
 
-export type PlanningCatalogLevelDto = {
-  id: number;
-  slug: string;
-  label: string;
-};
-
 export type PlanningCatalogResponseDto = {
   categories: PlanningCatalogCategoryDto[];
-  levels: PlanningCatalogLevelDto[];
 };
 
-export type PlanningCatalogEntityDto = "type" | "detail" | "level";
+export type PlanningCatalogEntityDto = "type" | "detail";
 
 export type PlanningCatalogCreateRequestDto = {
   entity?: PlanningCatalogEntityDto;

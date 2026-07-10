@@ -28,6 +28,13 @@ import {
   type PlanningSegmentReadRow,
   type PlanningSegmentUpdateRow,
 } from "@/server/repositories/planning-segments.repository";
+import {
+  listOperationalHeaderFields,
+  listOperationalHeaderValuesByExecutionSegmentIds,
+  listOperationalHeaderValuesByPlanningItemIds,
+  syncDynamicOperationalHeaderForExecutionSegment,
+  syncDynamicOperationalHeaderForPlanningItem,
+} from "@/server/services/operational-header.service";
 
 type PlanningItemResponse = PlanningItemDto;
 type PlanningItemPayload = NormalizedPlanningItemPayloadDto;
@@ -37,21 +44,25 @@ type AuditActor = Parameters<typeof writeAuditLog>[0]["actor"];
 function mapPlanningReadRow(
   row: Omit<PlanningItemResponse, "tracking_type"> & { tracking_type?: "programado" | "real" }
 ): PlanningItemResponse {
-  return {
+  const item: PlanningItemResponse = {
     id: row.id,
     activity_group_id: row.activity_group_id,
     item_date: row.item_date,
     start_time: row.start_time,
     end_time: row.end_time,
     shift: row.shift,
-    level: row.level,
-    front: row.front,
     category: row.category,
     tracking_type: row.tracking_type ?? "programado",
     item_type: row.item_type,
     description: row.description,
     notes: row.notes ?? null,
   };
+
+  if (row.operational_header_values !== undefined) {
+    item.operational_header_values = row.operational_header_values;
+  }
+
+  return item;
 }
 
 export async function listPlanningItems(date: string) {
@@ -74,13 +85,64 @@ export async function listPlanningItems(date: string) {
   }
 
   const planningItems = Array.from(planningMap.values());
+  const [planningOperationalHeaderValues, segmentOperationalHeaderValues] = await Promise.all([
+    listOperationalHeaderValuesByPlanningItemIds(planningItems.map((item) => item.id)),
+    listOperationalHeaderValuesByExecutionSegmentIds(executionSegments.map((segment) => segment.id)),
+  ]);
+  const operationalHeaderValues = [...planningOperationalHeaderValues, ...segmentOperationalHeaderValues];
+  const operationalHeaderFields = operationalHeaderValues.length
+    ? await listOperationalHeaderFields({ activeOnly: false })
+    : [];
+  const operationalHeaderOptionsById = new Map(
+    operationalHeaderFields.flatMap((field) => field.options.map((option) => [option.id, option] as const))
+  );
+  const operationalHeaderValuesByPlanningItemId = new Map<number, PlanningItemResponse["operational_header_values"]>();
+  const operationalHeaderValuesByExecutionSegmentId = new Map<number, PlanningItemResponse["operational_header_values"]>();
+
+  for (const value of operationalHeaderValues) {
+    if (!value.planning_item_id) {
+      continue;
+    }
+
+    operationalHeaderValuesByPlanningItemId.set(value.planning_item_id, [
+      ...(operationalHeaderValuesByPlanningItemId.get(value.planning_item_id) ?? []),
+      {
+        field_id: value.field_id,
+        value: value.option_id
+          ? operationalHeaderOptionsById.get(value.option_id)?.label ?? operationalHeaderOptionsById.get(value.option_id)?.value ?? ""
+          : value.value_text ?? "",
+        option_id: value.option_id,
+      },
+    ]);
+  }
+
+  for (const value of operationalHeaderValues) {
+    if (!value.execution_segment_id) {
+      continue;
+    }
+
+    operationalHeaderValuesByExecutionSegmentId.set(value.execution_segment_id, [
+      ...(operationalHeaderValuesByExecutionSegmentId.get(value.execution_segment_id) ?? []),
+      {
+        field_id: value.field_id,
+        value: value.option_id
+          ? operationalHeaderOptionsById.get(value.option_id)?.label ?? operationalHeaderOptionsById.get(value.option_id)?.value ?? ""
+          : value.value_text ?? "",
+        option_id: value.option_id,
+      },
+    ]);
+  }
 
   const items = [
-    ...planningItems.map((row) => mapPlanningReadRow(row)),
+    ...planningItems.map((row) => mapPlanningReadRow({
+      ...row,
+      operational_header_values: operationalHeaderValuesByPlanningItemId.get(row.id) ?? [],
+    })),
     ...(executionSegments.map((row: PlanningSegmentReadRow) =>
       mapPlanningReadRow({
         ...row,
         tracking_type: "real",
+        operational_header_values: operationalHeaderValuesByExecutionSegmentId.get(row.id) ?? [],
       })
     ) as PlanningItemResponse[]),
   ].sort((left, right) => `${left.item_date}-${left.start_time}`.localeCompare(`${right.item_date}-${right.start_time}`));
@@ -106,9 +168,16 @@ export async function createPlannedPlanningItem(input: {
     }
   }
 
+  const { operational_header_values: operationalHeaderValues, ...corePayload } = input.payload;
   const item = await insertPlannedItem({
     created_by: input.userId,
-    ...input.payload,
+    ...corePayload,
+  });
+
+  await syncDynamicOperationalHeaderForPlanningItem({
+    planningItemId: item.id,
+    activityGroupId: item.activity_group_id,
+    values: operationalHeaderValues ?? [],
   });
 
   await writeAuditLog({
@@ -172,8 +241,6 @@ export async function createRealPlanningSegments(input: {
       start_time: segment.start_time,
       end_time: segment.end_time,
       shift: segment.shift,
-      level: segment.level,
-      front: segment.front,
       category: segment.category,
       item_type: segment.item_type,
       description: segment.description,
@@ -190,6 +257,14 @@ export async function createRealPlanningSegments(input: {
       error,
     };
   }
+
+  await Promise.all((data ?? []).map((segment) =>
+    syncDynamicOperationalHeaderForExecutionSegment({
+      executionSegmentId: segment.id,
+      activityGroupId: segment.activity_group_id,
+      values: input.payload.operational_header_values ?? [],
+    })
+  ));
 
   await writeAuditLog({
     actor: input.actor,
@@ -222,9 +297,16 @@ export async function updatePlannedPlanningItem(input: {
   actor: AuditActor;
   id: number;
   updatePayload: PlanningItemUpdateInput;
+  operationalHeaderValues?: PlanningItemPayload["operational_header_values"];
 }) {
   const beforeData = await findPlannedItemById(input.id);
   const item = await updatePlannedItemById(input.id, input.updatePayload);
+
+  await syncDynamicOperationalHeaderForPlanningItem({
+    planningItemId: item.id,
+    activityGroupId: item.activity_group_id,
+    values: input.operationalHeaderValues ?? [],
+  });
 
   await writeAuditLog({
     actor: input.actor,
@@ -244,6 +326,7 @@ export async function updateRealPlanningSegment(input: {
   actor: AuditActor;
   id: number;
   updatePayload: PlanningSegmentUpdateRow;
+  operationalHeaderValues?: PlanningItemPayload["operational_header_values"];
 }) {
   const beforeData = await findExecutionSegmentById(input.id);
   const { data, error } = await updateExecutionSegmentById(
@@ -261,6 +344,12 @@ export async function updateRealPlanningSegment(input: {
   if (!data) {
     throw new Error("No se pudo actualizar el segmento real.");
   }
+
+  await syncDynamicOperationalHeaderForExecutionSegment({
+    executionSegmentId: data.id,
+    activityGroupId: data.activity_group_id,
+    values: input.operationalHeaderValues ?? [],
+  });
 
   await writeAuditLog({
     actor: input.actor,

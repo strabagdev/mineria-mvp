@@ -63,7 +63,7 @@ Los programados se muestran en la carta Gantt en la capa "programado". Desde un 
 
 En programados tambien pueden completarse:
 
-- Campos configurables aplicables a planificacion.
+- Cabecera Operacional.
 - Asignaciones planificadas.
 
 ## Reales
@@ -120,23 +120,10 @@ Los campos select y multi select usan opciones administrables. Las opciones tien
 
 En la carta Gantt, las asignaciones se resumen con iconos y conteos. En el detalle se muestran los valores guardados.
 
-## Custom fields
+## Custom Fields Retirados
 
-Los custom fields son campos configurables adicionales para la operacion. Se administran desde el catalogo operacional en la seccion "Campos configurables".
-
-Permiten extender la informacion registrada sin cambiar el formulario base. Pueden tener:
-
-- Nombre.
-- Slug.
-- Icono.
-- Tipo de input.
-- Estado activo/inactivo.
-- Requerido/opcional.
-- Aplicacion segun fase.
-- Orden.
-- Opciones, cuando corresponde.
-
-En la operacion actual, los custom fields se completan en programados. Se muestran en detalle, tooltips y reportes cuando tienen valores.
+Los Custom Fields fueron retirados. La identidad operacional se administra con
+Cabecera Operacional y los recursos repetibles se administran con Asignaciones.
 
 ## Metadata
 
@@ -215,7 +202,7 @@ El reporte muestra:
 - Resumen de registros y horas.
 - Desgloses por nivel, turno, frente, categoria, vista y tipo.
 - Tabla de detalle.
-- Campos configurables cuando existen valores.
+- Columnas de Cabecera Operacional.
 - Asignaciones asociadas a cada fila visible.
 
 El detalle del reporte usa los mismos nombres funcionales de asignaciones:
@@ -233,7 +220,7 @@ La exportacion Excel genera una sola hoja llamada `Detalle operacional`.
 La hoja incluye:
 
 - Columnas base del registro.
-- Columnas dinamicas de custom fields.
+- Columnas dinamicas de Cabecera Operacional.
 - Columnas dinamicas de assignments.
 
 Las columnas de assignments se generan por tipo de asignacion y campo:

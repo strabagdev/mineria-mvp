@@ -22,8 +22,6 @@ describe("local offline storage keys", () => {
     });
     expect(OFFLINE_KEYS).toEqual({
       planningCatalog: "planning-catalog",
-      planningCustomFields: "planning-custom-fields",
-      planningCustomFieldValuesPrefix: "planning-custom-field-values",
       planningAssignmentTypes: "planning-assignment-types",
       planningAssignmentsPrefix: "planning-assignments",
       assignmentTargetsPrefix: "assignments",
@@ -31,8 +29,6 @@ describe("local offline storage keys", () => {
       planningMutationQueue: "planning-mutation-queue",
     });
     expect(OFFLINE_DATASETS.planningByDate).toBe("planning.byDate");
-    expect(OFFLINE_DATASETS.planningCustomFields).toBe("planning.customFields");
-    expect(OFFLINE_DATASETS.planningCustomFieldValues).toBe("planning.customFieldValues");
     expect(OFFLINE_DATASETS.planningAssignmentTypes).toBe("planning.assignmentTypes");
     expect(OFFLINE_DATASETS.planningAssignments).toBe("planning.assignments");
   });

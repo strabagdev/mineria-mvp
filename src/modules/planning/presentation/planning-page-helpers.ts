@@ -3,6 +3,11 @@ import type {
   PlanningShiftDto,
   PlanningTrackingTypeDto,
 } from "../contracts/planning-items";
+import type {
+  OperationalHeaderFieldDto,
+  OperationalHeaderResponseDto,
+} from "@/modules/operational-header/contracts/operational-header";
+import type { PlanningItem } from "./planning-page-models";
 
 export type GanttScale = {
   startMinutes: number;
@@ -30,13 +35,27 @@ export type OperationalView = {
   activeShift: ShiftKey;
 };
 
+export type GanttGroupingField = Pick<
+  OperationalHeaderFieldDto,
+  "id" | "slug" | "label" | "input_type" | "sort_order" | "options"
+>;
+
+export type GanttGroupingPathEntry = {
+  field_id: number;
+  slug: string;
+  label: string;
+  value: string;
+  option_id?: number | null;
+  option_sort_order?: number | null;
+  input_type: OperationalHeaderFieldDto["input_type"];
+  field_sort_order: number;
+};
+
 type PlanningTimelineItem = {
   item_date: string;
   start: string;
   end: string;
   shift: string;
-  level: string;
-  front: string;
   category: PlanningCategoryDto;
   tracking_type: PlanningTrackingTypeDto;
   item_type: string;
@@ -48,6 +67,8 @@ type PlanningRealEventGroup = {
   programado: Pick<PlanningTimelineItem, "start" | "end"> | null;
   realSegments: Array<Pick<PlanningTimelineItem, "end" | "shift">>;
 };
+
+const EMPTY_GANTT_GROUP_VALUE = "Sin valor";
 
 export const SHIFT_CONFIG: Record<
   ShiftKey,
@@ -88,6 +109,137 @@ function toTimeLabel(totalMinutes: number) {
   const hours = Math.floor(normalized / 60);
   const minutes = normalized % 60;
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function normalizeGroupingValue(value: string) {
+  return value.trim().toLocaleLowerCase("es-CL");
+}
+
+function findOperationalHeaderValue(
+  item: Pick<PlanningItem, "operational_header_values">,
+  field: GanttGroupingField
+) {
+  const values = item.operational_header_values;
+
+  if (!values) {
+    return null;
+  }
+
+  if (Array.isArray(values)) {
+    return values.find((value) => value.field_id === field.id) ?? null;
+  }
+
+  const record = values as Record<string, { value?: string; option_id?: number | null } | undefined>;
+  return record[field.slug] ?? record[String(field.id)] ?? null;
+}
+
+function findGroupingOption(field: GanttGroupingField, input: { value: string; optionId?: number | null }) {
+  if (input.optionId) {
+    const optionById = field.options.find((option) => option.id === input.optionId);
+    if (optionById) {
+      return optionById;
+    }
+  }
+
+  const normalizedValue = normalizeGroupingValue(input.value);
+
+  if (!normalizedValue) {
+    return null;
+  }
+
+  return field.options.find((option) =>
+    normalizeGroupingValue(option.value) === normalizedValue ||
+    normalizeGroupingValue(option.label) === normalizedValue
+  ) ?? null;
+}
+
+export function getGanttGroupingFields(config?: OperationalHeaderResponseDto | null): GanttGroupingField[] {
+  return (config?.fields ?? [])
+    .filter((field) => field.active && field.groupable && field.visible_in_gantt)
+    .sort((left, right) => left.sort_order - right.sort_order || left.label.localeCompare(right.label));
+}
+
+export function resolveGanttGroupingPath(
+  item: Pick<PlanningItem, "operational_header_values">,
+  fields: GanttGroupingField[]
+): GanttGroupingPathEntry[] {
+  return fields.map((field) => {
+    const headerValue = findOperationalHeaderValue(item, field);
+    const value = String(headerValue?.value ?? "").trim();
+    const option = field.input_type === "select"
+      ? findGroupingOption(field, { value, optionId: headerValue?.option_id })
+      : null;
+    const displayValue = value || EMPTY_GANTT_GROUP_VALUE;
+
+    return {
+      field_id: field.id,
+      slug: field.slug,
+      label: field.label,
+      value: option?.label || displayValue,
+      option_id: headerValue?.option_id ?? option?.id ?? null,
+      option_sort_order: option?.sort_order ?? null,
+      input_type: field.input_type,
+      field_sort_order: field.sort_order,
+    };
+  });
+}
+
+export function compareGanttGroupingPaths(
+  left: GanttGroupingPathEntry[],
+  right: GanttGroupingPathEntry[]
+) {
+  const maxLength = Math.max(left.length, right.length);
+
+  for (let index = 0; index < maxLength; index += 1) {
+    const leftEntry = left[index];
+    const rightEntry = right[index];
+
+    if (!leftEntry && !rightEntry) {
+      continue;
+    }
+
+    if (!leftEntry) {
+      return -1;
+    }
+
+    if (!rightEntry) {
+      return 1;
+    }
+
+    const leftIsEmpty = leftEntry.value === EMPTY_GANTT_GROUP_VALUE;
+    const rightIsEmpty = rightEntry.value === EMPTY_GANTT_GROUP_VALUE;
+
+    if (leftIsEmpty !== rightIsEmpty) {
+      return leftIsEmpty ? 1 : -1;
+    }
+
+    if (
+      leftEntry.input_type === "select" &&
+      rightEntry.input_type === "select" &&
+      leftEntry.option_sort_order !== null &&
+      leftEntry.option_sort_order !== undefined &&
+      rightEntry.option_sort_order !== null &&
+      rightEntry.option_sort_order !== undefined &&
+      leftEntry.option_sort_order !== rightEntry.option_sort_order
+    ) {
+      return leftEntry.option_sort_order - rightEntry.option_sort_order;
+    }
+
+    const valueDelta = normalizeGroupingValue(leftEntry.value).localeCompare(
+      normalizeGroupingValue(rightEntry.value),
+      "es-CL"
+    );
+
+    if (valueDelta !== 0) {
+      return valueDelta;
+    }
+  }
+
+  return 0;
+}
+
+export function formatGanttGroupingTitle(path: GanttGroupingPathEntry[]) {
+  return path.map((entry) => entry.value || EMPTY_GANTT_GROUP_VALUE).join(" - ") || EMPTY_GANTT_GROUP_VALUE;
 }
 
 export function formatLocalDateIso(date = new Date()) {
@@ -175,11 +327,7 @@ export function toTrackingTypeLabel(trackingType: PlanningTrackingTypeDto) {
   return trackingType === "programado" ? "Programado" : "Real";
 }
 
-export function buildEventTitle(item: {
-  level?: string | null;
-  front?: string | null;
-  description?: string | null;
-}) {
+export function buildEventTitle(item: { description?: string | null }) {
   return String(item.description ?? "").trim();
 }
 
@@ -191,14 +339,8 @@ export function buildGanttBarLabel(item: PlanningTimelineItem, layer: PlanningTr
   return buildEventTitle(item);
 }
 
-export function buildEventSubtitle(item: {
-  level?: string | null;
-  front?: string | null;
-}) {
-  return [item.level, item.front]
-    .map((part) => String(part ?? "").trim())
-    .filter(Boolean)
-    .join(" · ");
+export function buildEventSubtitle() {
+  return "";
 }
 
 export function buildPlanningItemAriaLabel(item: PlanningTimelineItem, duration: string) {
@@ -206,7 +348,6 @@ export function buildPlanningItemAriaLabel(item: PlanningTimelineItem, duration:
     buildEventTitle(item),
     `Categoria ${toDisplayCategory(item.category)}`,
     toTrackingTypeLabel(item.tracking_type),
-    `Frente ${item.front}, nivel ${item.level}`,
     `Turno ${item.shift}, ${formatDateLabel(item.item_date)}`,
     `Horario ${item.start} a ${item.end}, duracion ${duration}`,
   ].join(". ");

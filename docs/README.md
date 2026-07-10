@@ -56,9 +56,22 @@ Para preparar Supabase, ejecuta los SQL en este orden:
 \i supabase/sql/001_schema.sql
 \i supabase/sql/002_seed_catalog.sql
 \i supabase/sql/003_security_realtime.sql
+\i supabase/sql/004_planning_custom_fields.sql
+\i supabase/sql/005_planning_custom_field_icons.sql
+\i supabase/sql/006_assignment_catalog.sql
+\i supabase/sql/007_planning_assignments.sql
+\i supabase/sql/008_assignment_type_icons.sql
+\i supabase/sql/009_operator_role.sql
+\i supabase/sql/010_target_aware_assignments.sql
+\i supabase/sql/011_operational_header.sql
+\i supabase/sql/012_operational_header_hardening.sql
+\i supabase/sql/013_drop_planning_custom_fields.sql
+\i supabase/sql/014_drop_level_front_legacy.sql
 ```
 
-Esto crea el esquema actual, carga catalogos iniciales, habilita RLS y activa realtime para planificacion.
+Esto crea el esquema actual, carga catalogos iniciales, habilita RLS/realtime,
+agrega Asignaciones y Cabecera Operacional, y retira las estructuras legacy
+eliminadas al cierre de H5.
 
 ## Desarrollo
 

@@ -154,36 +154,11 @@ Soporte actual:
 - Si falta el campo destino, falta la metadata o no hay opcion compatible, no se muestra error y no se escribe nada.
 - No hay soporte de derivacion hacia multi select en esta fase.
 
-## Custom fields
+## Custom Fields Retirados
 
-Los custom fields permiten agregar campos operacionales sin cambiar el esquema base de programados y reales.
-
-Un custom field tiene:
-
-- Nombre.
-- Icono.
-- Tipo.
-- Aplicacion: Programado, Real o Ambos.
-- Requerido.
-- Orden.
-- Estado activo/inactivo.
-
-Tipos soportados:
-
-- Select.
-- Multi select.
-- Number.
-- Text.
-- Date.
-- Boolean.
-
-Los campos select y multi select tienen opciones con label visible, value interno, orden y estado activo/inactivo.
-
-Uso operacional:
-
-- Los custom fields activos aparecen en formularios operacionales segun su configuracion de aplicacion.
-- Los valores historicos de campos u opciones inactivas pueden seguir mostrandose cuando ya existen datos guardados.
-- Los reportes cargan valores de custom fields para filas visibles.
+Los Custom Fields fueron reemplazados por Cabecera Operacional y Asignaciones.
+No se administran desde `/catalog`, no aparecen en formularios y no participan
+en reportes/exportaciones.
 
 ## Reportes y Excel
 
@@ -194,7 +169,7 @@ Los reportes combinan:
 - Programados.
 - Reales.
 - Interferencias.
-- Custom fields.
+- Cabecera Operacional.
 - Asignaciones.
 
 Las asignaciones son target-aware: una fila programada muestra sus propias asignaciones y una fila real o interferencia muestra las asignaciones de su propio segmento. No se heredan asignaciones entre programado y real.
@@ -202,7 +177,7 @@ Las asignaciones son target-aware: una fila programada muestra sus propias asign
 Exportacion Excel:
 
 - Se genera una sola hoja llamada `Detalle operacional`.
-- Los custom fields se exportan como columnas dinamicas.
+- Cabecera Operacional se exporta como columnas dinamicas.
 - Las asignaciones se exportan como columnas dinamicas por tipo de asignacion y campo.
 
 Formato de columnas de asignaciones:
@@ -254,6 +229,5 @@ Advertencias:
 
 - No hay reinicio operacional masivo implementado como funcionalidad administrativa.
 - No hay catalogo maestro de frentes administrable en el codigo actual; solo niveles aparecen como lista administrable.
-- La pantalla de custom fields muestra el encabezado `Programado`, aunque el modelo permite configurar aplicacion a Programado, Real o Ambos.
 - Las derivaciones de assignments son client-side y no soportan destino multi select.
 - El guardado offline de asignaciones reales/interferencias esta bloqueado; requiere conexion.

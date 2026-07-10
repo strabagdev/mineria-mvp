@@ -25,7 +25,8 @@ Modulos/areas principales:
 - Auth/access: login, callback, perfil aprobado, roles `admin`/`viewer`.
 - Planning: planificacion, Gantt, items programados y eventos reales.
 - Planning catalog: categorias, tipos, detalles y niveles.
-- Planning custom fields: campos configurables laterales al payload core.
+- Operational header: identidad operacional configurable para filtros, Gantt,
+  reportes y exportacion.
 - Planning assignments: catalogo online-only e instancias operacionales
   offline-capable para grupos repetibles configurables.
 - Reporting/dashboard: reportes operacionales y snapshots offline de lectura.
@@ -81,13 +82,9 @@ No romper payload core de planning:
 
 - `planning_items` y `activity_execution_segments` siguen siendo el core.
 - Mantener contratos existentes de `/api/planning-items`.
-- No meter custom fields dentro del payload core sin migracion formal.
-
-Custom fields son laterales:
-
-- Viven en `src/modules/planning-custom-fields`.
-- Usan APIs/tablas separadas para definiciones, opciones y valores.
-- No deben tocar Gantt, reporting, offline/sync ni realtime salvo tarea explicita.
+- Custom Fields fueron retirados de backend/API/UI operacional. No reintroducirlos;
+  usar Cabecera Operacional para identidad/filtros/reporting y Asignaciones para
+  recursos repetibles.
 
 Assignments son grupos repetibles laterales:
 
@@ -236,7 +233,6 @@ Rutas clave:
 - `src/lib/observability/**`: eventos operacionales locales.
 - `src/modules/auth/application/**`: facade auth cliente.
 - `src/modules/planning/**`: contracts, clients, sync, realtime, presentation.
-- `src/modules/planning-custom-fields/**`: custom fields laterales.
 - `src/modules/planning-assignments/**`: catalogo base de asignaciones repetibles.
 - `src/modules/audit/**`: contracts/client/presentation de audit logs.
 - `src/modules/reporting/**`: contracts/helpers/offline snapshots reporting.
@@ -323,7 +319,7 @@ Para errores:
 - Integrations strategy con contratos provider-neutral, sin providers reales.
 - Jobs/contracts base, sin workers separados.
 - Operational states modelados en `src/lib/operationalState.ts`.
-- Catalog page con administracion de catalogo planning, custom fields y
+- Catalog page con administracion de catalogo planning, Cabecera Operacional y
   definiciones de assignments.
 
 ## 8. Que todavia NO existe

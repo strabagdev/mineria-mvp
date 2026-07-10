@@ -20,8 +20,10 @@ import {
   formatHours,
   formatReportDate,
   getInitialReportFilters,
+  getOperationalHeaderBreakdownGroups,
   toDisplayCategory,
   toTrackingLabel,
+  type ReportBreakdown,
   type ReportFilters,
   type ReportResponse,
   type ReportRow,
@@ -31,11 +33,17 @@ import {
   buildReportXlsxWorkbook,
   getReportXlsxFilename,
 } from "@/modules/reporting/presentation/reporting-xlsx-export";
+import { fetchOperationalHeaderConfig } from "@/modules/operational-header/application/operational-header.client";
+import type {
+  OperationalHeaderFieldDto,
+  OperationalHeaderResponseDto,
+} from "@/modules/operational-header/contracts/operational-header";
 
 type CatalogResponse = ReportsCatalog;
-type ReportBreakdownItem = ReportResponse["breakdowns"][keyof ReportResponse["breakdowns"]][number];
+type ReportBreakdownItem = ReportBreakdown;
 type ReportAssignmentRow = NonNullable<ReportResponse["assignment_rows"]>[number];
-type ReportCustomFieldColumn = NonNullable<ReportResponse["custom_field_columns"]>[number];
+type ReportOperationalHeaderColumn = NonNullable<ReportResponse["operational_header_columns"]>[number];
+type ReportFilterKey = Exclude<keyof ReportFilters, "operational_header_filters">;
 type ReportAssignmentTypeSummary = {
   assignment_type_id: number;
   assignment_type_label: string;
@@ -50,9 +58,8 @@ type ReportDetailItem = {
   shift: string;
   start: string;
   end: string;
-  level: string;
-  front: string;
   notes?: string | null;
+  operational_header_values?: NonNullable<ReportRow["operational_header_values"]>[string][];
 };
 type ReportAssignmentTargetKind = ReportAssignmentRow["target_kind"];
 
@@ -71,34 +78,11 @@ function buildUniqueCsvHeaders(headers: string[]) {
   });
 }
 
-function getCustomFieldCsvHeaders(columns: ReportCustomFieldColumn[]) {
-  const coreHeaders = new Set([
-    "ID",
-    "Fuente",
-    "Grupo actividad",
-    "Fecha",
-    "Vista",
-    "Turno",
-    "Nivel",
-    "Frente",
-    "Categoria",
-    "Tipo",
-    "Detalle",
-    "Hora inicio",
-    "Hora termino",
-    "Horas",
-    "Notas",
-  ]);
-  const seenCustomLabels = new Map<string, number>();
-
-  return columns.map((column) => {
-    const count = seenCustomLabels.get(column.label) ?? 0;
-    seenCustomLabels.set(column.label, count + 1);
-    return coreHeaders.has(column.label) || count > 0 ? `${column.label} (${column.slug})` : column.label;
-  });
-}
-
-function downloadFilteredRows(rows: ReportRow[], filters: ReportFilters, customFieldColumns: ReportCustomFieldColumn[]) {
+function downloadFilteredRows(
+  rows: ReportRow[],
+  filters: ReportFilters,
+  operationalHeaderColumns: ReportOperationalHeaderColumn[]
+) {
   const coreHeaders = [
     "ID",
     "Fuente",
@@ -106,8 +90,7 @@ function downloadFilteredRows(rows: ReportRow[], filters: ReportFilters, customF
     "Fecha",
     "Vista",
     "Turno",
-    "Nivel",
-    "Frente",
+    ...operationalHeaderColumns.map((column) => column.label),
     "Categoria",
     "Tipo",
     "Detalle",
@@ -116,10 +99,7 @@ function downloadFilteredRows(rows: ReportRow[], filters: ReportFilters, customF
     "Horas",
     "Notas",
   ];
-  const headers = buildUniqueCsvHeaders([
-    ...coreHeaders,
-    ...getCustomFieldCsvHeaders(customFieldColumns),
-  ]);
+  const headers = buildUniqueCsvHeaders(coreHeaders);
   const csvRows = [
     headers.map(escapeCsvValue).join(";"),
     ...rows.map((row) =>
@@ -130,8 +110,7 @@ function downloadFilteredRows(rows: ReportRow[], filters: ReportFilters, customF
         row.item_date,
         toTrackingLabel(row.tracking_type),
         row.shift,
-        row.level,
-        row.front,
+        ...operationalHeaderColumns.map((column) => row.operational_header_values?.[column.slug]?.value ?? ""),
         toDisplayCategory(row.category),
         row.item_type,
         row.description,
@@ -139,7 +118,6 @@ function downloadFilteredRows(rows: ReportRow[], filters: ReportFilters, customF
         row.end_time,
         formatHours(row.duration_minutes / 60),
         row.notes ?? "",
-        ...customFieldColumns.map((column) => row.custom_fields?.[column.slug]?.value ?? ""),
       ]
         .map(escapeCsvValue)
         .join(";")
@@ -221,9 +199,8 @@ function mapReportRowToPlanningDetailItem(row: ReportRow): ReportDetailItem {
     shift: row.shift,
     start: row.start_time,
     end: row.end_time,
-    level: row.level,
-    front: row.front,
     notes: row.notes,
+    operational_header_values: Object.values(row.operational_header_values ?? {}),
   };
 }
 
@@ -261,32 +238,6 @@ function getReportAssignmentSectionTitle(row: Pick<ReportRow, "tracking_type" | 
   }
 
   return row.category === "interferencia" ? "Recursos involucrados" : "Asignaciones reales";
-}
-
-function ReportCustomFieldsSummary({ row }: { row: ReportRow }) {
-  const values = Object.values(row.custom_fields ?? {})
-    .filter((value) => value.value)
-    .sort((left, right) => left.label.localeCompare(right.label));
-
-  if (!values.length) {
-    return null;
-  }
-
-  return (
-    <section className="custom-fields-detail-section">
-      <p className="eyebrow">Datos adicionales</p>
-      <div className="custom-fields-detail-grid">
-        {values.map((field) => (
-          <article key={field.field_id} className="custom-field-detail-card">
-            <div className="detail-highlight-label">
-              <p className="detail-label">{field.label}</p>
-            </div>
-            <p className="detail-highlight-value">{field.value}</p>
-          </article>
-        ))}
-      </div>
-    </section>
-  );
 }
 
 function ReportAssignmentsSummary({ assignments, title }: { assignments: ReportAssignmentRow[]; title: string }) {
@@ -367,11 +318,26 @@ function ReportAssignmentSummaryCell({
   );
 }
 
+function getOperationalHeaderFilterFields(config: OperationalHeaderResponseDto | null) {
+  return [...(config?.fields ?? [])]
+    .filter((field) => field.active && field.filterable)
+    .sort((left, right) => left.sort_order - right.sort_order || left.label.localeCompare(right.label));
+}
+
+function getOperationalHeaderOptionValue(option: OperationalHeaderFieldDto["options"][number]) {
+  return option.label || option.value;
+}
+
 export default function ReportsPage() {
   const { session } = useAuth();
-  const [filters, setFilters] = useState<ReportFilters>(() => getInitialReportFilters());
+  const [filters, setFilters] = useState<ReportFilters>(() =>
+    getInitialReportFilters(
+      typeof window === "undefined" ? undefined : new URLSearchParams(window.location.search)
+    )
+  );
   const [report, setReport] = useState<ReportResponse | null>(null);
   const [catalog, setCatalog] = useState<CatalogResponse>({ categories: [], levels: [] });
+  const [operationalHeaderConfig, setOperationalHeaderConfig] = useState<OperationalHeaderResponseDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [offlineUpdatedAt, setOfflineUpdatedAt] = useState<string | null>(null);
@@ -407,10 +373,26 @@ export default function ReportsPage() {
 
   const reportRows = report?.rows;
   const visibleRows = useMemo(() => reportRows ?? [], [reportRows]);
-  const customFieldColumns = report?.custom_field_columns ?? [];
+  const reportOperationalHeaderColumns = report?.operational_header_columns;
+  const operationalHeaderFilterFields = useMemo(
+    () => getOperationalHeaderFilterFields(operationalHeaderConfig),
+    [operationalHeaderConfig]
+  );
+  const operationalHeaderColumns = useMemo(
+    () => reportOperationalHeaderColumns ?? [],
+    [reportOperationalHeaderColumns]
+  );
   const reportAssignmentRows = report?.assignment_rows;
   const assignmentRows = useMemo(() => reportAssignmentRows ?? [], [reportAssignmentRows]);
   const breakdowns = report?.breakdowns;
+  const operationalHeaderBreakdownGroups = useMemo(
+    () => getOperationalHeaderBreakdownGroups(
+      operationalHeaderConfig,
+      operationalHeaderColumns,
+      breakdowns?.by_operational_header
+    ),
+    [breakdowns?.by_operational_header, operationalHeaderColumns, operationalHeaderConfig]
+  );
   const assignmentSummariesByTarget = useMemo(() => {
     const rowsByTarget = new Map<string, ReportAssignmentRow[]>();
 
@@ -442,6 +424,32 @@ export default function ReportsPage() {
 
     return rowsByTarget;
   }, [assignmentRows]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadOperationalHeaderConfig() {
+      if (!session?.access_token) {
+        return;
+      }
+
+      const config = await fetchOperationalHeaderConfig(session.access_token);
+
+      if (active) {
+        setOperationalHeaderConfig(config);
+      }
+    }
+
+    void loadOperationalHeaderConfig().catch(() => {
+      if (active) {
+        setOperationalHeaderConfig({ fields: [], dependencies: [] });
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [session?.access_token]);
 
   useEffect(() => {
     let active = true;
@@ -479,7 +487,7 @@ export default function ReportsPage() {
       if (active) {
         const nextCatalog = {
           categories: Array.isArray(json.categories) ? json.categories : [],
-          levels: Array.isArray(json.levels) ? json.levels : [],
+          levels: [],
         };
         setCatalog(nextCatalog);
         setOfflineUpdatedAt(null);
@@ -613,8 +621,18 @@ export default function ReportsPage() {
     };
   }, [filters, refreshNonce, session?.access_token]);
 
-  function updateFilter(key: keyof ReportFilters, value: string) {
+  function updateFilter(key: ReportFilterKey, value: string) {
     setFilters((current) => ({ ...current, [key]: value }));
+  }
+
+  function updateOperationalHeaderFilter(field: OperationalHeaderFieldDto, value: string) {
+    setFilters((current) => ({
+      ...current,
+      operational_header_filters: {
+        ...current.operational_header_filters,
+        [field.slug]: value,
+      },
+    }));
   }
 
   function resetFilters() {
@@ -700,31 +718,35 @@ export default function ReportsPage() {
             </select>
           </label>
 
-          <label className="field">
-            Nivel
-            <select
-              className="field-input"
-              value={filters.level}
-              onChange={(event) => updateFilter("level", event.target.value)}
-            >
-              <option value="">Todos</option>
-              {catalog.levels.map((level) => (
-                <option key={level.id} value={level.label}>
-                  {level.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="field">
-            Frente
-            <input
-              className="field-input"
-              value={filters.front}
-              onChange={(event) => updateFilter("front", event.target.value)}
-              placeholder="Buscar frente"
-            />
-          </label>
+          {operationalHeaderFilterFields.map((field) => (
+            <label key={field.id} className="field">
+              {field.label}
+              {field.input_type === "select" ? (
+                <select
+                  className="field-input"
+                  value={filters.operational_header_filters[field.slug] ?? ""}
+                  onChange={(event) => updateOperationalHeaderFilter(field, event.target.value)}
+                >
+                  <option value="">Todos</option>
+                  {field.options
+                    .filter((option) => option.active)
+                    .sort((left, right) => left.sort_order - right.sort_order || left.label.localeCompare(right.label))
+                    .map((option) => (
+                      <option key={option.id} value={getOperationalHeaderOptionValue(option)}>
+                        {option.label}
+                      </option>
+                    ))}
+                </select>
+              ) : (
+                <input
+                  className="field-input"
+                  value={filters.operational_header_filters[field.slug] ?? ""}
+                  onChange={(event) => updateOperationalHeaderFilter(field, event.target.value)}
+                  placeholder={`Buscar ${field.label.toLowerCase()}`}
+                />
+              )}
+            </label>
+          ))}
 
           <label className="field">
             Categoria
@@ -779,9 +801,11 @@ export default function ReportsPage() {
 
       <section className="reports-breakdown-grid">
         <BreakdownList title="Por turno" rows={breakdowns?.by_shift ?? []} />
-        <BreakdownList title="Por nivel" rows={breakdowns?.by_level ?? []} />
-        <BreakdownList title="Por frente" rows={breakdowns?.by_front ?? []} />
+        {operationalHeaderBreakdownGroups.map((group) => (
+          <BreakdownList key={group.slug} title={group.title} rows={group.rows} />
+        ))}
         <BreakdownList title="Por categoría" rows={breakdowns?.by_category ?? []} />
+        <BreakdownList title="Por vista" rows={breakdowns?.by_tracking_type ?? []} />
         <BreakdownList title="Por tipo" rows={breakdowns?.by_item_type ?? []} />
       </section>
 
@@ -797,7 +821,7 @@ export default function ReportsPage() {
                 type="button"
                 className="button"
                 disabled={loading || !visibleRows.length}
-                onClick={() => downloadFilteredRows(visibleRows, filters, customFieldColumns)}
+                onClick={() => downloadFilteredRows(visibleRows, filters, operationalHeaderColumns)}
               >
                 <Download aria-hidden className="button-icon" />
                 Exportar CSV
@@ -823,15 +847,13 @@ export default function ReportsPage() {
                   <th>Horas</th>
                   <th>Vista</th>
                   <th>Turno</th>
-                  <th>Nivel</th>
-                  <th>Frente</th>
+                  {operationalHeaderColumns.map((column) => (
+                    <th key={column.id}>{column.label}</th>
+                  ))}
                   <th>Categoria</th>
                   <th>Tipo</th>
                   <th>Detalle</th>
                   <th>Notas</th>
-                  {customFieldColumns.map((column) => (
-                    <th key={column.id}>{column.label}</th>
-                  ))}
                   <th>Asignaciones</th>
                   <th>Acción</th>
                 </tr>
@@ -853,15 +875,13 @@ export default function ReportsPage() {
                       <td>{formatHours(row.duration_minutes / 60)}</td>
                       <td>{toTrackingLabel(row.tracking_type)}</td>
                       <td>{row.shift}</td>
-                      <td>{row.level}</td>
-                      <td>{row.front}</td>
+                      {operationalHeaderColumns.map((column) => (
+                        <td key={column.id}>{row.operational_header_values?.[column.slug]?.value ?? ""}</td>
+                      ))}
                       <td>{toDisplayCategory(row.category)}</td>
                       <td>{row.item_type}</td>
                       <td>{row.description}</td>
                       <td>{row.notes ?? ""}</td>
-                      {customFieldColumns.map((column) => (
-                        <td key={column.id}>{row.custom_fields?.[column.slug]?.value ?? ""}</td>
-                      ))}
                       <td>
                         <ReportAssignmentSummaryCell
                           summaries={assignmentSummariesByTarget.get(assignmentTargetKey) ?? []}
@@ -903,7 +923,7 @@ export default function ReportsPage() {
           formatDuration={formatReportDetailDuration}
           toDisplayCategory={toDisplayCategory}
           toTrackingTypeLabel={toTrackingLabel}
-          customFieldsSlot={<ReportCustomFieldsSummary row={selectedReportRow} />}
+          operationalHeaderConfig={operationalHeaderConfig}
           assignmentsSlot={(() => {
             const assignmentTarget = getReportRowAssignmentTarget(selectedReportRow);
             const assignmentTargetKey = getReportAssignmentTargetKey(
