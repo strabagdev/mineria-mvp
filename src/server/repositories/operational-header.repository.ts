@@ -15,7 +15,7 @@ export type OperationalHeaderOptionDependencyRow = OperationalHeaderOptionDepend
 export type OperationalHeaderValueRow = OperationalHeaderValueDto;
 
 const fieldSelect =
-  "id, slug, label, input_type, required, active, sort_order, groupable, filterable, visible_in_gantt, exportable";
+  "id, slug, label, input_type, required, active, sort_order, grouping_order, groupable, filterable, visible_in_gantt, exportable";
 const optionSelect = "id, field_id, value, label, active, sort_order, metadata";
 const dependencySelect = "id, field_id, option_id, depends_on_field_id, depends_on_option_id";
 const valueSelect =
@@ -68,6 +68,7 @@ export async function createOperationalHeaderField(input: {
   required: boolean;
   active: boolean;
   sort_order: number;
+  grouping_order: number | null;
   groupable: boolean;
   filterable: boolean;
   visible_in_gantt: boolean;
@@ -96,6 +97,7 @@ export async function updateOperationalHeaderField(
     required: boolean;
     active: boolean;
     sort_order: number;
+    grouping_order: number | null;
     groupable: boolean;
     filterable: boolean;
     visible_in_gantt: boolean;

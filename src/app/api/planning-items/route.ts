@@ -12,6 +12,9 @@ import {
   type RealSegmentRangeInputDto,
 } from "@/modules/planning/contracts/planning-items";
 import {
+  validatePlannedTimeRange,
+} from "../../../modules/planning/application/planning-time-ranges";
+import {
   findPlanningCatalogDetailByTypeAndLabel,
   findPlanningCatalogTypeByCategoryAndLabel,
 } from "@/server/repositories/planning-catalog.repository";
@@ -24,7 +27,7 @@ import {
   deletePlanningItem,
   listPlanningItems,
   updatePlannedPlanningItem,
-  updateRealPlanningSegment,
+  updateRealPlanningSegments,
 } from "@/server/services/planning-items.service";
 
 const REAL_SEGMENT_OVERLAP_MESSAGE =
@@ -41,23 +44,20 @@ function isDatabaseOverlapError(error: unknown) {
   return /activity_execution_segments_no_overlap|exclusion constraint|conflicting key value/i.test(message);
 }
 
+function isRealReconciliationValidationError(error: unknown) {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "object" && error && "message" in error
+        ? String((error as { message?: unknown }).message ?? "")
+        : "";
+
+  return /No se puede eliminar un tramo que tiene asignaciones|No se encontro el segmento real indicado|Los eventos reales de una misma programacion no pueden solaparse|Ese horario se solapa con otro evento real/i.test(message);
+}
+
 function toMinutes(time: string) {
   const [hours, minutes] = time.slice(0, 5).split(":").map(Number);
   return hours * 60 + minutes;
-}
-
-function isTimeWithinShift(time: string, shift: string) {
-  const minutes = toMinutes(time);
-
-  if (shift === "Dia") {
-    return minutes >= toMinutes("08:00") && minutes <= toMinutes("20:00");
-  }
-
-  if (shift === "Noche") {
-    return minutes >= toMinutes("20:00") || minutes <= toMinutes("08:00");
-  }
-
-  return false;
 }
 
 function toIsoDate(date: Date) {
@@ -226,11 +226,12 @@ function toPlanningItemUpdatePayload(payload: NormalizedPlanningItemPayloadDto) 
 async function validateRealSegmentsDoNotOverlap(
   activityGroupId: string,
   segments: RealSegmentRangeInputDto[],
-  excludedSegmentId?: number
+  excludedSegmentIds: number[] = []
 ) {
   const existingSegments = await listSegmentsForOverlap(activityGroupId);
+  const excludedIds = new Set(excludedSegmentIds);
   const comparableExistingSegments = (existingSegments ?? []).filter(
-    (segment) => Number(segment.id) !== excludedSegmentId
+    (segment) => !excludedIds.has(Number(segment.id))
   );
 
   for (let index = 0; index < segments.length; index += 1) {
@@ -327,15 +328,6 @@ async function validateAndNormalizePlanningItem(
 
   const isReal = payload.tracking_type === "real";
 
-  if (!isReal && (!isTimeWithinShift(payload.start_time, payload.shift) || !isTimeWithinShift(payload.end_time, payload.shift))) {
-    return {
-      errorResponse: NextResponse.json(
-        { error: "El horario debe estar dentro de la ventana del turno seleccionado." },
-        { status: 400 }
-      ),
-    };
-  }
-
   if (payload.start_time === payload.end_time) {
     return {
       errorResponse: NextResponse.json(
@@ -345,13 +337,21 @@ async function validateAndNormalizePlanningItem(
     };
   }
 
-  if (!isReal && payload.shift === "Dia" && payload.end_time <= payload.start_time) {
-    return {
-      errorResponse: NextResponse.json(
-        { error: "En turno Dia la hora de termino debe ser mayor a la hora de inicio." },
-        { status: 400 }
-      ),
-    };
+  if (!isReal) {
+    const plannedTimeRangeError = validatePlannedTimeRange({
+      startTime: payload.start_time,
+      endTime: payload.end_time,
+      shift: payload.shift,
+    });
+
+    if (plannedTimeRangeError) {
+      return {
+        errorResponse: NextResponse.json(
+          { error: plannedTimeRangeError },
+          { status: 400 }
+        ),
+      };
+    }
   }
 
   if (isReal && !buildRealSegments(payload)) {
@@ -488,28 +488,12 @@ export async function PATCH(req: Request) {
     }
 
     const realSegments = buildRealSegments(payload) ?? [];
-
-    if (realSegments.length !== 1) {
-      return NextResponse.json(
-        { error: "Para cruzar de turno, crea un nuevo evento real en el espacio correspondiente." },
-        { status: 400 }
-      );
-    }
-
-    const overlapError = await validateRealSegmentsDoNotOverlap(
-      payload.activity_group_id,
-      realSegments,
-      id
-    );
-
-    if (overlapError) {
-      return overlapError;
-    }
-
-    const realResult = await updateRealPlanningSegment({
+    const realResult = await updateRealPlanningSegments({
       actor: { user, profile },
       id,
+      userId: user.id,
       operationalHeaderValues: payload.operational_header_values,
+      segments: realSegments,
       updatePayload: {
         planning_item_id: plannedItem?.id,
         activity_group_id: payload.activity_group_id,
@@ -529,10 +513,17 @@ export async function PATCH(req: Request) {
         return NextResponse.json({ error: REAL_SEGMENT_OVERLAP_MESSAGE }, { status: 409 });
       }
 
+      if (isRealReconciliationValidationError(realResult.error)) {
+        return NextResponse.json(
+          { error: getErrorMessage(realResult.error) },
+          { status: 400 }
+        );
+      }
+
       throw realResult.error;
     }
 
-    return NextResponse.json({ item: realResult.item });
+    return NextResponse.json({ item: realResult.item, items: realResult.items });
   } catch (error: unknown) {
     return NextResponse.json({ error: getErrorMessage(error) }, { status: getErrorStatus(error) });
   }

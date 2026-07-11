@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   insertExecutionSegments: vi.fn(),
   findExecutionSegmentById: vi.fn(),
   updateExecutionSegmentById: vi.fn(),
+  reconcileRealExecutionSegments: vi.fn(),
   hasExecutionSegmentForPlanningItem: vi.fn(),
   deletePlannedItemById: vi.fn(),
   deleteExecutionSegmentById: vi.fn(),
@@ -49,6 +50,7 @@ vi.mock("@/server/repositories/planning-segments.repository", () => ({
   insertExecutionSegments: mocks.insertExecutionSegments,
   findExecutionSegmentById: mocks.findExecutionSegmentById,
   updateExecutionSegmentById: mocks.updateExecutionSegmentById,
+  reconcileRealExecutionSegments: mocks.reconcileRealExecutionSegments,
   hasExecutionSegmentForPlanningItem: mocks.hasExecutionSegmentForPlanningItem,
   deleteExecutionSegmentById: mocks.deleteExecutionSegmentById,
 }));
@@ -426,5 +428,119 @@ describe("planning items operational header sync", () => {
       activityGroupId: segmentRow.activity_group_id,
       values: [{ field_id: 30, value: "Geologia" }],
     });
+  });
+
+  it("reconciles a real edit through a single transactional repository call", async () => {
+    vi.resetAllMocks();
+    const firstSegment = {
+      ...segmentRow,
+      id: 456,
+      start_time: "18:00",
+      end_time: "20:00",
+      shift: "Dia",
+      client_mutation_id: "reconciled-real-456",
+      segment_order: 1,
+    };
+    const secondSegment = {
+      ...segmentRow,
+      id: 457,
+      start_time: "20:00",
+      end_time: "22:00",
+      shift: "Noche",
+      client_mutation_id: "reconciled-real-456",
+      segment_order: 10,
+    };
+    mocks.reconcileRealExecutionSegments.mockResolvedValue([firstSegment, secondSegment]);
+    const { updateRealPlanningSegments } = await import("./planning-items.service");
+
+    const result = await updateRealPlanningSegments({
+      actor,
+      id: segmentRow.id,
+      userId: "user-1",
+      updatePayload: {
+        planning_item_id: plannedRow.id,
+        activity_group_id: "group-1",
+        item_date: "2026-06-01",
+        start_time: "18:00",
+        end_time: "22:00",
+        shift: "Dia",
+        category: "actividad",
+        item_type: "unitaria",
+        description: "Perforacion real",
+        notes: null,
+      },
+      segments: [
+        { ...payload, tracking_type: "real", start_time: "18:00", end_time: "20:00", shift: "Dia" },
+        { ...payload, tracking_type: "real", start_time: "20:00", end_time: "22:00", shift: "Noche" },
+      ],
+      operationalHeaderValues: [{ field_id: 30, value: "Mina" }],
+    });
+
+    expect(mocks.reconcileRealExecutionSegments).toHaveBeenCalledWith({
+      segmentId: segmentRow.id,
+      planningItemId: plannedRow.id,
+      activityGroupId: "group-1",
+      segments: [
+        expect.objectContaining({ start_time: "18:00", end_time: "20:00", shift: "Dia" }),
+        expect.objectContaining({ start_time: "20:00", end_time: "22:00", shift: "Noche" }),
+      ],
+      operationalHeaderValues: [{ field_id: 30, value: "Mina" }],
+      actorUserId: "user-1",
+      actorEmail: "user@example.com",
+      createdBy: "user-1",
+    });
+    expect(mocks.findExecutionSegmentById).not.toHaveBeenCalled();
+    expect(mocks.updateExecutionSegmentById).not.toHaveBeenCalled();
+    expect(mocks.insertExecutionSegments).not.toHaveBeenCalled();
+    expect(mocks.deleteExecutionSegmentById).not.toHaveBeenCalled();
+    expect(mocks.syncDynamicOperationalHeaderForExecutionSegment).not.toHaveBeenCalled();
+    expect(mocks.writeAuditLog).not.toHaveBeenCalledWith(expect.objectContaining({
+      action: "activity_execution_segment.updated",
+    }));
+    expect(result).toMatchObject({
+      status: "updated",
+      item: { id: 456, tracking_type: "real" },
+      items: [
+        { id: 456, tracking_type: "real" },
+        { id: 457, tracking_type: "real" },
+      ],
+    });
+  });
+
+  it("returns transactional update-error when the RPC reconciliation fails", async () => {
+    vi.resetAllMocks();
+    const rpcError = new Error("No se puede eliminar un tramo que tiene asignaciones. Reasigna o elimina esas asignaciones antes de reducir el evento.");
+    mocks.reconcileRealExecutionSegments.mockRejectedValue(rpcError);
+    const { updateRealPlanningSegments } = await import("./planning-items.service");
+
+    const result = await updateRealPlanningSegments({
+      actor,
+      id: segmentRow.id,
+      userId: "user-1",
+      updatePayload: {
+        planning_item_id: plannedRow.id,
+        activity_group_id: "group-1",
+        item_date: "2026-06-01",
+        start_time: "18:00",
+        end_time: "22:00",
+        shift: "Dia",
+        category: "actividad",
+        item_type: "unitaria",
+        description: "Perforacion real",
+        notes: null,
+      },
+      segments: [
+        { ...payload, tracking_type: "real", start_time: "18:00", end_time: "20:00", shift: "Dia" },
+        { ...payload, tracking_type: "real", start_time: "20:00", end_time: "22:00", shift: "Noche" },
+      ],
+    });
+
+    expect(result).toEqual({ status: "update-error", error: rpcError });
+    expect(mocks.updateExecutionSegmentById).not.toHaveBeenCalled();
+    expect(mocks.insertExecutionSegments).not.toHaveBeenCalled();
+    expect(mocks.deleteExecutionSegmentById).not.toHaveBeenCalled();
+    expect(mocks.writeAuditLog).not.toHaveBeenCalledWith(expect.objectContaining({
+      action: "activity_execution_segment.updated",
+    }));
   });
 });

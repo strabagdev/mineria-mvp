@@ -32,6 +32,15 @@ function toSortOrder(value: unknown) {
   return Number.isFinite(sortOrder) ? Math.trunc(sortOrder) : 100;
 }
 
+function toNullableOrder(value: unknown) {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
+  const order = Number(value);
+  return Number.isFinite(order) ? Math.trunc(order) : null;
+}
+
 function toMetadata(value: unknown) {
   if (value === undefined || value === null) {
     return {};
@@ -139,6 +148,7 @@ export async function POST(req: Request) {
       required: Boolean(fieldBody.required),
       active: fieldBody.active !== false,
       sortOrder: toSortOrder(fieldBody.sort_order),
+      groupingOrder: toNullableOrder(fieldBody.grouping_order),
       groupable: Boolean(fieldBody.groupable),
       filterable: Boolean(fieldBody.filterable),
       visibleInGantt: Boolean(fieldBody.visible_in_gantt),
@@ -194,6 +204,7 @@ export async function PATCH(req: Request) {
     if (fieldBody.required !== undefined) updates.required = Boolean(fieldBody.required);
     if (fieldBody.active !== undefined) updates.active = Boolean(fieldBody.active);
     if (fieldBody.sort_order !== undefined) updates.sortOrder = toSortOrder(fieldBody.sort_order);
+    if (fieldBody.grouping_order !== undefined) updates.groupingOrder = toNullableOrder(fieldBody.grouping_order);
     if (fieldBody.groupable !== undefined) updates.groupable = Boolean(fieldBody.groupable);
     if (fieldBody.filterable !== undefined) updates.filterable = Boolean(fieldBody.filterable);
     if (fieldBody.visible_in_gantt !== undefined) updates.visibleInGantt = Boolean(fieldBody.visible_in_gantt);

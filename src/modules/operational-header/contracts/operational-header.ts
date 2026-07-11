@@ -19,6 +19,7 @@ export type OperationalHeaderFieldDto = {
   required: boolean;
   active: boolean;
   sort_order: number;
+  grouping_order: number | null;
   groupable: boolean;
   filterable: boolean;
   visible_in_gantt: boolean;
@@ -56,6 +57,7 @@ export type OperationalHeaderFieldCreateRequestDto = {
   required?: boolean;
   active?: boolean;
   sort_order?: number;
+  grouping_order?: number | null;
   groupable?: boolean;
   filterable?: boolean;
   visible_in_gantt?: boolean;

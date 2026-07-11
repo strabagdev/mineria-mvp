@@ -3,6 +3,7 @@ import { Fragment } from "react";
 import { GanttLegend } from "./gantt-legend";
 import { GanttRowMeta } from "./gantt-row-meta";
 import {
+  buildPlanningItemShiftProjection,
   formatGanttGroupingTitle,
   type GanttGroupingPathEntry,
 } from "../../modules/planning/presentation/planning-page-helpers";
@@ -12,6 +13,13 @@ type ShiftKey = "Dia" | "Noche";
 type GanttPlanningItem = {
   id: number;
   shift: string;
+  start: string;
+  end: string;
+  tracking_type?: string;
+  gantt_projection?: {
+    start: string;
+    end: string;
+  };
 };
 
 type GanttPlanningGroup<TItem extends GanttPlanningItem> = {
@@ -156,7 +164,12 @@ export function GanttShiftSection<
 
               {locationGroup.rows.map((group, groupRowIndex) => {
                 const realSegmentsForShift = group.realSegments.filter((segment) => segment.shift === shift);
-                const plannedItemForShift = group.programado?.shift === shift ? group.programado : null;
+                const plannedProjection = group.programado
+                  ? buildPlanningItemShiftProjection(group.programado, shift)
+                  : null;
+                const plannedItemForShift = group.programado && plannedProjection
+                  ? { ...group.programado, gantt_projection: plannedProjection }
+                  : null;
                 const activityName = String(group.description ?? "").trim() || group.item_type;
                 const shouldShowLaneLabels = groupRowIndex === 0;
 

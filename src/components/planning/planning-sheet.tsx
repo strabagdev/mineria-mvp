@@ -5,7 +5,6 @@ import {
   resolveOperationalHeaderDynamicFormFields,
 } from "@/modules/operational-header/application/operational-header-form-dependencies";
 import type {
-  OperationalHeaderFieldDto,
   OperationalHeaderResponseDto,
 } from "@/modules/operational-header/contracts/operational-header";
 
@@ -64,52 +63,6 @@ type PlanningSheetProps = {
 
 function formatFieldNameForPrompt(label: string) {
   return label.trim().toLocaleLowerCase("es-CL");
-}
-
-function resolveSelectedOptionId(field: OperationalHeaderFieldDto | null, selectedValue: string) {
-  const normalized = selectedValue.trim().toLocaleLowerCase("es-CL");
-
-  if (!field || !normalized) {
-    return null;
-  }
-
-  return field.options.find((option) =>
-    option.active &&
-    (
-      option.value.trim().toLocaleLowerCase("es-CL") === normalized ||
-      option.label.trim().toLocaleLowerCase("es-CL") === normalized
-    )
-  )?.id ?? null;
-}
-
-function getMissingDependencyMessage(input: {
-  config: OperationalHeaderResponseDto | null | undefined;
-  field: OperationalHeaderFieldDto;
-  dynamicHeaderValues: Record<number, string>;
-}) {
-  const dependencies = input.config?.dependencies.filter((dependency) =>
-    dependency.field_id === input.field.id
-  ) ?? [];
-
-  if (!dependencies.length) {
-    return "";
-  }
-
-  const parentFields = dependencies
-    .map((dependency) => input.config?.fields.find((field) =>
-      field.id === dependency.depends_on_field_id
-    ) ?? null)
-    .filter((field): field is OperationalHeaderFieldDto => Boolean(field));
-
-  const missingParent = parentFields.find((field) =>
-    !resolveSelectedOptionId(field, input.dynamicHeaderValues[field.id] ?? "")
-  );
-
-  if (!missingParent) {
-    return "";
-  }
-
-  return `Selecciona ${formatFieldNameForPrompt(missingParent.label)} para ver opciones de ${formatFieldNameForPrompt(input.field.label)}.`;
 }
 
 export function PlanningSheet({
@@ -188,15 +141,21 @@ export function PlanningSheet({
 
           {dynamicHeaderFields.length ? (
             <div className="modal-grid">
-              {dynamicHeaderFields.map(({ field, options }) => {
+              {dynamicHeaderFields.map(({ field, options, captureState }) => {
                 const currentValue = dynamicHeaderValues[field.id] ?? "";
                 const validCurrentValue = options.some((option) => option.value === currentValue) ? currentValue : "";
-                const missingDependencyMessage = field.input_type === "select"
-                  ? getMissingDependencyMessage({ config: operationalHeaderConfig, field, dynamicHeaderValues })
+                const parentLabel = captureState.missingParentFields[0]?.label ??
+                  captureState.parentFields[0]?.label ??
+                  "";
+                const emptySelectMessage = field.input_type === "select"
+                  ? captureState.unavailableReason === "missing_parent"
+                    ? `Selecciona primero ${formatFieldNameForPrompt(parentLabel)}.`
+                    : captureState.unavailableReason === "no_active_options"
+                      ? `No hay opciones activas para ${formatFieldNameForPrompt(field.label)}.`
+                      : captureState.unavailableReason === "no_valid_options"
+                        ? `No hay opciones disponibles para la selección actual de ${formatFieldNameForPrompt(parentLabel)}.`
+                        : ""
                   : "";
-                const activeOptionCount = field.options.filter((option) => option.active).length;
-                const emptySelectMessage = missingDependencyMessage ||
-                  (activeOptionCount === 0 ? `No hay opciones activas para ${formatFieldNameForPrompt(field.label)}.` : "");
 
                 return (
                   <label key={field.id} className="field">

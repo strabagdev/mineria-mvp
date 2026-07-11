@@ -200,6 +200,30 @@ describe("reporting xlsx export", () => {
     expect(sheets.detalle[1].slice(8, 10)).toEqual(["Mina", "Actividad"]);
   });
 
+  it("does not export operational header values that are not listed as columns", () => {
+    const report: ReportResponse = {
+      ...baseReport,
+      operational_header_columns: [
+        { id: 30, slug: "departamento", label: "Departamento", input_type: "text", sort_order: 30 },
+      ],
+      rows: [
+        {
+          ...baseRow,
+          operational_header_values: {
+            departamento: { field_id: 30, slug: "departamento", label: "Departamento", value: "Mina" },
+            guardia: { field_id: 31, slug: "guardia", label: "Guardia", value: "A" },
+          },
+        },
+      ],
+    };
+    const sheets = buildReportXlsxSheets(report);
+
+    expect(sheets.detalle[0]).toContain("Departamento");
+    expect(sheets.detalle[0]).not.toContain("Guardia");
+    expect(sheets.detalle[1]).toContain("Mina");
+    expect(sheets.detalle[1]).not.toContain("A");
+  });
+
   it("leaves legacy operational header columns empty when row values are missing", () => {
     const report: ReportResponse = {
       ...baseReport,

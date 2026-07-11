@@ -92,6 +92,7 @@ describe("operational header API", () => {
       input_type: "text",
       active: true,
       sort_order: 30,
+      grouping_order: "",
     }));
 
     expect(response.status).toBe(201);
@@ -102,6 +103,7 @@ describe("operational header API", () => {
       inputType: "text",
       active: true,
       sortOrder: 30,
+      groupingOrder: null,
     }));
   });
 
@@ -113,6 +115,7 @@ describe("operational header API", () => {
       id: 10,
       label: "Area Mina",
       groupable: true,
+      grouping_order: 7,
     }));
 
     expect(response.status).toBe(200);
@@ -122,6 +125,7 @@ describe("operational header API", () => {
       updates: {
         label: "Area Mina",
         groupable: true,
+        groupingOrder: 7,
       },
     });
   });

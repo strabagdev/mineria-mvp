@@ -2,7 +2,7 @@
 
 ## Resumen
 
-`mineria-mvp` es una aplicacion web operacional para planificacion minera, registro de ejecucion real, interferencias, asignaciones de recursos, campos configurables y reportes.
+`mineria-mvp` es una aplicacion web operacional para planificacion minera, registro de ejecucion real, interferencias, Cabecera Operacional, asignaciones de recursos y reportes.
 
 La aplicacion usa Next.js App Router con TypeScript, Supabase Auth/Postgres como backend activo, rutas API internas, repositorios server-side y cache offline en IndexedDB.
 
@@ -160,7 +160,9 @@ Entidades principales:
 - Categorias: `actividad`, `interferencia`.
 - Tipos de actividad/interferencia.
 - Detalles por tipo.
-- Niveles.
+
+La identidad operacional configurable, incluyendo ejes como Nivel o Frente, se
+administra exclusivamente desde Cabecera Operacional.
 
 Archivos relevantes:
 
@@ -208,6 +210,15 @@ Backend:
 - `src/server/repositories/planning-segments.repository.ts`
 - `src/server/services/planning-items.service.ts`
 
+La edicion de un real puede reconstruir sus tramos cuando cruza turnos. Esa
+reconciliacion es atomica en PostgreSQL mediante la funcion
+`reconcile_real_execution_segments`, invocada solo desde
+`planning-segments.repository.ts` con `db.rpc(...)`. El service y la ruta API
+siguen dependiendo del contrato del repositorio, no de Supabase directamente.
+La funcion bloquea los tramos del evento logico, valida solapes, preserva el
+segmento principal, sincroniza Cabecera Operacional y escribe auditoria dentro
+de la misma transaccion.
+
 La API de planning combina programados y segmentos reales para entregar una lista operacional unica a la UI.
 
 ```mermaid
@@ -222,6 +233,13 @@ flowchart TD
 Los custom fields fueron retirados de backend/API y de la experiencia operacional.
 Cabecera Operacional cubre identidad, filtros, Gantt y reportes; Asignaciones cubre
 recursos repetibles y atributos asociados.
+
+La semantica de comportamiento de Cabecera Operacional queda definida por sus
+flags de campo: `active`, `required`, `groupable`, `visible_in_gantt`,
+`filterable`, `exportable`, `sort_order` y `grouping_order`. Filtros,
+columnas/exportaciones, breakdowns y agrupacion Gantt consumen esos flags de
+forma independiente; no existe un mecanismo paralelo para identidad,
+clasificacion o ubicacion operacional.
 
 Tablas legacy eliminadas por migracion destructiva:
 
@@ -588,6 +606,10 @@ Orden actual en `supabase/sql`:
 - `012_operational_header_hardening.sql`: constraints minimas de Cabecera Operacional.
 - `013_drop_planning_custom_fields.sql`: elimina tablas legacy de Custom Fields.
 - `014_drop_level_front_legacy.sql`: elimina columnas legacy Nivel/Frente, `planning_levels` y metadata tecnica temporal.
+- `015_drop_planning_items_level_residual.sql`: elimina remanente legacy de `planning_items.level`.
+- `016_operational_header_grouping_order.sql`: agrega orden independiente de agrupacion Gantt.
+- `017_reconcile_real_execution_segments.sql`: agrega reconciliacion atomica de tramos reales editados.
+- `018_update_planning_items_valid_range.sql`: alinea el CHECK SQL de programados con la regla de inicio de turno.
 
 Nota importante:
 

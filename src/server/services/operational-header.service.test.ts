@@ -63,6 +63,7 @@ describe("operational header H1", () => {
       required: true,
       active: true,
       sort_order: 10,
+      grouping_order: null,
       groupable: true,
       filterable: true,
       visible_in_gantt: true,
@@ -76,6 +77,7 @@ describe("operational header H1", () => {
       required: true,
       active: true,
       sort_order: 20,
+      grouping_order: null,
       groupable: true,
       filterable: true,
       visible_in_gantt: true,
@@ -114,6 +116,14 @@ describe("operational header H1", () => {
     expect(sql).toContain("('frente', 'Frente', 'text', true, true, 20, true, true, true, true, 'front')");
   });
 
+  it("adds grouping_order as nullable structural metadata without backfilling order", () => {
+    const sql = readFileSync("supabase/sql/016_operational_header_grouping_order.sql", "utf8");
+
+    expect(sql).toContain("add column if not exists grouping_order integer null");
+    expect(sql).toContain("pg_notify('pgrst', 'reload schema')");
+    expect(sql).not.toMatch(/\bupdate\s+operational_header_fields\b/i);
+  });
+
   it("keeps the planning item value writer idempotent", () => {
     const source = readFileSync("src/server/repositories/operational-header.repository.ts", "utf8");
 
@@ -122,6 +132,12 @@ describe("operational header H1", () => {
     expect(source).toContain(".eq(\"planning_item_id\", payload.planning_item_id)");
     expect(source).toContain("if (updated)");
     expect(source).toContain(".insert(payload)");
+  });
+
+  it("selects grouping_order with operational header fields", () => {
+    const source = readFileSync("src/server/repositories/operational-header.repository.ts", "utf8");
+
+    expect(source).toContain("sort_order, grouping_order, groupable");
   });
 
   it("keeps the execution segment value writer idempotent", () => {
@@ -162,6 +178,17 @@ describe("operational header H1", () => {
     expect(sql).not.toMatch(/\bactivity_execution_segments\b/i);
     expect(sql).not.toMatch(/\boperational_header_/i);
     expect(sql).not.toMatch(/\bplanning_assignments\b/i);
+  });
+
+  it("drops residual planning item level storage without adding another legacy source", () => {
+    const sql = readFileSync("supabase/sql/015_drop_planning_items_level_residual.sql", "utf8");
+
+    expect(sql).toContain("alter table if exists planning_items");
+    expect(sql).toContain("drop column if exists level");
+    expect(sql).not.toMatch(/\badd column\b/i);
+    expect(sql).not.toMatch(/\bfront\b/i);
+    expect(sql).not.toMatch(/\blegacy_column\b/i);
+    expect(sql).toContain("pg_notify('pgrst', 'reload schema')");
   });
 
   it("keeps backfill idempotent and compatible with empty source tables", () => {
@@ -438,6 +465,138 @@ describe("operational header H1", () => {
     expect(mocks.upsertOperationalHeaderValueForPlanningItem).not.toHaveBeenCalled();
   });
 
+  it("blocks inactive dynamic select options", async () => {
+    vi.resetAllMocks();
+    mocks.listOperationalHeaderFieldRows.mockResolvedValue([{
+      ...legacyFieldRows[0],
+      id: 30,
+      slug: "departamento",
+      label: "Departamento",
+      required: false,
+    }]);
+    mocks.listOperationalHeaderFieldOptionRows.mockResolvedValue([
+      { id: 300, field_id: 30, value: "mina", label: "Mina", active: false, sort_order: 10, metadata: {} },
+    ]);
+    mocks.listOperationalHeaderOptionDependencyRows.mockResolvedValue([]);
+    const { syncDynamicOperationalHeaderForPlanningItem } = await import("./operational-header.service");
+
+    await expect(syncDynamicOperationalHeaderForPlanningItem({
+      planningItemId: 123,
+      activityGroupId: "group-1",
+      values: [{ field_id: 30, value: "Mina", option_id: 300 }],
+    })).rejects.toThrow("La opcion seleccionada para \"Departamento\" no es valida.");
+    expect(mocks.upsertOperationalHeaderValueForPlanningItem).not.toHaveBeenCalled();
+  });
+
+  it("allows dependent select values when the parent selection permits them", async () => {
+    vi.resetAllMocks();
+    mocks.listOperationalHeaderFieldRows.mockResolvedValue([
+      { ...legacyFieldRows[0], required: false },
+      { ...legacyFieldRows[0], id: 30, slug: "frente", label: "Frente", required: true, sort_order: 20 },
+    ]);
+    mocks.listOperationalHeaderFieldOptionRows.mockResolvedValue([
+      { id: 10, field_id: 1, value: "nti", label: "NTI", active: true, sort_order: 10, metadata: {} },
+      { id: 300, field_id: 30, value: "frente_2", label: "Frente 2", active: true, sort_order: 10, metadata: {} },
+    ]);
+    mocks.listOperationalHeaderOptionDependencyRows.mockResolvedValue([
+      { id: 500, field_id: 30, option_id: 300, depends_on_field_id: 1, depends_on_option_id: 10 },
+    ]);
+    mocks.upsertOperationalHeaderValueForPlanningItem.mockImplementation((input) => Promise.resolve({
+      id: input.field_id,
+      execution_segment_id: null,
+      ...input,
+    }));
+    const { syncDynamicOperationalHeaderForPlanningItem } = await import("./operational-header.service");
+
+    await syncDynamicOperationalHeaderForPlanningItem({
+      planningItemId: 123,
+      activityGroupId: "group-1",
+      values: [
+        { field_id: 1, value: "NTI" },
+        { field_id: 30, value: "Frente 2" },
+      ],
+    });
+
+    expect(mocks.upsertOperationalHeaderValueForPlanningItem).toHaveBeenCalledWith(expect.objectContaining({
+      field_id: 30,
+      option_id: 300,
+    }));
+  });
+
+  it("blocks dependent select values when the parent selection does not permit them", async () => {
+    vi.resetAllMocks();
+    mocks.listOperationalHeaderFieldRows.mockResolvedValue([
+      { ...legacyFieldRows[0], required: false },
+      { ...legacyFieldRows[0], id: 30, slug: "frente", label: "Frente", required: true, sort_order: 20 },
+    ]);
+    mocks.listOperationalHeaderFieldOptionRows.mockResolvedValue([
+      { id: 10, field_id: 1, value: "nti", label: "NTI", active: true, sort_order: 10, metadata: {} },
+      { id: 11, field_id: 1, value: "nnm", label: "NNM", active: true, sort_order: 20, metadata: {} },
+      { id: 300, field_id: 30, value: "frente_2", label: "Frente 2", active: true, sort_order: 10, metadata: {} },
+    ]);
+    mocks.listOperationalHeaderOptionDependencyRows.mockResolvedValue([
+      { id: 500, field_id: 30, option_id: 300, depends_on_field_id: 1, depends_on_option_id: 10 },
+    ]);
+    const { syncDynamicOperationalHeaderForPlanningItem } = await import("./operational-header.service");
+
+    await expect(syncDynamicOperationalHeaderForPlanningItem({
+      planningItemId: 123,
+      activityGroupId: "group-1",
+      values: [
+        { field_id: 1, value: "NNM" },
+        { field_id: 30, value: "Frente 2" },
+      ],
+    })).rejects.toThrow("La opcion seleccionada para \"Frente\" no esta permitida para la seleccion actual de \"Nivel\".");
+    expect(mocks.upsertOperationalHeaderValueForPlanningItem).not.toHaveBeenCalled();
+  });
+
+  it("does not require a dependent field while its parent has no value", async () => {
+    vi.resetAllMocks();
+    mocks.listOperationalHeaderFieldRows.mockResolvedValue([
+      { ...legacyFieldRows[0], required: false },
+      { ...legacyFieldRows[0], id: 30, slug: "frente", label: "Frente", required: true, sort_order: 20 },
+    ]);
+    mocks.listOperationalHeaderFieldOptionRows.mockResolvedValue([
+      { id: 10, field_id: 1, value: "nti", label: "NTI", active: true, sort_order: 10, metadata: {} },
+      { id: 300, field_id: 30, value: "frente_2", label: "Frente 2", active: true, sort_order: 10, metadata: {} },
+    ]);
+    mocks.listOperationalHeaderOptionDependencyRows.mockResolvedValue([
+      { id: 500, field_id: 30, option_id: 300, depends_on_field_id: 1, depends_on_option_id: 10 },
+    ]);
+    const { syncDynamicOperationalHeaderForPlanningItem } = await import("./operational-header.service");
+
+    await syncDynamicOperationalHeaderForPlanningItem({
+      planningItemId: 123,
+      activityGroupId: "group-1",
+      values: [],
+    });
+
+    expect(mocks.upsertOperationalHeaderValueForPlanningItem).not.toHaveBeenCalled();
+  });
+
+  it("explains required dependent fields with no options for the selected parent", async () => {
+    vi.resetAllMocks();
+    mocks.listOperationalHeaderFieldRows.mockResolvedValue([
+      { ...legacyFieldRows[0], required: false },
+      { ...legacyFieldRows[0], id: 30, slug: "frente", label: "Frente", required: true, sort_order: 20 },
+    ]);
+    mocks.listOperationalHeaderFieldOptionRows.mockResolvedValue([
+      { id: 10, field_id: 1, value: "nti", label: "NTI", active: true, sort_order: 10, metadata: {} },
+      { id: 11, field_id: 1, value: "nnm", label: "NNM", active: true, sort_order: 20, metadata: {} },
+      { id: 300, field_id: 30, value: "frente_2", label: "Frente 2", active: true, sort_order: 10, metadata: {} },
+    ]);
+    mocks.listOperationalHeaderOptionDependencyRows.mockResolvedValue([
+      { id: 500, field_id: 30, option_id: 300, depends_on_field_id: 1, depends_on_option_id: 10 },
+    ]);
+    const { syncDynamicOperationalHeaderForPlanningItem } = await import("./operational-header.service");
+
+    await expect(syncDynamicOperationalHeaderForPlanningItem({
+      planningItemId: 123,
+      activityGroupId: "group-1",
+      values: [{ field_id: 1, value: "NNM" }],
+    })).rejects.toThrow("No hay opciones disponibles para \"Frente\" con la seleccion actual de \"Nivel\".");
+  });
+
   it("ignores inactive dynamic fields", async () => {
     vi.resetAllMocks();
     mocks.listOperationalHeaderFieldRows.mockResolvedValue([]);
@@ -561,6 +720,7 @@ describe("operational header H1", () => {
       required: false,
       active: true,
       sortOrder: 30,
+      groupingOrder: null,
       groupable: true,
       filterable: true,
       visibleInGantt: false,
@@ -574,6 +734,7 @@ describe("operational header H1", () => {
       required: false,
       active: true,
       sort_order: 30,
+      grouping_order: null,
       groupable: true,
       filterable: true,
       visible_in_gantt: false,
@@ -692,6 +853,7 @@ describe("operational header H1", () => {
       updates: {
         label: "Nivel operacional",
         sortOrder: 5,
+        groupingOrder: 2,
         groupable: false,
       },
     });
@@ -699,6 +861,7 @@ describe("operational header H1", () => {
     expect(mocks.updateOperationalHeaderField).toHaveBeenCalledWith(1, {
       label: "Nivel operacional",
       sort_order: 5,
+      grouping_order: 2,
       groupable: false,
     });
     expect(field).toEqual(expect.objectContaining({

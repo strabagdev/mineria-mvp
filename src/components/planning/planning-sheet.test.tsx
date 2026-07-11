@@ -52,7 +52,48 @@ vi.mock("@/modules/operational-header/application/operational-header-form-depend
             .map((option) => ({ id: option.id, value: option.label || option.value, label: option.label || option.value }))
           : [];
 
-        return { field, options };
+        const hasDependencies = fieldDependencies.length > 0;
+        const parentFields = Array.from(new Map(fieldDependencies
+          .map((dependency) => config.fields.find((candidate) => candidate.id === dependency.depends_on_field_id) ?? null)
+          .filter((parentField): parentField is NonNullable<typeof parentField> => Boolean(parentField))
+          .map((parentField) => [parentField.id, parentField])).values());
+        const missingParentFields = parentFields.filter((parentField) => {
+          const selectedValue = dynamicValues[parentField.id] ?? "";
+          return !parentField.options.some((candidate) =>
+            candidate.active &&
+            (
+              candidate.value.toLowerCase() === selectedValue.toLowerCase() ||
+              candidate.label.toLowerCase() === selectedValue.toLowerCase()
+            )
+          );
+        });
+        const activeOptionCount = field.input_type === "select"
+          ? field.options.filter((option) => option.active).length
+          : 0;
+        const unavailableReason = field.input_type === "select"
+          ? activeOptionCount === 0
+            ? "no_active_options"
+            : missingParentFields.length
+              ? "missing_parent"
+              : options.length === 0
+                ? "no_valid_options"
+                : null
+          : null;
+
+        return {
+          field,
+          options,
+          captureState: {
+            participates: field.active,
+            requiredApplies: field.active && unavailableReason !== "missing_parent",
+            hasDependencies,
+            parentFields,
+            missingParentFields,
+            activeOptionCount,
+            validOptionCount: options.length,
+            unavailableReason,
+          },
+        };
       });
   },
 }));
@@ -67,6 +108,7 @@ const operationalHeaderConfig: OperationalHeaderResponseDto = {
       required: true,
       active: true,
       sort_order: 10,
+      grouping_order: null,
       groupable: true,
       filterable: true,
       visible_in_gantt: true,
@@ -83,6 +125,7 @@ const operationalHeaderConfig: OperationalHeaderResponseDto = {
       required: true,
       active: true,
       sort_order: 20,
+      grouping_order: null,
       groupable: true,
       filterable: true,
       visible_in_gantt: true,
@@ -99,6 +142,7 @@ const operationalHeaderConfig: OperationalHeaderResponseDto = {
       required: true,
       active: true,
       sort_order: 30,
+      grouping_order: null,
       groupable: true,
       filterable: true,
       visible_in_gantt: true,
@@ -127,6 +171,7 @@ const configWithEmptySelect: OperationalHeaderResponseDto = {
       required: false,
       active: true,
       sort_order: 10,
+      grouping_order: null,
       groupable: true,
       filterable: true,
       visible_in_gantt: true,
@@ -213,7 +258,7 @@ describe("PlanningSheet", () => {
   it("explains dependent fields while the parent field is empty", () => {
     const html = renderPlanningSheet();
 
-    expect(html).toContain("Selecciona nivel para ver opciones de frente.");
+    expect(html).toContain("Selecciona primero nivel.");
   });
 
   it("explains selects without active options", () => {

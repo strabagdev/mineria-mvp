@@ -4,6 +4,7 @@ import { getSupabaseServerClient } from "@/server/db/supabase";
 
 export type PlanningSegmentReadRow = {
   id: number;
+  planning_item_id?: number | null;
   activity_group_id: string;
   item_date: string;
   start_time: string;
@@ -13,10 +14,12 @@ export type PlanningSegmentReadRow = {
   item_type: string;
   description: string;
   notes: string | null;
+  segment_order?: number;
+  client_mutation_id?: string | null;
 };
 
 export const planningSegmentReadSelect =
-  "id, activity_group_id, item_date, start_time, end_time, shift, category, item_type, description, notes";
+  "id, planning_item_id, activity_group_id, item_date, start_time, end_time, shift, category, item_type, description, notes, segment_order, client_mutation_id";
 
 export type PlanningSegmentOverlapRow = {
   id: number;
@@ -53,6 +56,31 @@ export type PlanningSegmentUpdateRow = {
   item_type: string;
   description: string;
   notes: string | null;
+  client_mutation_id?: string | null;
+};
+
+export type ReconcileRealExecutionSegmentsInput = {
+  segmentId: number;
+  planningItemId: number | null | undefined;
+  activityGroupId: string;
+  segments: Array<{
+    item_date: string;
+    start_time: string;
+    end_time: string;
+    shift: string;
+    category: string;
+    item_type: string;
+    description: string;
+    notes: string | null;
+  }>;
+  operationalHeaderValues?: Array<{
+    field_id: number;
+    value: string;
+    option_id?: number | null;
+  }>;
+  actorUserId?: string | null;
+  actorEmail?: string | null;
+  createdBy: string;
 };
 
 export async function listExecutionSegmentsByDate(date: string) {
@@ -194,4 +222,26 @@ export async function deleteExecutionSegmentById(id: number) {
   if (error) {
     throw error;
   }
+}
+
+export async function reconcileRealExecutionSegments(
+  input: ReconcileRealExecutionSegmentsInput
+) {
+  const db = getSupabaseServerClient();
+  const { data, error } = await db.rpc("reconcile_real_execution_segments", {
+    p_segment_id: input.segmentId,
+    p_planning_item_id: input.planningItemId ?? null,
+    p_activity_group_id: input.activityGroupId,
+    p_segments: input.segments,
+    p_operational_header_values: input.operationalHeaderValues ?? [],
+    p_actor_user_id: input.actorUserId ?? null,
+    p_actor_email: input.actorEmail ?? null,
+    p_created_by: input.createdBy,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return (Array.isArray(data) ? data : []) as PlanningSegmentReadRow[];
 }

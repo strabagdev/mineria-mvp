@@ -24,6 +24,7 @@ import {
   hasExecutionSegmentForPlanningItem,
   insertExecutionSegments,
   listExecutionSegmentsByDate,
+  reconcileRealExecutionSegments,
   updateExecutionSegmentById,
   type PlanningSegmentReadRow,
   type PlanningSegmentUpdateRow,
@@ -366,6 +367,62 @@ export async function updateRealPlanningSegment(input: {
       ...data,
       tracking_type: "real",
     }),
+  };
+}
+
+export async function updateRealPlanningSegments(input: {
+  actor: AuditActor;
+  id: number;
+  userId: string;
+  updatePayload: PlanningSegmentUpdateRow;
+  segments: PlanningItemPayload[];
+  operationalHeaderValues?: PlanningItemPayload["operational_header_values"];
+}) {
+  let updatedSegments: PlanningSegmentReadRow[];
+
+  try {
+    updatedSegments = await reconcileRealExecutionSegments({
+      segmentId: input.id,
+      planningItemId: input.updatePayload.planning_item_id,
+      activityGroupId: input.updatePayload.activity_group_id,
+      segments: input.segments.map((segment) => ({
+        item_date: segment.item_date,
+        start_time: segment.start_time,
+        end_time: segment.end_time,
+        shift: segment.shift,
+        category: segment.category,
+        item_type: segment.item_type,
+        description: segment.description,
+        notes: segment.notes,
+      })),
+      operationalHeaderValues: input.operationalHeaderValues ?? [],
+      actorUserId: input.actor?.profile?.user_id ?? input.actor?.user?.id ?? null,
+      actorEmail: input.actor?.profile?.email ?? input.actor?.user?.email ?? null,
+      createdBy: input.userId,
+    });
+  } catch (error) {
+    return {
+      status: "update-error" as const,
+      error,
+    };
+  }
+
+  if (!updatedSegments.length) {
+    throw new Error("No se pudo actualizar el segmento real.");
+  }
+
+  return {
+    status: "updated" as const,
+    item: mapPlanningReadRow({
+      ...(updatedSegments[0] as Omit<PlanningItemResponse, "tracking_type">),
+      tracking_type: "real",
+    }),
+    items: updatedSegments.map((row) =>
+      mapPlanningReadRow({
+        ...row,
+        tracking_type: "real",
+      })
+    ),
   };
 }
 

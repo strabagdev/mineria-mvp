@@ -7,6 +7,11 @@ import type {
   OperationalHeaderResponseDto,
 } from "@/modules/operational-header/contracts/operational-header";
 import {
+  resolveOperationalHeaderDynamicFormFields,
+  resolveSelectedOperationalHeaderOptionId,
+  shouldValidateOperationalHeaderRequiredField,
+} from "../../modules/operational-header/application/operational-header-form-dependencies";
+import {
   countOperationalHeaderOptionsByFieldId,
   countOperationalHeaderValuesByOptionId,
   countOperationalHeaderValuesByFieldId,
@@ -41,6 +46,7 @@ type OperationalHeaderFieldEditableInput = {
   required: boolean;
   active: boolean;
   sortOrder: number;
+  groupingOrder: number | null;
   groupable: boolean;
   filterable: boolean;
   visibleInGantt: boolean;
@@ -231,6 +237,7 @@ export async function createOperationalHeaderFieldDefinition(
     required: input.required,
     active: input.active,
     sort_order: input.sortOrder,
+    grouping_order: input.groupingOrder,
     groupable: input.groupable,
     filterable: input.filterable,
     visible_in_gantt: input.visibleInGantt,
@@ -289,6 +296,7 @@ export async function updateOperationalHeaderFieldDefinition(input: {
   if (input.updates.required !== undefined) updates.required = input.updates.required;
   if (input.updates.active !== undefined) updates.active = input.updates.active;
   if (input.updates.sortOrder !== undefined) updates.sort_order = input.updates.sortOrder;
+  if (input.updates.groupingOrder !== undefined) updates.grouping_order = input.updates.groupingOrder;
   if (input.updates.groupable !== undefined) updates.groupable = input.updates.groupable;
   if (input.updates.filterable !== undefined) updates.filterable = input.updates.filterable;
   if (input.updates.visibleInGantt !== undefined) updates.visible_in_gantt = input.updates.visibleInGantt;
@@ -509,36 +517,38 @@ export async function listOperationalHeaderValuesByExecutionSegmentIds(
   return listOperationalHeaderValueRowsByExecutionSegmentIds(executionSegmentIds);
 }
 
-function normalizeComparableValue(value: string) {
-  return value.trim().toLowerCase();
-}
-
-function findActiveOptionForDynamicValue(input: {
+function buildOperationalHeaderConfigFromRows(input: {
+  fields: OperationalHeaderFieldRow[];
   options: OperationalHeaderFieldOptionRow[];
-  fieldId: number;
-  optionId?: number | null;
-  value: string;
-}) {
-  const normalizedValue = normalizeComparableValue(input.value);
-
-  return input.options.find((option) =>
-    option.field_id === input.fieldId &&
-    option.active &&
-    (
-      (input.optionId !== undefined && input.optionId !== null && option.id === input.optionId) ||
-      normalizeComparableValue(option.value) === normalizedValue ||
-      normalizeComparableValue(option.label) === normalizedValue
-    )
-  ) ?? null;
+  dependencies: Awaited<ReturnType<typeof listOperationalHeaderOptionDependencyRows>>;
+}): OperationalHeaderResponseDto {
+  return {
+    fields: input.fields.map((field) => ({
+      ...field,
+      options: input.options.filter((option) => option.field_id === field.id),
+    })),
+    dependencies: input.dependencies ?? [],
+  };
 }
 
-export async function prepareOperationalHeaderMutationValues(
-  values: OperationalHeaderDynamicValueInput[]
-): Promise<PreparedOperationalHeaderMutationValues> {
-  const [fields, options] = await Promise.all([
+async function loadOperationalHeaderCaptureConfig() {
+  const [fields, options, dependencies] = await Promise.all([
     listOperationalHeaderFieldRows({ activeOnly: true }),
     listOperationalHeaderFieldOptionRows({ activeOnly: true }),
+    listOperationalHeaderOptionDependencyRows(),
   ]);
+
+  return buildOperationalHeaderConfigFromRows({
+    fields: fields ?? [],
+    options: options ?? [],
+    dependencies: dependencies ?? [],
+  });
+}
+
+async function prepareOperationalHeaderValuesForCapture(
+  values: OperationalHeaderDynamicValueInput[]
+): Promise<PreparedOperationalHeaderMutationValues> {
+  const config = await loadOperationalHeaderCaptureConfig();
   const fieldValues = new Map(
     values
       .filter((value) => Number.isFinite(value.field_id) && value.field_id > 0)
@@ -548,30 +558,56 @@ export async function prepareOperationalHeaderMutationValues(
         option_id: value.option_id ?? null,
       }])
   );
+  const dynamicValues = Object.fromEntries(Array.from(fieldValues).map(([fieldId, value]) => [
+    fieldId,
+    value.value,
+  ]));
+  const optionIdsByFieldId = new Map(Array.from(fieldValues).map(([fieldId, value]) => [
+    fieldId,
+    value.option_id,
+  ]));
+  const resolvedFields = resolveOperationalHeaderDynamicFormFields({
+    config,
+    dynamicValues,
+    optionIdsByFieldId,
+  });
   const preparedValues: OperationalHeaderDynamicValueInput[] = [];
 
-  for (const field of fields) {
+  for (const { field, options, captureState } of resolvedFields) {
     const submittedValue = fieldValues.get(field.id);
     const value = submittedValue?.value.trim() ?? "";
+    const selectedOptionId = field.input_type === "select"
+      ? resolveSelectedOperationalHeaderOptionId(field, value, submittedValue?.option_id)
+      : null;
 
-    if (field.required && !value) {
+    if (shouldValidateOperationalHeaderRequiredField({ field, captureState }) && !value && !selectedOptionId) {
+      if (captureState.unavailableReason === "no_active_options") {
+        throw withStatus(`El campo de cabecera operacional "${field.label}" es obligatorio, pero no tiene opciones activas disponibles.`, 400);
+      }
+
+      if (captureState.unavailableReason === "no_valid_options") {
+        const parentLabel = captureState.parentFields[0]?.label ?? "el campo padre";
+        throw withStatus(`No hay opciones disponibles para "${field.label}" con la seleccion actual de "${parentLabel}".`, 400);
+      }
+
       throw withStatus(`El campo de cabecera operacional "${field.label}" es obligatorio.`, 400);
     }
 
-    if (!value) {
+    if (!value && !selectedOptionId) {
       continue;
     }
 
     if (field.input_type === "select") {
-      const option = findActiveOptionForDynamicValue({
-        options,
-        fieldId: field.id,
-        optionId: submittedValue?.option_id,
-        value,
-      });
+      const option = field.options.find((candidate) => candidate.id === selectedOptionId) ?? null;
+      const optionAllowed = options.some((candidate) => candidate.id === option?.id);
 
-      if (!option) {
+      if (!option || !option.active) {
         throw withStatus(`La opcion seleccionada para "${field.label}" no es valida.`, 400);
+      }
+
+      if (!optionAllowed) {
+        const parentLabel = captureState.parentFields[0]?.label ?? "el campo padre";
+        throw withStatus(`La opcion seleccionada para "${field.label}" no esta permitida para la seleccion actual de "${parentLabel}".`, 400);
       }
 
       const resolvedValue = option.label || option.value;
@@ -598,6 +634,12 @@ export async function prepareOperationalHeaderMutationValues(
   };
 }
 
+export async function prepareOperationalHeaderMutationValues(
+  values: OperationalHeaderDynamicValueInput[]
+): Promise<PreparedOperationalHeaderMutationValues> {
+  return prepareOperationalHeaderValuesForCapture(values);
+}
+
 export async function syncDynamicOperationalHeaderForPlanningItem(input: {
   planningItemId: number;
   activityGroupId: string;
@@ -609,62 +651,27 @@ export async function syncDynamicOperationalHeaderForPlanningItem(input: {
     return [];
   }
 
-  const [fields, options] = await Promise.all([
-    listOperationalHeaderFieldRows({ activeOnly: true }),
-    listOperationalHeaderFieldOptionRows({ activeOnly: true }),
-  ]);
-  const writableFields = fields;
-  const fieldValues = new Map(
-    input.values
-      .filter((value) => Number.isFinite(value.field_id) && value.field_id > 0)
-      .map((value) => [value.field_id, {
-        field_id: value.field_id,
-        value: String(value.value ?? "").trim(),
-        option_id: value.option_id ?? null,
-      }])
-  );
+  const { values } = await prepareOperationalHeaderValuesForCapture(input.values);
   const writes: Promise<OperationalHeaderValueRow>[] = [];
 
-  for (const field of writableFields) {
-    const submittedValue = fieldValues.get(field.id);
-    const value = submittedValue?.value.trim() ?? "";
-
-    if (field.required && !value) {
-      throw withStatus(`El campo de cabecera operacional "${field.label}" es obligatorio.`, 400);
-    }
-
-    if (!value) {
-      continue;
-    }
-
-    if (field.input_type === "select") {
-      const option = findActiveOptionForDynamicValue({
-        options,
-        fieldId: field.id,
-        optionId: submittedValue?.option_id,
-        value,
-      });
-
-      if (!option) {
-        throw withStatus(`La opcion seleccionada para "${field.label}" no es valida.`, 400);
-      }
-
+  for (const value of values) {
+    if (value.option_id) {
       writes.push(upsertOperationalHeaderValueForPlanningItem({
-        field_id: field.id,
+        field_id: value.field_id,
         activity_group_id: activityGroupId,
         planning_item_id: input.planningItemId,
-        option_id: option.id,
+        option_id: value.option_id,
         value_text: null,
       }));
       continue;
     }
 
     writes.push(upsertOperationalHeaderValueForPlanningItem({
-      field_id: field.id,
+      field_id: value.field_id,
       activity_group_id: activityGroupId,
       planning_item_id: input.planningItemId,
       option_id: null,
-      value_text: value || null,
+      value_text: value.value || null,
     }));
   }
 
@@ -682,62 +689,27 @@ export async function syncDynamicOperationalHeaderForExecutionSegment(input: {
     return [];
   }
 
-  const [fields, options] = await Promise.all([
-    listOperationalHeaderFieldRows({ activeOnly: true }),
-    listOperationalHeaderFieldOptionRows({ activeOnly: true }),
-  ]);
-  const writableFields = fields;
-  const fieldValues = new Map(
-    input.values
-      .filter((value) => Number.isFinite(value.field_id) && value.field_id > 0)
-      .map((value) => [value.field_id, {
-        field_id: value.field_id,
-        value: String(value.value ?? "").trim(),
-        option_id: value.option_id ?? null,
-      }])
-  );
+  const { values } = await prepareOperationalHeaderValuesForCapture(input.values);
   const writes: Promise<OperationalHeaderValueRow>[] = [];
 
-  for (const field of writableFields) {
-    const submittedValue = fieldValues.get(field.id);
-    const value = submittedValue?.value.trim() ?? "";
-
-    if (field.required && !value) {
-      throw withStatus(`El campo de cabecera operacional "${field.label}" es obligatorio.`, 400);
-    }
-
-    if (!value) {
-      continue;
-    }
-
-    if (field.input_type === "select") {
-      const option = findActiveOptionForDynamicValue({
-        options,
-        fieldId: field.id,
-        optionId: submittedValue?.option_id,
-        value,
-      });
-
-      if (!option) {
-        throw withStatus(`La opcion seleccionada para "${field.label}" no es valida.`, 400);
-      }
-
+  for (const value of values) {
+    if (value.option_id) {
       writes.push(upsertOperationalHeaderValueForExecutionSegment({
-        field_id: field.id,
+        field_id: value.field_id,
         activity_group_id: activityGroupId,
         execution_segment_id: input.executionSegmentId,
-        option_id: option.id,
+        option_id: value.option_id,
         value_text: null,
       }));
       continue;
     }
 
     writes.push(upsertOperationalHeaderValueForExecutionSegment({
-      field_id: field.id,
+      field_id: value.field_id,
       activity_group_id: activityGroupId,
       execution_segment_id: input.executionSegmentId,
       option_id: null,
-      value_text: value || null,
+      value_text: value.value || null,
     }));
   }
 

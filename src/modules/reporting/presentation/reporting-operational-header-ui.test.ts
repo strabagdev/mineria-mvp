@@ -14,6 +14,15 @@ describe("reporting operational header UI", () => {
     expect(pageSource).toContain("row.operational_header_values?.[column.slug]?.value ?? \"\"");
   });
 
+  it("builds CSV exports from report operational header columns only", () => {
+    const pageSource = readFileSync("src/app/(app)/reports/page.tsx", "utf8");
+
+    expect(pageSource).toContain("downloadFilteredRows(");
+    expect(pageSource).toContain("operationalHeaderColumns: ReportOperationalHeaderColumn[]");
+    expect(pageSource).toContain("...operationalHeaderColumns.map((column) => column.label)");
+    expect(pageSource).toContain("...operationalHeaderColumns.map((column) => row.operational_header_values?.[column.slug]?.value ?? \"\")");
+  });
+
   it("keeps operational header rendering in the reports page table", () => {
     const pageSource = readFileSync("src/app/(app)/reports/page.tsx", "utf8");
 
@@ -25,7 +34,7 @@ describe("reporting operational header UI", () => {
     const pageSource = readFileSync("src/app/(app)/reports/page.tsx", "utf8");
 
     expect(pageSource).toContain("fetchOperationalHeaderConfig");
-    expect(pageSource).toContain("field.active && field.filterable");
+    expect(pageSource).toContain("getOperationalHeaderFilterableFields(config?.fields ?? [])");
     expect(pageSource).toContain("operationalHeaderFilterFields.map((field) => (");
     expect(pageSource).toContain("field.input_type === \"select\"");
     expect(pageSource).toContain(".filter((option) => option.active)");

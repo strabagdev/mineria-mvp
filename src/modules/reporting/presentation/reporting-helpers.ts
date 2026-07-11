@@ -1,4 +1,7 @@
 import type { OperationalHeaderResponseDto } from "../../operational-header/contracts/operational-header";
+import {
+  getOperationalHeaderBreakdownFields,
+} from "../application/reporting-operational-header";
 import type {
   ReportBreakdown,
   ReportFilters,
@@ -134,19 +137,23 @@ export function getOperationalHeaderBreakdownGroups(
   columns: ReportOperationalHeaderColumn[],
   breakdowns: Record<string, ReportBreakdown[]> | undefined
 ): ReportOperationalHeaderBreakdownGroup[] {
-  const fieldsBySlug = new Map((config?.fields ?? []).map((field) => [field.slug, field]));
-  const fields = columns
-    .map((column) => {
-      const field = fieldsBySlug.get(column.slug);
-      return {
-        slug: column.slug,
-        label: field?.label ?? column.label,
-        sort_order: field?.sort_order ?? column.sort_order,
-        groupable: field ? field.active && field.groupable : true,
-      };
-    })
-    .filter((field) => field.groupable)
-    .sort((left, right) => left.sort_order - right.sort_order || left.label.localeCompare(right.label));
+  const configuredBreakdownFields = getOperationalHeaderBreakdownFields(config?.fields ?? []);
+  const configuredBreakdownSlugs = new Set(configuredBreakdownFields.map((field) => field.slug));
+  const fallbackColumns = config
+    ? []
+    : columns.map((column) => ({
+      id: column.id,
+      slug: column.slug,
+      label: column.label,
+    }));
+  const fields = [
+    ...configuredBreakdownFields.map((field) => ({
+      id: field.id,
+      slug: field.slug,
+      label: field.label,
+    })),
+    ...fallbackColumns.filter((column) => !configuredBreakdownSlugs.has(column.slug)),
+  ].filter((field) => columns.some((column) => column.slug === field.slug));
 
   return fields
     .map((field) => ({

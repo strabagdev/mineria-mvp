@@ -73,6 +73,7 @@ function operationalHeaderField(input: Partial<OperationalHeaderFieldDto> & Pick
     required: false,
     active: true,
     sort_order: 100,
+    grouping_order: null,
     groupable: true,
     filterable: true,
     visible_in_gantt: true,

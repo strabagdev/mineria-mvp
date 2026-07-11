@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   buildEventSubtitle,
   buildEventTitle,
+  buildGanttBarPlacement,
   compareGanttGroupingPaths,
   formatGanttGroupingTitle,
   buildGanttBarLabel,
   buildGanttCurrentTimeMarker,
   buildGanttScale,
+  buildPlanningItemShiftProjection,
   buildPlanningItemAriaLabel,
+  doesPlanningItemIntersectShiftWindow,
   formatDuration,
   formatLocalDateIso,
   getCalendarDays,
@@ -21,6 +24,10 @@ import {
   resolveGanttGroupingPath,
   SHIFT_CONFIG,
 } from "./planning-page-helpers";
+import {
+  getOperationalHeaderGanttGroupingFields,
+  sortOperationalHeaderGanttGroupingFields,
+} from "../../operational-header/application/operational-header-ordering";
 import type { PlanningGroup, PlanningItem } from "./planning-page-models";
 import type { OperationalHeaderFieldDto, OperationalHeaderResponseDto } from "@/modules/operational-header/contracts/operational-header";
 
@@ -46,6 +53,7 @@ function operationalHeaderField(input: Partial<OperationalHeaderFieldDto> & Pick
     required: false,
     active: true,
     sort_order: 100,
+    grouping_order: null,
     groupable: true,
     filterable: true,
     visible_in_gantt: true,
@@ -109,6 +117,117 @@ describe("planning page helpers", () => {
 
     expect(positionMinutesInScale("21:00", nightScale)).toBe(1260);
     expect(positionMinutesInScale("01:00", nightScale)).toBe(1500);
+  });
+
+  it("keeps Gantt bar placement inside the visible shift window", () => {
+    const dayScale = buildGanttScale("08:00", "20:00", false);
+    const nightScale = buildGanttScale("20:00", "08:00", true);
+
+    expect(buildGanttBarPlacement("10:00", "18:00", dayScale)).toEqual({
+      leftPercent: expect.closeTo(16.666, 2),
+      widthPercent: expect.closeTo(66.666, 2),
+    });
+    expect(buildGanttBarPlacement("18:00", "22:00", dayScale)).toEqual({
+      leftPercent: expect.closeTo(83.333, 2),
+      widthPercent: expect.closeTo(16.666, 2),
+    });
+    expect(buildGanttBarPlacement("19:00", "07:00", dayScale)).toEqual({
+      leftPercent: expect.closeTo(91.666, 2),
+      widthPercent: expect.closeTo(8.333, 2),
+    });
+    expect(buildGanttBarPlacement("23:00", "09:00", nightScale)).toEqual({
+      leftPercent: expect.closeTo(25, 2),
+      widthPercent: expect.closeTo(75, 2),
+    });
+  });
+
+  it("projects planned items that cross from day to night", () => {
+    const item = planningItem({ shift: "Dia", start: "19:00", end: "21:00" });
+
+    expect(buildPlanningItemShiftProjection(item, "Dia")).toEqual({
+      start: "19:00",
+      end: "20:00",
+    });
+    expect(buildPlanningItemShiftProjection(item, "Noche")).toEqual({
+      start: "20:00",
+      end: "21:00",
+    });
+  });
+
+  it("projects planned items that cross from day to night across midnight", () => {
+    const item = planningItem({ shift: "Dia", start: "19:00", end: "07:00" });
+
+    expect(buildPlanningItemShiftProjection(item, "Dia")).toEqual({
+      start: "19:00",
+      end: "20:00",
+    });
+    expect(buildPlanningItemShiftProjection(item, "Noche")).toEqual({
+      start: "20:00",
+      end: "07:00",
+    });
+  });
+
+  it("projects planned items that cross from night to day", () => {
+    const earlyNightItem = planningItem({ shift: "Noche", start: "07:00", end: "09:00" });
+    const lateNightItem = planningItem({ shift: "Noche", start: "23:00", end: "09:00" });
+
+    expect(buildPlanningItemShiftProjection(earlyNightItem, "Noche")).toEqual({
+      start: "07:00",
+      end: "08:00",
+    });
+    expect(buildPlanningItemShiftProjection(earlyNightItem, "Dia")).toEqual({
+      start: "08:00",
+      end: "09:00",
+    });
+    expect(buildPlanningItemShiftProjection(lateNightItem, "Noche")).toEqual({
+      start: "23:00",
+      end: "08:00",
+    });
+    expect(buildPlanningItemShiftProjection(lateNightItem, "Dia")).toEqual({
+      start: "08:00",
+      end: "09:00",
+    });
+  });
+
+  it("does not project items into shifts they do not intersect", () => {
+    expect(buildPlanningItemShiftProjection(
+      planningItem({ shift: "Dia", start: "10:00", end: "18:00" }),
+      "Noche"
+    )).toBeNull();
+    expect(buildPlanningItemShiftProjection(
+      planningItem({ shift: "Noche", start: "22:00", end: "06:00" }),
+      "Dia"
+    )).toBeNull();
+    expect(doesPlanningItemIntersectShiftWindow(
+      planningItem({ shift: "Dia", start: "10:00", end: "18:00" }),
+      "Dia"
+    )).toBe(true);
+  });
+
+  it("handles exact shift boundaries without duplicating adjacent windows", () => {
+    const dayToNight = planningItem({ shift: "Dia", start: "19:00", end: "20:00" });
+    const nightStart = planningItem({ shift: "Noche", start: "20:00", end: "22:00" });
+    const nightToDay = planningItem({ shift: "Noche", start: "07:00", end: "08:00" });
+    const dayStart = planningItem({ shift: "Dia", start: "08:00", end: "10:00" });
+
+    expect(buildPlanningItemShiftProjection(dayToNight, "Dia")).toEqual({
+      start: "19:00",
+      end: "20:00",
+    });
+    expect(buildPlanningItemShiftProjection(dayToNight, "Noche")).toBeNull();
+    expect(buildPlanningItemShiftProjection(nightStart, "Noche")).toEqual({
+      start: "20:00",
+      end: "22:00",
+    });
+    expect(buildPlanningItemShiftProjection(nightToDay, "Noche")).toEqual({
+      start: "07:00",
+      end: "08:00",
+    });
+    expect(buildPlanningItemShiftProjection(nightToDay, "Dia")).toBeNull();
+    expect(buildPlanningItemShiftProjection(dayStart, "Dia")).toEqual({
+      start: "08:00",
+      end: "10:00",
+    });
   });
 
   it("selects the operational shift from the current time", () => {
@@ -245,7 +364,7 @@ describe("planning page helpers", () => {
     expect(formatGanttGroupingTitle(path)).toBe("Sin valor");
   });
 
-  it("uses groupable visible operational header fields ordered by sort_order and label", () => {
+  it("uses groupable visible operational header fields ordered by visual order when grouping_order is null", () => {
     const department = operationalHeaderField({
       id: 10,
       slug: "departamento",
@@ -289,6 +408,200 @@ describe("planning page helpers", () => {
       "Departamento:Mina",
       "Especialidad:Perforacion",
     ]);
+  });
+
+  it("orders Gantt grouping fields by explicit grouping_order before visual order", () => {
+    const department = operationalHeaderField({
+      id: 10,
+      slug: "departamento",
+      label: "Departamento",
+      input_type: "text",
+      sort_order: 10,
+      grouping_order: 30,
+    });
+    const specialty = operationalHeaderField({
+      id: 11,
+      slug: "especialidad",
+      label: "Especialidad",
+      input_type: "text",
+      sort_order: 20,
+      grouping_order: 10,
+    });
+    const fields = getGanttGroupingFields(operationalHeaderConfig([department, specialty]));
+
+    expect(fields.map((field) => field.slug)).toEqual(["especialidad", "departamento"]);
+  });
+
+  it("mixes explicit grouping_order with sort_order fallback", () => {
+    const department = operationalHeaderField({
+      id: 10,
+      slug: "departamento",
+      label: "Departamento",
+      input_type: "text",
+      sort_order: 10,
+      grouping_order: 50,
+    });
+    const specialty = operationalHeaderField({
+      id: 11,
+      slug: "especialidad",
+      label: "Especialidad",
+      input_type: "text",
+      sort_order: 20,
+      grouping_order: null,
+    });
+    const fields = getGanttGroupingFields(operationalHeaderConfig([department, specialty]));
+
+    expect(fields.map((field) => field.slug)).toEqual(["especialidad", "departamento"]);
+  });
+
+  it("uses sort_order, label and id as stable tie breakers for grouping_order", () => {
+    const sector = operationalHeaderField({
+      id: 12,
+      slug: "sector",
+      label: "Sector",
+      input_type: "text",
+      sort_order: 20,
+      grouping_order: 10,
+    });
+    const area = operationalHeaderField({
+      id: 13,
+      slug: "area",
+      label: "Area",
+      input_type: "text",
+      sort_order: 20,
+      grouping_order: 10,
+    });
+    const beta = operationalHeaderField({
+      id: 14,
+      slug: "beta",
+      label: "Area",
+      input_type: "text",
+      sort_order: 20,
+      grouping_order: 10,
+    });
+    const first = operationalHeaderField({
+      id: 15,
+      slug: "first",
+      label: "Zeta",
+      input_type: "text",
+      sort_order: 5,
+      grouping_order: 10,
+    });
+    const fields = getGanttGroupingFields(operationalHeaderConfig([sector, beta, first, area]));
+
+    expect(fields.map((field) => field.slug)).toEqual(["first", "area", "beta", "sector"]);
+  });
+
+  it("excludes inactive, non-groupable and non-visible fields from Gantt grouping", () => {
+    const visible = operationalHeaderField({
+      id: 10,
+      slug: "departamento",
+      label: "Departamento",
+      input_type: "text",
+    });
+    const inactive = operationalHeaderField({
+      id: 11,
+      slug: "area",
+      label: "Area",
+      input_type: "text",
+      active: false,
+    });
+    const notGroupable = operationalHeaderField({
+      id: 12,
+      slug: "sector",
+      label: "Sector",
+      input_type: "text",
+      groupable: false,
+    });
+    const notVisible = operationalHeaderField({
+      id: 13,
+      slug: "especialidad",
+      label: "Especialidad",
+      input_type: "text",
+      visible_in_gantt: false,
+    });
+
+    expect(getGanttGroupingFields(operationalHeaderConfig([
+      inactive,
+      notGroupable,
+      notVisible,
+      visible,
+    ])).map((field) => field.slug)).toEqual(["departamento"]);
+  });
+
+  it("does not mutate the original grouping field array", () => {
+    const fields = [
+      operationalHeaderField({
+        id: 10,
+        slug: "departamento",
+        label: "Departamento",
+        input_type: "text",
+        grouping_order: 20,
+      }),
+      operationalHeaderField({
+        id: 11,
+        slug: "especialidad",
+        label: "Especialidad",
+        input_type: "text",
+        grouping_order: 10,
+      }),
+    ];
+    const originalOrder = fields.map((field) => field.slug);
+    const sorted = sortOperationalHeaderGanttGroupingFields(fields);
+
+    expect(sorted.map((field) => field.slug)).toEqual(["especialidad", "departamento"]);
+    expect(fields.map((field) => field.slug)).toEqual(originalOrder);
+  });
+
+  it("filters Gantt grouping fields by active, groupable and visible before ordering", () => {
+    const visible = operationalHeaderField({
+      id: 10,
+      slug: "visible",
+      label: "Visible",
+      input_type: "text",
+      grouping_order: null,
+      sort_order: 20,
+    });
+    const first = operationalHeaderField({
+      id: 11,
+      slug: "first",
+      label: "First",
+      input_type: "text",
+      grouping_order: 1,
+      sort_order: 100,
+    });
+    const inactive = operationalHeaderField({
+      id: 12,
+      slug: "inactive",
+      label: "Inactive",
+      input_type: "text",
+      active: false,
+      grouping_order: 0,
+    });
+    const notVisible = operationalHeaderField({
+      id: 13,
+      slug: "not_visible",
+      label: "Not visible",
+      input_type: "text",
+      visible_in_gantt: false,
+      grouping_order: 0,
+    });
+    const notGroupable = operationalHeaderField({
+      id: 14,
+      slug: "not_groupable",
+      label: "Not groupable",
+      input_type: "text",
+      groupable: false,
+      grouping_order: 0,
+    });
+
+    expect(getOperationalHeaderGanttGroupingFields([
+      visible,
+      inactive,
+      notVisible,
+      notGroupable,
+      first,
+    ]).map((field) => field.slug)).toEqual(["first", "visible"]);
   });
 
   it("orders select grouping paths by option sort_order", () => {

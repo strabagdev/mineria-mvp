@@ -6,6 +6,12 @@ import type { GanttGroupingPathEntry, GanttScale } from "@/modules/planning/pres
 type TestItem = {
   id: number;
   shift: string;
+  start: string;
+  end: string;
+  gantt_projection?: {
+    start: string;
+    end: string;
+  };
 };
 
 type TestGroup = {
@@ -52,7 +58,7 @@ function group(overrides: Partial<TestGroup> = {}): TestGroup {
     category: "actividad",
     item_type: "unitaria",
     description: "Extraccion",
-    programado: { id: 1, shift: "Dia" },
+    programado: { id: 1, shift: "Dia", start: "08:00", end: "09:00" },
     realSegments: [],
     ...overrides,
   };
@@ -92,5 +98,37 @@ describe("GanttShiftSection grouping", () => {
 
     expect(html).toContain("Mina - Perforacion");
     expect(html).not.toContain("NTI - GT1");
+  });
+
+  it("projects planned items into the visible shift without duplicating real segments from another shift", () => {
+    const renderedBars: Array<{ id: number; layer: "programado" | "real"; projection?: { start: string; end: string } }> = [];
+
+    renderToStaticMarkup(
+      <GanttShiftSection
+        shift="Noche"
+        groups={[
+          group({
+            programado: { id: 1, shift: "Dia", start: "19:00", end: "21:00" },
+            realSegments: [
+              { id: 2, shift: "Dia", start: "19:00", end: "20:00" },
+              { id: 3, shift: "Noche", start: "20:00", end: "21:00" },
+            ],
+          }),
+        ]}
+        scale={scale}
+        renderBar={(item, layer) => {
+          if (item) {
+            renderedBars.push({ id: item.id, layer, projection: item.gantt_projection });
+          }
+          return null;
+        }}
+        renderCreateRealButton={() => null}
+      />
+    );
+
+    expect(renderedBars).toEqual([
+      { id: 1, layer: "programado", projection: { start: "20:00", end: "21:00" } },
+      { id: 3, layer: "real", projection: undefined },
+    ]);
   });
 });

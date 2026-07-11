@@ -24,6 +24,10 @@ export type PlanningItem = {
   notes?: string | null;
   operational_header_values?: PlanningItemOperationalHeaderValueDto[];
   sync_status?: "pending";
+  gantt_projection?: {
+    start: string;
+    end: string;
+  };
 };
 
 export type CatalogDetail = PlanningCatalogDetailDto;

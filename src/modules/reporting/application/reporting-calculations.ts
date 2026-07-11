@@ -14,6 +14,13 @@ import type {
   ReportOperationalHeaderValue,
   ReportRow,
 } from "../contracts/reporting";
+import {
+  getOperationalHeaderBreakdownFields,
+  getOperationalHeaderExportableFields,
+  getOperationalHeaderFilterableFields,
+  sortOperationalHeaderReportFields,
+  toOperationalHeaderReportColumn,
+} from "./reporting-operational-header";
 
 export type ReportSourceQuery = {
   shift: string;
@@ -248,28 +255,24 @@ function serializeOperationalHeaderValue(
 }
 
 function applyOperationalHeaderToRows(rows: ReportRow[], operationalHeader?: ReportOperationalHeaderInput) {
-  const exportableFields = (operationalHeader?.fields ?? [])
-    .filter((field) => field.active && field.exportable);
-  const columns = exportableFields
-    .sort((left, right) => left.sort_order - right.sort_order || left.label.localeCompare(right.label))
-    .map((field): ReportOperationalHeaderColumn => ({
-      id: field.id,
-      slug: field.slug,
-      label: field.label,
-      input_type: field.input_type,
-      sort_order: field.sort_order,
-    }));
+  const fields = operationalHeader?.fields ?? [];
+  const exportableFields = getOperationalHeaderExportableFields(fields);
+  const filterableFields = getOperationalHeaderFilterableFields(fields);
+  const valueFields = sortOperationalHeaderReportFields(Array.from(new Map(
+    [...exportableFields, ...filterableFields].map((field) => [field.id, field])
+  ).values()));
+  const columns = exportableFields.map(toOperationalHeaderReportColumn);
+  const filterColumns = filterableFields.map(toOperationalHeaderReportColumn);
 
-  if (!operationalHeader || !exportableFields.length) {
-    return { rows, operationalHeaderColumns: [] };
+  if (!operationalHeader || !valueFields.length) {
+    return { rows, operationalHeaderColumns: [], operationalHeaderFilterColumns: [] };
   }
 
   const valuesByTarget = indexOperationalHeaderValues(operationalHeader.values);
   const rowsWithOperationalHeader = rows.map((row): ReportRow => {
     const rowValues: Record<string, ReportOperationalHeaderValue> = {};
 
-    for (const field of exportableFields) {
-
+    for (const field of valueFields) {
       const value = serializeOperationalHeaderValue(
         field,
         getOperationalHeaderValueForRow(row, field.id, valuesByTarget)
@@ -283,7 +286,27 @@ function applyOperationalHeaderToRows(rows: ReportRow[], operationalHeader?: Rep
     return { ...row, operational_header_values: rowValues };
   });
 
-  return { rows: rowsWithOperationalHeader, operationalHeaderColumns: columns };
+  return {
+    rows: rowsWithOperationalHeader,
+    operationalHeaderColumns: columns,
+    operationalHeaderFilterColumns: filterColumns,
+  };
+}
+
+function projectOperationalHeaderRowsToColumns(
+  rows: ReportRow[],
+  columns: ReportOperationalHeaderColumn[]
+) {
+  const exportableSlugs = new Set(columns.map((column) => column.slug));
+
+  return rows.map((row): ReportRow => {
+    const exportedValues = Object.fromEntries(
+      Object.entries(row.operational_header_values ?? {})
+        .filter(([slug]) => exportableSlugs.has(slug))
+    );
+
+    return { ...row, operational_header_values: exportedValues };
+  });
 }
 
 function getOperationalHeaderFilterColumns(columns: ReportOperationalHeaderColumn[]) {
@@ -310,7 +333,7 @@ function applyOperationalHeaderFilters(
 ) {
   const columnsBySlug = getOperationalHeaderFilterColumns(columns);
   const filters = getOperationalHeaderFilters(query);
-  const entries = Object.entries(filters);
+  const entries = Object.entries(filters).filter(([slug]) => columnsBySlug.has(slug));
 
   if (!entries.length) {
     return rows;
@@ -335,9 +358,7 @@ function buildOperationalHeaderBreakdowns(
   operationalHeader?: ReportOperationalHeaderInput
 ) {
   const groupableSlugs = new Set(
-    (operationalHeader?.fields ?? [])
-      .filter((field) => field.active && field.groupable && field.exportable)
-      .map((field) => field.slug)
+    getOperationalHeaderBreakdownFields(operationalHeader?.fields ?? []).map((field) => field.slug)
   );
   const breakdowns: Record<string, ReturnType<typeof groupOperationalHeaderTotals>> = {};
 
@@ -602,8 +623,13 @@ export function buildReportFromSourceRows(
         `${left.item_date}-${left.start_time}-${left.id}`
       )
     );
-  const { rows: rowsWithOperationalHeader, operationalHeaderColumns } = applyOperationalHeaderToRows(baseRows, operationalHeader);
-  const rows = applyOperationalHeaderFilters(rowsWithOperationalHeader, operationalHeaderColumns, query);
+  const {
+    rows: rowsWithOperationalHeader,
+    operationalHeaderColumns,
+    operationalHeaderFilterColumns,
+  } = applyOperationalHeaderToRows(baseRows, operationalHeader);
+  const filteredRows = applyOperationalHeaderFilters(rowsWithOperationalHeader, operationalHeaderFilterColumns, query);
+  const rows = projectOperationalHeaderRowsToColumns(filteredRows, operationalHeaderColumns);
   const assignmentRows = buildReportAssignmentRows(rows, assignmentsInput);
 
   const plannedRowsFiltered = rows.filter((row) => row.tracking_type === "programado");

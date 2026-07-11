@@ -51,6 +51,7 @@ function operationalHeaderField(input: Partial<OperationalHeaderFieldDto> & Pick
     required: false,
     active: true,
     sort_order: 100,
+    grouping_order: null,
     groupable: true,
     filterable: true,
     visible_in_gantt: true,
@@ -177,6 +178,8 @@ describe("reports service calculations", () => {
 
   it("handles records crossing midnight", () => {
     expect(getReportDurationMinutes("23:30:00", "01:00:00")).toBe(90);
+    expect(getReportDurationMinutes("19:00:00", "07:00:00")).toBe(720);
+    expect(getReportDurationMinutes("23:00:00", "09:00:00")).toBe(600);
   });
 
   it("applies date-independent filters by shift and type without legacy level/front", () => {
@@ -262,6 +265,58 @@ describe("reports service calculations", () => {
     expect(realRow?.operational_header_values?.especialidad?.value).toBe("Fortificacion");
   });
 
+  it("orders reportable operational header columns by sort_order, label and id without grouping_order", () => {
+    const zetaField = operationalHeaderField({
+      id: 70,
+      slug: "zeta",
+      label: "Zeta",
+      input_type: "text",
+      sort_order: 10,
+      grouping_order: 1,
+    });
+    const alphaHighId = operationalHeaderField({
+      id: 72,
+      slug: "alpha_high",
+      label: "Alpha",
+      input_type: "text",
+      sort_order: 20,
+      grouping_order: 1,
+    });
+    const alphaLowId = operationalHeaderField({
+      id: 71,
+      slug: "alpha_low",
+      label: "Alpha",
+      input_type: "text",
+      sort_order: 20,
+      grouping_order: 1,
+    });
+    const betaField = operationalHeaderField({
+      id: 73,
+      slug: "beta",
+      label: "Beta",
+      input_type: "text",
+      sort_order: 20,
+      grouping_order: 0,
+    });
+    const report = buildReportFromSourceRows(
+      emptyQuery,
+      [basePlanned],
+      [],
+      undefined,
+      {
+        fields: [betaField, alphaHighId, zetaField, alphaLowId],
+        values: [],
+      }
+    );
+
+    expect(report.operational_header_columns?.map((column) => column.slug)).toEqual([
+      "zeta",
+      "alpha_low",
+      "alpha_high",
+      "beta",
+    ]);
+  });
+
   it("does not fallback to legacy level and front for operational header columns", () => {
     const levelField = operationalHeaderField({
       id: 44,
@@ -325,6 +380,104 @@ describe("reports service calculations", () => {
     expect(report.rows[0]?.operational_header_values?.departamento?.value).toBe("Mina");
   });
 
+  it("filters by operational header fields that are filterable but not exportable", () => {
+    const guardField = operationalHeaderField({
+      id: 59,
+      slug: "guardia",
+      label: "Guardia",
+      input_type: "select",
+      filterable: true,
+      exportable: false,
+      options: [
+        { id: 959, field_id: 59, value: "a", label: "A", active: true, sort_order: 10, metadata: {} },
+        { id: 960, field_id: 59, value: "b", label: "B", active: true, sort_order: 20, metadata: {} },
+      ],
+    });
+    const report = buildReportFromSourceRows(
+      {
+        ...emptyQuery,
+        operational_header_filters: { guardia: "A" },
+      },
+      [basePlanned],
+      [{ ...baseReal, id: 11 }],
+      undefined,
+      {
+        fields: [guardField],
+        values: [
+          operationalHeaderValue({ id: 510, field_id: guardField.id, planning_item_id: basePlanned.id, option_id: 959 }),
+          operationalHeaderValue({ id: 511, field_id: guardField.id, execution_segment_id: 11, option_id: 960 }),
+        ],
+      }
+    );
+
+    expect(report.rows).toHaveLength(1);
+    expect(report.rows[0]?.source_table).toBe("planning_items");
+    expect(report.operational_header_columns).toEqual([]);
+    expect(report.rows[0]?.operational_header_values?.guardia).toBeUndefined();
+  });
+
+  it("does not apply filters for fields that are exportable but not filterable", () => {
+    const areaField = operationalHeaderField({
+      id: 60,
+      slug: "area",
+      label: "Area",
+      input_type: "text",
+      filterable: false,
+      exportable: true,
+    });
+    const report = buildReportFromSourceRows(
+      {
+        ...emptyQuery,
+        operational_header_filters: { area: "Norte" },
+      },
+      [basePlanned],
+      [{ ...baseReal, id: 11 }],
+      undefined,
+      {
+        fields: [areaField],
+        values: [
+          operationalHeaderValue({ id: 512, field_id: areaField.id, planning_item_id: basePlanned.id, value_text: "Norte" }),
+          operationalHeaderValue({ id: 513, field_id: areaField.id, execution_segment_id: 11, value_text: "Sur" }),
+        ],
+      }
+    );
+
+    expect(report.rows).toHaveLength(2);
+    expect(report.operational_header_columns?.map((column) => column.slug)).toEqual(["area"]);
+    expect(report.rows.map((row) => row.operational_header_values?.area?.value).sort()).toEqual(["Norte", "Sur"]);
+  });
+
+  it("ignores filters for inactive operational header fields", () => {
+    const inactiveField = operationalHeaderField({
+      id: 61,
+      slug: "sector",
+      label: "Sector",
+      input_type: "text",
+      active: false,
+      filterable: true,
+      exportable: true,
+    });
+    const report = buildReportFromSourceRows(
+      {
+        ...emptyQuery,
+        operational_header_filters: { sector: "S1" },
+      },
+      [basePlanned],
+      [],
+      undefined,
+      {
+        fields: [inactiveField],
+        values: [
+          operationalHeaderValue({ id: 514, field_id: inactiveField.id, planning_item_id: basePlanned.id, value_text: "S1" }),
+        ],
+      }
+    );
+
+    expect(report.rows).toHaveLength(1);
+    expect(report.operational_header_columns).toEqual([]);
+    expect(report.rows[0]?.operational_header_values?.sector).toBeUndefined();
+  });
+
   it("uses exact matching for select operational header filters", () => {
     const departmentField = operationalHeaderField({
       id: 51,
@@ -381,6 +534,36 @@ describe("reports service calculations", () => {
     expect(report.rows).toHaveLength(1);
     expect(report.rows[0]?.source_table).toBe("activity_execution_segments");
     expect(report.rows[0]?.operational_header_values?.especialidad?.value).toBe("Fortificacion");
+  });
+
+  it("clears operational header filters when the filter value is empty", () => {
+    const specialtyField = operationalHeaderField({
+      id: 62,
+      slug: "especialidad",
+      label: "Especialidad",
+      input_type: "text",
+      filterable: true,
+      exportable: false,
+    });
+    const report = buildReportFromSourceRows(
+      {
+        ...emptyQuery,
+        operational_header_filters: { especialidad: "   " },
+      },
+      [basePlanned],
+      [{ ...baseReal, id: 12 }],
+      undefined,
+      {
+        fields: [specialtyField],
+        values: [
+          operationalHeaderValue({ id: 515, field_id: specialtyField.id, planning_item_id: basePlanned.id, value_text: "Perforacion" }),
+          operationalHeaderValue({ id: 516, field_id: specialtyField.id, execution_segment_id: 12, value_text: "Fortificacion" }),
+        ],
+      }
+    );
+
+    expect(report.rows).toHaveLength(2);
+    expect(report.operational_header_columns).toEqual([]);
   });
 
   it("maps legacy level and front query filters to operational header aliases", () => {
@@ -478,6 +661,45 @@ describe("reports service calculations", () => {
     ]);
     expect(report.breakdowns.by_operational_header.departamento).toEqual([
       { label: "Mina", count: 2, hours: 3.25 },
+    ]);
+  });
+
+  it("keeps breakdowns tied to groupable exportable fields, not filterable-only fields", () => {
+    const filterOnlyField = operationalHeaderField({
+      id: 63,
+      slug: "guardia",
+      label: "Guardia",
+      input_type: "text",
+      groupable: true,
+      filterable: true,
+      exportable: false,
+    });
+    const exportableField = operationalHeaderField({
+      id: 64,
+      slug: "area",
+      label: "Area",
+      input_type: "text",
+      groupable: true,
+      filterable: false,
+      exportable: true,
+    });
+    const report = buildReportFromSourceRows(
+      emptyQuery,
+      [basePlanned],
+      [],
+      undefined,
+      {
+        fields: [filterOnlyField, exportableField],
+        values: [
+          operationalHeaderValue({ id: 517, field_id: filterOnlyField.id, planning_item_id: basePlanned.id, value_text: "A" }),
+          operationalHeaderValue({ id: 518, field_id: exportableField.id, planning_item_id: basePlanned.id, value_text: "Norte" }),
+        ],
+      }
+    );
+
+    expect(Object.keys(report.breakdowns.by_operational_header)).toEqual(["area"]);
+    expect(report.breakdowns.by_operational_header.area).toEqual([
+      { label: "Norte", count: 1, hours: 2 },
     ]);
   });
 

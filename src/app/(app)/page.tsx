@@ -69,10 +69,12 @@ import { recordOperationalEvent } from "../../lib/observability/logger";
 import {
   buildEventSubtitle,
   buildEventTitle,
+  buildGanttBarPlacement,
   buildGanttCurrentTimeMarker,
   buildGanttBarLabel,
   buildGanttScale,
   buildPlanningItemAriaLabel,
+  doesPlanningItemIntersectShiftWindow,
   formatDateLabel,
   formatDateTitle,
   formatDuration,
@@ -86,7 +88,6 @@ import {
   getGanttGroupingFields,
   getInitialOperationalView,
   isSameCalendarMonth,
-  positionMinutesInScale,
   SHIFT_CONFIG,
   toDisplayCategory,
   toTrackingTypeLabel,
@@ -1511,10 +1512,14 @@ export default function Home() {
   const allPlanningGroups = groupPlanningItems(visiblePlanningItems, ganttGroupingFields);
   const planningGroupsByShift: Record<ShiftKey, PlanningGroup[]> = {
     Dia: allPlanningGroups.filter(
-      (group) => group.programado?.shift === "Dia" || group.realSegments.some((segment) => segment.shift === "Dia")
+      (group) =>
+        (group.programado ? doesPlanningItemIntersectShiftWindow(group.programado, "Dia") : false) ||
+        group.realSegments.some((segment) => segment.shift === "Dia")
     ),
     Noche: allPlanningGroups.filter(
-      (group) => group.programado?.shift === "Noche" || group.realSegments.some((segment) => segment.shift === "Noche")
+      (group) =>
+        (group.programado ? doesPlanningItemIntersectShiftWindow(group.programado, "Noche") : false) ||
+        group.realSegments.some((segment) => segment.shift === "Noche")
     ),
   };
   const ganttScales: Record<ShiftKey, GanttScale> = {
@@ -1581,16 +1586,14 @@ export default function Home() {
       return null;
     }
 
-    const start = positionMinutesInScale(item.start, scale);
-    let end = positionMinutesInScale(item.end, scale);
+    const visualStart = item.gantt_projection?.start ?? item.start;
+    const visualEnd = item.gantt_projection?.end ?? item.end;
+    const placement = buildGanttBarPlacement(visualStart, visualEnd, scale);
 
-    if (end <= start) {
-      end += 24 * 60;
+    if (!placement) {
+      return null;
     }
 
-    const scaleSpan = scale.endMinutes - scale.startMinutes;
-    const startOffset = ((start - scale.startMinutes) / scaleSpan) * 100;
-    const width = ((end - start) / scaleSpan) * 100;
     const duration = formatDuration(item.start, item.end);
     const ariaLabel = buildPlanningItemAriaLabel(item, duration);
     const barLabel = buildGanttBarLabel(item, layer);
@@ -1616,12 +1619,12 @@ export default function Home() {
             openPlanningDetail(item);
           }
         }}
-        style={{ left: `${startOffset}%`, width: `${width}%` }}
+        style={{ left: `${placement.leftPercent}%`, width: `${placement.widthPercent}%` }}
       >
         <span className="gantt-bar-content" aria-hidden="true">
           <span className={`gantt-bar-label ${layer}`}>{barLabel}</span>
           <span className="gantt-bar-subline">
-            {item.start} - {item.end}
+            {visualStart} - {visualEnd}
           </span>
         </span>
         {item.sync_status === "pending" ? <span className="gantt-bar-status-dot" aria-hidden="true" /> : null}
@@ -1630,6 +1633,9 @@ export default function Home() {
             <strong>{item.description}</strong>
             <span className="gantt-tooltip-muted">
               {item.start} - {item.end}
+            </span>
+            <span className="gantt-tooltip-muted">
+              Duracion: {duration}
             </span>
             <span className="gantt-tooltip-line">
               Ubicacion: {locationLabel}

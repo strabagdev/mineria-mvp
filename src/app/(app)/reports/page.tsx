@@ -33,6 +33,7 @@ import {
   buildReportXlsxWorkbook,
   getReportXlsxFilename,
 } from "@/modules/reporting/presentation/reporting-xlsx-export";
+import { getOperationalHeaderFilterableFields } from "@/modules/reporting/application/reporting-operational-header";
 import { fetchOperationalHeaderConfig } from "@/modules/operational-header/application/operational-header.client";
 import type {
   OperationalHeaderFieldDto,
@@ -319,9 +320,7 @@ function ReportAssignmentSummaryCell({
 }
 
 function getOperationalHeaderFilterFields(config: OperationalHeaderResponseDto | null) {
-  return [...(config?.fields ?? [])]
-    .filter((field) => field.active && field.filterable)
-    .sort((left, right) => left.sort_order - right.sort_order || left.label.localeCompare(right.label));
+  return getOperationalHeaderFilterableFields(config?.fields ?? []);
 }
 
 function getOperationalHeaderOptionValue(option: OperationalHeaderFieldDto["options"][number]) {

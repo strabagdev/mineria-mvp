@@ -7,6 +7,7 @@ import type {
   OperationalHeaderFieldDto,
   OperationalHeaderResponseDto,
 } from "@/modules/operational-header/contracts/operational-header";
+import { getOperationalHeaderGanttGroupingFields } from "../../operational-header/application/operational-header-ordering";
 import type { PlanningItem } from "./planning-page-models";
 
 export type GanttScale = {
@@ -28,6 +29,11 @@ export type GanttCurrentTimeMarker = {
   offsetPercent: number;
   label: string;
   timeLabel: string;
+};
+
+export type GanttBarPlacement = {
+  leftPercent: number;
+  widthPercent: number;
 };
 
 export type OperationalView = {
@@ -61,6 +67,8 @@ type PlanningTimelineItem = {
   item_type: string;
   description: string;
 };
+
+type PlanningShiftProjectionInput = Pick<PlanningTimelineItem, "start" | "end" | "shift">;
 
 type PlanningRealEventGroup = {
   shift: string;
@@ -154,9 +162,7 @@ function findGroupingOption(field: GanttGroupingField, input: { value: string; o
 }
 
 export function getGanttGroupingFields(config?: OperationalHeaderResponseDto | null): GanttGroupingField[] {
-  return (config?.fields ?? [])
-    .filter((field) => field.active && field.groupable && field.visible_in_gantt)
-    .sort((left, right) => left.sort_order - right.sort_order || left.label.localeCompare(right.label));
+  return getOperationalHeaderGanttGroupingFields(config?.fields ?? []);
 }
 
 export function resolveGanttGroupingPath(
@@ -411,6 +417,107 @@ export function positionMinutesInScale(time: string, scale: GanttScale) {
   }
 
   return minutes;
+}
+
+export function buildGanttBarPlacement(
+  startTime: string,
+  endTime: string,
+  scale: GanttScale
+): GanttBarPlacement | null {
+  const start = positionMinutesInScale(startTime, scale);
+  let end = positionMinutesInScale(endTime, scale);
+
+  if (end <= start) {
+    end += 24 * 60;
+  }
+
+  const visibleStart = Math.max(start, scale.startMinutes);
+  const visibleEnd = Math.min(end, scale.endMinutes);
+
+  if (visibleEnd <= visibleStart) {
+    return null;
+  }
+
+  const scaleSpan = scale.endMinutes - scale.startMinutes;
+
+  return {
+    leftPercent: ((visibleStart - scale.startMinutes) / scaleSpan) * 100,
+    widthPercent: ((visibleEnd - visibleStart) / scaleSpan) * 100,
+  };
+}
+
+function toOperationalRangeForShift(item: PlanningShiftProjectionInput) {
+  const startMinutes = toMinutes(item.start);
+  let endMinutes = toMinutes(item.end);
+
+  if (item.shift === "Dia") {
+    if (endMinutes <= startMinutes) {
+      endMinutes += 24 * 60;
+    }
+
+    return {
+      start: startMinutes,
+      end: endMinutes,
+    };
+  }
+
+  let anchoredEnd = endMinutes;
+
+  if (anchoredEnd <= startMinutes) {
+    anchoredEnd += 24 * 60;
+  }
+
+  return {
+    start: startMinutes,
+    end: anchoredEnd,
+  };
+}
+
+function getShiftProjectionWindows(item: PlanningShiftProjectionInput, viewedShift: ShiftKey) {
+  const dayStart = toMinutes(SHIFT_CONFIG.Dia.start);
+  const dayEnd = toMinutes(SHIFT_CONFIG.Dia.end);
+  const nightStart = toMinutes(SHIFT_CONFIG.Noche.start);
+  const nightEnd = toMinutes(SHIFT_CONFIG.Noche.end);
+  const itemStartsInEarlyNight = item.shift === "Noche" && toMinutes(item.start) < nightEnd;
+
+  if (viewedShift === "Dia") {
+    return item.shift === "Noche" && !itemStartsInEarlyNight
+      ? [{ start: dayStart + 24 * 60, end: dayEnd + 24 * 60 }]
+      : [{ start: dayStart, end: dayEnd }];
+  }
+
+  return itemStartsInEarlyNight
+    ? [{ start: nightStart - 24 * 60, end: nightEnd }]
+    : [{ start: nightStart, end: nightEnd + 24 * 60 }];
+}
+
+export function buildPlanningItemShiftProjection(
+  item: PlanningShiftProjectionInput,
+  viewedShift: ShiftKey
+) {
+  const eventRange = toOperationalRangeForShift(item);
+  const windows = getShiftProjectionWindows(item, viewedShift);
+
+  for (const window of windows) {
+    const visibleStart = Math.max(eventRange.start, window.start);
+    const visibleEnd = Math.min(eventRange.end, window.end);
+
+    if (visibleEnd > visibleStart) {
+      return {
+        start: toTimeLabel(visibleStart),
+        end: toTimeLabel(visibleEnd),
+      };
+    }
+  }
+
+  return null;
+}
+
+export function doesPlanningItemIntersectShiftWindow(
+  item: PlanningShiftProjectionInput,
+  viewedShift: ShiftKey
+) {
+  return buildPlanningItemShiftProjection(item, viewedShift) !== null;
 }
 
 function isMinuteInsideShift(minutes: number, shift: ShiftWindowConfig[ShiftKey]) {

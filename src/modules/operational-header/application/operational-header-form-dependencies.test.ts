@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   resolveOperationalHeaderDynamicFormFields,
+  shouldValidateOperationalHeaderRequiredField,
 } from "./operational-header-form-dependencies";
 import type { OperationalHeaderResponseDto } from "@/modules/operational-header/contracts/operational-header";
 
@@ -14,6 +15,7 @@ const config: OperationalHeaderResponseDto = {
       required: true,
       active: true,
       sort_order: 10,
+      grouping_order: null,
       groupable: true,
       filterable: true,
       visible_in_gantt: true,
@@ -31,6 +33,7 @@ const config: OperationalHeaderResponseDto = {
       required: true,
       active: true,
       sort_order: 20,
+      grouping_order: null,
       groupable: true,
       filterable: true,
       visible_in_gantt: true,
@@ -97,6 +100,7 @@ describe("operational header form dependencies", () => {
             required: false,
             active: true,
             sort_order: 40,
+            grouping_order: null,
             groupable: true,
             filterable: true,
             visible_in_gantt: true,
@@ -111,6 +115,7 @@ describe("operational header form dependencies", () => {
             required: true,
             active: true,
             sort_order: 30,
+            grouping_order: null,
             groupable: true,
             filterable: true,
             visible_in_gantt: true,
@@ -129,6 +134,29 @@ describe("operational header form dependencies", () => {
     expect(resolved[2]?.options.map((option) => option.label)).toEqual(["Mantencion", "Mina"]);
   });
 
+  it("keeps form field order based on sort_order, not grouping_order", () => {
+    const resolved = resolveOperationalHeaderDynamicFormFields({
+      config: {
+        dependencies: [],
+        fields: [
+          {
+            ...config.fields[0],
+            sort_order: 20,
+            grouping_order: 1,
+          },
+          {
+            ...config.fields[1],
+            sort_order: 10,
+            grouping_order: 99,
+          },
+        ],
+      },
+      dynamicValues: {},
+    });
+
+    expect(resolved.map(({ field }) => field.slug)).toEqual(["frente", "nivel"]);
+  });
+
   it("applies dependencies to dynamic select fields using header values only", () => {
     const resolved = resolveOperationalHeaderDynamicFormFields({
       config: {
@@ -143,6 +171,7 @@ describe("operational header form dependencies", () => {
             required: true,
             active: true,
             sort_order: 30,
+            grouping_order: null,
             groupable: true,
             filterable: true,
             visible_in_gantt: true,
@@ -187,6 +216,7 @@ describe("operational header form dependencies", () => {
             required: true,
             active: true,
             sort_order: 30,
+            grouping_order: null,
             groupable: true,
             filterable: true,
             visible_in_gantt: true,
@@ -213,5 +243,58 @@ describe("operational header form dependencies", () => {
     const departamento = resolved.find(({ field }) => field.label === "Departamento");
 
     expect(departamento?.options).toEqual([]);
+  });
+
+  it("does not apply required validation while a dependent field is waiting for its parent", () => {
+    const resolved = resolveOperationalHeaderDynamicFormFields({
+      config,
+      dynamicValues: {},
+    });
+    const frente = resolved.find(({ field }) => field.slug === "frente");
+
+    expect(frente?.captureState.unavailableReason).toBe("missing_parent");
+    expect(frente?.captureState.requiredApplies).toBe(false);
+    expect(frente ? shouldValidateOperationalHeaderRequiredField(frente) : true).toBe(false);
+  });
+
+  it("marks required dependent selects as invalid when the selected parent has no child options", () => {
+    const resolved = resolveOperationalHeaderDynamicFormFields({
+      config,
+      dynamicValues: { 1: "NTI" },
+    });
+    const frente = resolved.find(({ field }) => field.slug === "frente");
+
+    expect(frente?.options).toEqual([]);
+    expect(frente?.captureState.unavailableReason).toBe("no_valid_options");
+    expect(frente?.captureState.requiredApplies).toBe(true);
+  });
+
+  it("ignores inactive fields for capture and validation", () => {
+    const resolved = resolveOperationalHeaderDynamicFormFields({
+      config: {
+        ...config,
+        fields: [
+          ...config.fields,
+          {
+            id: 5,
+            slug: "sector",
+            label: "Sector",
+            input_type: "text",
+            required: true,
+            active: false,
+            sort_order: 50,
+            grouping_order: null,
+            groupable: true,
+            filterable: true,
+            visible_in_gantt: true,
+            exportable: true,
+            options: [],
+          },
+        ],
+      },
+      dynamicValues: {},
+    });
+
+    expect(resolved.some(({ field }) => field.slug === "sector")).toBe(false);
   });
 });
