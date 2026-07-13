@@ -7,14 +7,20 @@ import {
   getAllOperationalHeaderOptionIds,
   getBulkDependencyCandidateOptionIds,
   getInitialOperationalHeaderFieldId,
+  getInitialOperationalHeaderDependencyParentOptionIds,
   getNextOperationalHeaderFieldIdAfterDelete,
   getOperationalHeaderBehaviorWarnings,
+  formatOperationalHeaderRequiredDependencyWarning,
+  getOperationalHeaderDependencyParentOptionSelection,
+  getOperationalHeaderDependencyParentOptionId,
+  getOperationalHeaderRequiredDependencyWarning,
   getOperationalHeaderOptionSelection,
   getOperationalHeaderDependenciesForField,
   getOperationalHeaderDependencyParentFieldIds,
   isBulkDependencySameField,
   OperationalHeaderAdminPanel,
   parseOptionalOperationalHeaderOrder,
+  reconcileOperationalHeaderDependencyParentOptionIds,
   resolveOperationalHeaderGroupingOrder,
   sortOperationalHeaderOptions,
   sortOperationalHeaderFields,
@@ -83,14 +89,39 @@ const config: OperationalHeaderResponseDto = {
       exportable: true,
       options: [],
     },
+    {
+      id: 3,
+      slug: "departamento",
+      label: "Departamento",
+      input_type: "select",
+      required: false,
+      active: true,
+      sort_order: 30,
+      grouping_order: null,
+      groupable: true,
+      filterable: true,
+      visible_in_gantt: true,
+      exportable: true,
+      options: [
+        {
+          id: 30,
+          field_id: 3,
+          value: "mina",
+          label: "Mina",
+          active: true,
+          sort_order: 10,
+          metadata: {},
+        },
+      ],
+    },
   ],
   dependencies: [
     {
       id: 100,
       field_id: 1,
       option_id: 10,
-      depends_on_field_id: 1,
-      depends_on_option_id: 10,
+      depends_on_field_id: 3,
+      depends_on_option_id: 30,
     },
   ],
 };
@@ -121,11 +152,13 @@ describe("OperationalHeaderAdminPanel", () => {
     expect(html).toContain("Editar opción");
     expect(html).toContain("Desactivar");
     expect(html).toContain("Eliminar opción");
-    expect(html).toContain("Asignar a opción padre");
-    expect(html).toContain("Asignar opciones");
+    expect(html).not.toContain("Asignar a opción padre");
+    expect(html).not.toContain("Asignar opciones");
     expect(html).not.toContain("Sugerir padre");
     expect(html).toContain("Campo padre");
     expect(html).toContain("1 permitidas");
+    expect(html).toContain("operational-header-dependency-master-detail");
+    expect(html).toContain("operational-header-dependency-parent-list");
     expect(html).toContain("Nivel");
     expect(html).toContain("Configura este campo, sus opciones y sus dependencias en un solo lugar.");
     expect(html).toContain("nivel");
@@ -146,7 +179,7 @@ describe("OperationalHeaderAdminPanel", () => {
     expect(html).toContain("Seleccionar todas");
     expect(html).toContain("Limpiar selección");
     expect(html).toContain("0 seleccionadas");
-    expect(html).toContain("Depende de Nivel. Ajusta las relaciones en la matriz.");
+    expect(html).toContain("Depende de Departamento. Revisa cada opción padre y marca sus opciones permitidas.");
     expect(html).toContain("1 relaciones");
     expect(html).toContain("operational-header-dependency-matrix");
     expect(html).toContain("operational-header-master-detail");
@@ -231,13 +264,17 @@ describe("OperationalHeaderAdminPanel", () => {
         grouping_order: "5",
       },
       activeOptionCount: 0,
-      requiredParentOptionsWithoutChildren: 2,
+      requiredDependencyWarning: {
+        childFieldLabel: "Frente",
+        parentFieldLabel: "Nivel",
+        parentOptionLabels: ["NTI", "NNM"],
+      },
     })).toEqual([
       "Mientras este campo esté inactivo, no será obligatorio en la captura.",
       "Mientras este campo esté inactivo, no aparecerá en tabla, CSV ni Excel.",
       "Este campo puede generar breakdowns si es exportable, pero no agrupará Gantt mientras no sea visible en Gantt.",
       "El orden de agrupación configurado no tendrá efecto hasta que el campo sea agrupable y visible en Gantt.",
-      "Algunas opciones del campo padre dejan este campo obligatorio sin alternativas disponibles: 2 opciones padre presentan el problema.",
+      "NTI y NNM no tienen ningún Frente permitido. Como Frente es obligatorio, esas combinaciones impedirán completar el formulario.",
     ]);
 
     expect(getOperationalHeaderBehaviorWarnings({
@@ -252,11 +289,31 @@ describe("OperationalHeaderAdminPanel", () => {
         grouping_order: "",
       },
       activeOptionCount: 0,
-      requiredParentOptionsWithoutChildren: 0,
+      requiredDependencyWarning: null,
     })).toEqual([
       "Visible en Gantt no tendrá efecto hasta que el campo sea agrupable.",
       "Se podrá filtrar por este campo en reportes, pero no aparecerá como columna ni se exportará.",
     ]);
+  });
+
+  it("formats required dependency warnings with singular, plural names and truncation", () => {
+    expect(formatOperationalHeaderRequiredDependencyWarning({
+      childFieldLabel: "Frente",
+      parentFieldLabel: "Nivel",
+      parentOptionLabels: ["SNV"],
+    })).toBe("SNV no tiene ningún Frente permitido. Como Frente es obligatorio, esa combinación impedirá completar el formulario.");
+
+    expect(formatOperationalHeaderRequiredDependencyWarning({
+      childFieldLabel: "Frente",
+      parentFieldLabel: "Nivel",
+      parentOptionLabels: ["NTI", "NNM", "SNV"],
+    })).toBe("NTI, NNM y SNV no tienen ningún Frente permitido. Como Frente es obligatorio, esas combinaciones impedirán completar el formulario.");
+
+    expect(formatOperationalHeaderRequiredDependencyWarning({
+      childFieldLabel: "Frente",
+      parentFieldLabel: "Nivel",
+      parentOptionLabels: ["NTI", "NNM", "SNV", "Otro"],
+    })).toBe("NTI, NNM y 2 opciones más no tienen ningún Frente permitido. Como Frente es obligatorio, esas combinaciones impedirán completar el formulario.");
   });
 
   it("explains grouping order has no effect when the field is hidden from Gantt", () => {
@@ -325,7 +382,7 @@ describe("OperationalHeaderAdminPanel", () => {
       />
     );
 
-    expect(html).toContain("Algunas opciones del campo padre dejan este campo obligatorio sin alternativas disponibles");
+    expect(html).toContain("NNM no tiene ningún Frente permitido. Como Frente es obligatorio, esa combinación impedirá completar el formulario.");
   });
 
   it("selects the first field ordered by sort order and label", () => {
@@ -378,7 +435,7 @@ describe("OperationalHeaderAdminPanel", () => {
     });
 
     expect(fieldDependencies).toHaveLength(1);
-    expect(getOperationalHeaderDependencyParentFieldIds(fieldDependencies)).toEqual([1]);
+    expect(getOperationalHeaderDependencyParentFieldIds(fieldDependencies)).toEqual([3]);
     expect(getOperationalHeaderDependenciesForField({
       fieldId: 2,
       dependencies: config.dependencies,
@@ -393,8 +450,8 @@ describe("OperationalHeaderAdminPanel", () => {
     });
 
     expect(matrix).toHaveLength(1);
-    expect(matrix[0].parentField.id).toBe(1);
-    expect(matrix[0].parentOptions.map((group) => group.parentOption.id)).toEqual([10]);
+    expect(matrix[0].parentField.id).toBe(3);
+    expect(matrix[0].parentOptions.map((group) => group.parentOption.id)).toEqual([30]);
     expect(matrix[0].parentOptions[0].allowedCount).toBe(1);
     expect(matrix[0].parentOptions[0].children.map((child) => ({
       optionId: child.option.id,
@@ -403,6 +460,181 @@ describe("OperationalHeaderAdminPanel", () => {
       { optionId: 10, selected: true },
       { optionId: 11, selected: false },
     ]);
+  });
+
+  it("builds a dependency matrix from a selected fallback parent field before relations exist", () => {
+    const matrix = buildOperationalHeaderDependencyMatrix({
+      field: config.fields[0],
+      fields: config.fields,
+      dependencies: [],
+      fallbackParentFieldId: 3,
+    });
+
+    expect(matrix).toHaveLength(1);
+    expect(matrix[0].parentField.id).toBe(3);
+    expect(matrix[0].parentOptions[0].allowedCount).toBe(0);
+    expect(getInitialOperationalHeaderDependencyParentOptionIds(matrix)).toEqual({ 3: 30 });
+    expect(getOperationalHeaderDependencyParentOptionId({
+      selectedParentOptionIds: {},
+      parentField: matrix[0],
+    })).toBe(30);
+  });
+
+  it("detects required parent options without allowed child options", () => {
+    const matrix = buildOperationalHeaderDependencyMatrix({
+      field: {
+        ...config.fields[0],
+        label: "Frente",
+        required: true,
+        options: [
+          { id: 10, field_id: 1, value: "frente_1", label: "Frente 1", active: true, sort_order: 10, metadata: {} },
+        ],
+      },
+      fields: [
+        {
+          ...config.fields[2],
+          label: "Nivel",
+          options: [
+            { id: 30, field_id: 3, value: "nti", label: "NTI", active: true, sort_order: 10, metadata: {} },
+            { id: 31, field_id: 3, value: "nnm", label: "NNM", active: true, sort_order: 20, metadata: {} },
+          ],
+        },
+      ],
+      dependencies: [
+        {
+          id: 200,
+          field_id: 1,
+          option_id: 10,
+          depends_on_field_id: 3,
+          depends_on_option_id: 30,
+        },
+      ],
+    });
+
+    expect(getOperationalHeaderRequiredDependencyWarning({
+      field: { ...config.fields[0], label: "Frente", required: true },
+      matrix,
+    })).toEqual({
+      childFieldLabel: "Frente",
+      parentFieldLabel: "Nivel",
+      parentOptionLabels: ["NNM"],
+    });
+
+    expect(getOperationalHeaderRequiredDependencyWarning({
+      field: { ...config.fields[0], label: "Frente", required: false },
+      matrix,
+    })).toBeNull();
+  });
+
+  it("keeps parent option selection when dependency relations change", () => {
+    const parentField = {
+      ...config.fields[2],
+      options: [
+        { id: 30, field_id: 3, value: "mina", label: "Mina", active: true, sort_order: 10, metadata: {} },
+        { id: 31, field_id: 3, value: "planta", label: "Planta", active: true, sort_order: 20, metadata: {} },
+      ],
+    };
+    const childField = {
+      ...config.fields[0],
+      options: [
+        { id: 10, field_id: 1, value: "frente_1", label: "Frente 1", active: true, sort_order: 10, metadata: {} },
+        { id: 11, field_id: 1, value: "frente_2", label: "Frente 2", active: true, sort_order: 20, metadata: {} },
+      ],
+    };
+    const selectedParentOptionIds = { 3: 31 };
+    const matrixAfterCreate = buildOperationalHeaderDependencyMatrix({
+      field: childField,
+      fields: [childField, parentField],
+      fallbackParentFieldId: 3,
+      dependencies: [
+        {
+          id: 200,
+          field_id: 1,
+          option_id: 10,
+          depends_on_field_id: 3,
+          depends_on_option_id: 31,
+        },
+      ],
+    });
+    const matrixAfterDelete = buildOperationalHeaderDependencyMatrix({
+      field: childField,
+      fields: [childField, parentField],
+      fallbackParentFieldId: 3,
+      dependencies: [],
+    });
+
+    expect(reconcileOperationalHeaderDependencyParentOptionIds({
+      selectedParentOptionIds,
+      matrix: matrixAfterCreate,
+    })).toBe(selectedParentOptionIds);
+    expect(reconcileOperationalHeaderDependencyParentOptionIds({
+      selectedParentOptionIds,
+      matrix: matrixAfterDelete,
+    })).toBe(selectedParentOptionIds);
+  });
+
+  it("keeps parent option selection after selecting all and clearing child options", () => {
+    const parentSelection = { 3: 31 };
+    const allChildOptions = getAllOperationalHeaderOptionIds(config.fields[0].options);
+
+    expect(allChildOptions).toEqual([10, 11]);
+    expect(parentSelection).toEqual({ 3: 31 });
+    expect(getOperationalHeaderOptionSelection({
+      selectedIds: [],
+      optionId: 10,
+      checked: true,
+    })).toEqual([10]);
+    expect(parentSelection).toEqual({ 3: 31 });
+
+    const clearedChildOptions: number[] = [];
+    expect(clearedChildOptions).toEqual([]);
+    expect(parentSelection).toEqual({ 3: 31 });
+  });
+
+  it("falls back when the selected parent option disappears and supports manual parent option changes", () => {
+    const parentField = {
+      ...config.fields[2],
+      options: [
+        { id: 30, field_id: 3, value: "mina", label: "Mina", active: true, sort_order: 10, metadata: {} },
+        { id: 31, field_id: 3, value: "planta", label: "Planta", active: true, sort_order: 20, metadata: {} },
+      ],
+    };
+    const matrix = buildOperationalHeaderDependencyMatrix({
+      field: config.fields[0],
+      fields: [config.fields[0], parentField],
+      fallbackParentFieldId: 3,
+      dependencies: [],
+    });
+    const matrixWithoutSelectedOption = buildOperationalHeaderDependencyMatrix({
+      field: config.fields[0],
+      fields: [
+        config.fields[0],
+        {
+          ...parentField,
+          options: parentField.options.filter((option) => option.id !== 31),
+        },
+      ],
+      fallbackParentFieldId: 3,
+      dependencies: [],
+    });
+
+    expect(getOperationalHeaderDependencyParentOptionSelection({
+      selectedParentOptionIds: { 3: 30 },
+      parentFieldId: 3,
+      parentOptionId: 31,
+    })).toEqual({ 3: 31 });
+    expect(reconcileOperationalHeaderDependencyParentOptionIds({
+      selectedParentOptionIds: { 3: 31 },
+      matrix,
+    })).toEqual({ 3: 31 });
+    expect(reconcileOperationalHeaderDependencyParentOptionIds({
+      selectedParentOptionIds: { 3: 31 },
+      matrix: matrixWithoutSelectedOption,
+    })).toEqual({ 3: 30 });
+    expect(reconcileOperationalHeaderDependencyParentOptionIds({
+      selectedParentOptionIds: { 3: 31 },
+      matrix: [],
+    })).toEqual({});
   });
 
   it("keeps option creation and editing contextual to the selected field", () => {
@@ -414,13 +646,13 @@ describe("OperationalHeaderAdminPanel", () => {
     expect(source).not.toContain("setSelectedFieldId(option");
   });
 
-  it("keeps dependency assignment contextual to the selected field and selected options", () => {
+  it("keeps dependency editing contextual to the selected field and selected parent option", () => {
     const source = readFileSync("src/components/planning/operational-header-admin-panel.tsx", "utf8");
 
     expect(source).toContain("field_id: selectedField.id");
-    expect(source).toContain("option_ids: selectedOptionIds");
-    expect(source).toContain("const contextualDependencyDraft = {");
     expect(source).toContain("selectedFieldDependencyMatrix.map((parentGroup)");
+    expect(source).toContain("setDependencyParentFieldId(Number(event.target.value))");
+    expect(source).toContain("selectedDependencyParentOptionIds");
     expect(source).not.toContain("Campo dependiente");
     expect(source).not.toContain("Opcion dependiente");
   });

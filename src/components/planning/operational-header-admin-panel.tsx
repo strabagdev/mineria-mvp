@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import {
   createOperationalHeaderDependency,
@@ -93,6 +93,12 @@ export type OperationalHeaderDependencyMatrixField = {
   parentOptions: OperationalHeaderDependencyMatrixParentOption[];
 };
 
+export type OperationalHeaderRequiredDependencyWarningInput = {
+  childFieldLabel: string;
+  parentFieldLabel: string;
+  parentOptionLabels: string[];
+};
+
 const emptyForm: FieldFormState = {
   id: null,
   slug: "",
@@ -116,13 +122,6 @@ const emptyOptionForm: OptionFormState = {
   active: true,
   sort_order: 100,
   metadataText: "{}",
-};
-
-const emptyBulkDependencyForm: BulkDependencyFormState = {
-  field_id: 0,
-  option_ids: [],
-  depends_on_field_id: 0,
-  depends_on_option_id: 0,
 };
 
 export function getBulkDependencyCandidateOptionIds(input: {
@@ -229,7 +228,7 @@ export function parseOptionalOperationalHeaderOrder(value: string) {
 export function getOperationalHeaderBehaviorWarnings(input: {
   form: OperationalHeaderBehaviorWarningForm;
   activeOptionCount: number;
-  requiredParentOptionsWithoutChildren: number;
+  requiredDependencyWarning?: OperationalHeaderRequiredDependencyWarningInput | null;
 }) {
   const warnings: string[] = [];
 
@@ -261,11 +260,44 @@ export function getOperationalHeaderBehaviorWarnings(input: {
     warnings.push("Este campo es obligatorio, pero no tiene opciones activas disponibles. Crea o activa opciones en la sección Opciones.");
   }
 
-  if (input.requiredParentOptionsWithoutChildren > 0) {
-    warnings.push(`Algunas opciones del campo padre dejan este campo obligatorio sin alternativas disponibles: ${input.requiredParentOptionsWithoutChildren} opciones padre presentan el problema.`);
+  if (input.requiredDependencyWarning) {
+    warnings.push(formatOperationalHeaderRequiredDependencyWarning(input.requiredDependencyWarning));
   }
 
   return warnings;
+}
+
+function joinOperationalHeaderOptionLabels(labels: string[]) {
+  if (labels.length === 1) {
+    return labels[0];
+  }
+
+  if (labels.length === 2) {
+    return `${labels[0]} y ${labels[1]}`;
+  }
+
+  return `${labels.slice(0, -1).join(", ")} y ${labels[labels.length - 1]}`;
+}
+
+export function formatOperationalHeaderRequiredDependencyWarning(input: OperationalHeaderRequiredDependencyWarningInput) {
+  const labels = input.parentOptionLabels.filter(Boolean);
+
+  if (labels.length === 0) {
+    return `${input.parentFieldLabel} no tiene opciones con ${input.childFieldLabel} permitido. Como ${input.childFieldLabel} es obligatorio, esa configuración impedirá completar el formulario.`;
+  }
+
+  if (labels.length === 1) {
+    return `${labels[0]} no tiene ningún ${input.childFieldLabel} permitido. Como ${input.childFieldLabel} es obligatorio, esa combinación impedirá completar el formulario.`;
+  }
+
+  if (labels.length <= 3) {
+    return `${joinOperationalHeaderOptionLabels(labels)} no tienen ningún ${input.childFieldLabel} permitido. Como ${input.childFieldLabel} es obligatorio, esas combinaciones impedirán completar el formulario.`;
+  }
+
+  const visibleLabels = labels.slice(0, 2);
+  const hiddenCount = labels.length - visibleLabels.length;
+
+  return `${visibleLabels.join(", ")} y ${hiddenCount} opciones más no tienen ningún ${input.childFieldLabel} permitido. Como ${input.childFieldLabel} es obligatorio, esas combinaciones impedirán completar el formulario.`;
 }
 
 export function getOperationalHeaderOptionSelection(input: {
@@ -299,10 +331,14 @@ export function buildOperationalHeaderDependencyMatrix(input: {
   field: OperationalHeaderFieldDto;
   fields: OperationalHeaderFieldDto[];
   dependencies: OperationalHeaderOptionDependencyDto[];
+  fallbackParentFieldId?: number;
 }): OperationalHeaderDependencyMatrixField[] {
-  const parentFieldIds = getOperationalHeaderDependencyParentFieldIds(input.dependencies);
+  const parentFieldIds = Array.from(new Set([
+    ...getOperationalHeaderDependencyParentFieldIds(input.dependencies),
+    ...(input.fallbackParentFieldId ? [input.fallbackParentFieldId] : []),
+  ]));
   const parentFields = sortOperationalHeaderFields(input.fields.filter((field) =>
-    parentFieldIds.includes(field.id)
+    field.id !== input.field.id && parentFieldIds.includes(field.id)
   ));
   const childOptions = sortOperationalHeaderOptions(input.field.options);
 
@@ -328,6 +364,93 @@ export function buildOperationalHeaderDependencyMatrix(input: {
 
     return { parentField, parentOptions };
   });
+}
+
+export function getInitialOperationalHeaderDependencyParentOptionIds(
+  matrix: OperationalHeaderDependencyMatrixField[]
+) {
+  return matrix.reduce<Record<number, number>>((accumulator, parentField) => {
+    accumulator[parentField.parentField.id] = parentField.parentOptions[0]?.parentOption.id ?? 0;
+    return accumulator;
+  }, {});
+}
+
+export function getOperationalHeaderDependencyParentOptionId(input: {
+  selectedParentOptionIds: Record<number, number>;
+  parentField: OperationalHeaderDependencyMatrixField;
+}) {
+  const selectedId = input.selectedParentOptionIds[input.parentField.parentField.id] ?? 0;
+
+  if (input.parentField.parentOptions.some((group) => group.parentOption.id === selectedId)) {
+    return selectedId;
+  }
+
+  return input.parentField.parentOptions[0]?.parentOption.id ?? 0;
+}
+
+export function reconcileOperationalHeaderDependencyParentOptionIds(input: {
+  selectedParentOptionIds: Record<number, number>;
+  matrix: OperationalHeaderDependencyMatrixField[];
+}) {
+  const next = { ...input.selectedParentOptionIds };
+  let changed = false;
+
+  for (const parentField of input.matrix) {
+    const currentOptionId = getOperationalHeaderDependencyParentOptionId({
+      selectedParentOptionIds: next,
+      parentField,
+    });
+
+    if (next[parentField.parentField.id] !== currentOptionId) {
+      next[parentField.parentField.id] = currentOptionId;
+      changed = true;
+    }
+  }
+
+  for (const parentFieldId of Object.keys(next)) {
+    if (!input.matrix.some((parentField) => parentField.parentField.id === Number(parentFieldId))) {
+      delete next[Number(parentFieldId)];
+      changed = true;
+    }
+  }
+
+  return changed ? next : input.selectedParentOptionIds;
+}
+
+export function getOperationalHeaderDependencyParentOptionSelection(input: {
+  selectedParentOptionIds: Record<number, number>;
+  parentFieldId: number;
+  parentOptionId: number;
+}) {
+  return {
+    ...input.selectedParentOptionIds,
+    [input.parentFieldId]: input.parentOptionId,
+  };
+}
+
+export function getOperationalHeaderRequiredDependencyWarning(input: {
+  field: OperationalHeaderFieldDto;
+  matrix: OperationalHeaderDependencyMatrixField[];
+}): OperationalHeaderRequiredDependencyWarningInput | null {
+  if (!input.field.required || !input.field.active || input.field.input_type !== "select") {
+    return null;
+  }
+
+  const parentGroup = input.matrix.find((group) =>
+    group.parentOptions.some((parentOption) => parentOption.allowedCount === 0)
+  );
+
+  if (!parentGroup) {
+    return null;
+  }
+
+  return {
+    childFieldLabel: input.field.label,
+    parentFieldLabel: parentGroup.parentField.label,
+    parentOptionLabels: parentGroup.parentOptions
+      .filter((parentOption) => parentOption.allowedCount === 0)
+      .map((parentOption) => parentOption.parentOption.label),
+  };
 }
 
 function getFieldFlagSummary(field: OperationalHeaderFieldDto) {
@@ -498,7 +621,7 @@ export function OperationalHeaderAdminPanel({
   onRefresh,
 }: OperationalHeaderAdminPanelProps) {
   const fields = useMemo(() => config?.fields ?? [], [config?.fields]);
-  const dependencies = config?.dependencies ?? [];
+  const dependencies = useMemo(() => config?.dependencies ?? [], [config?.dependencies]);
   const { fieldsById, optionsById } = buildFieldLookup(fields);
   const sortedFields = useMemo(() => sortOperationalHeaderFields(fields), [fields]);
   const activeSelectFields = useMemo(() =>
@@ -515,10 +638,11 @@ export function OperationalHeaderAdminPanel({
   const [optionForm, setOptionForm] = useState<OptionFormState>(emptyOptionForm);
   const [optionFormOpen, setOptionFormOpen] = useState(false);
   const [selectedOptionIds, setSelectedOptionIds] = useState<number[]>([]);
-  const [bulkDependencyForm, setBulkDependencyForm] = useState<BulkDependencyFormState>(emptyBulkDependencyForm);
-  const [bulkDependencySummary, setBulkDependencySummary] = useState<BulkDependencySummary | null>(null);
+  const [dependencyParentFieldId, setDependencyParentFieldId] = useState(0);
+  const [selectedDependencyParentOptionIds, setSelectedDependencyParentOptionIds] = useState<Record<number, number>>({});
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState("");
+  const previousSelectedFieldIdRef = useRef<number | null>(null);
   const isEditing = form.id !== null;
   const isEditingOption = optionForm.id !== null;
   const editingField = isEditing ? fields.find((field) => field.id === form.id) ?? null : null;
@@ -527,35 +651,36 @@ export function OperationalHeaderAdminPanel({
     : sortedFields.find((field) => field.id === selectedFieldId) ?? null;
   const selectedFieldOptions = selectedField ? sortOperationalHeaderOptions(selectedField.options) : [];
   const selectedFieldActiveOptionCount = selectedFieldOptions.filter((option) => option.active).length;
-  const selectedFieldDependencies = selectedField
-    ? getOperationalHeaderDependenciesForField({ fieldId: selectedField.id, dependencies })
-    : [];
+  const selectedFieldDependencies = useMemo(() =>
+    selectedField
+      ? getOperationalHeaderDependenciesForField({ fieldId: selectedField.id, dependencies })
+      : [],
+  [dependencies, selectedField]);
   const selectedFieldParentFieldIds = getOperationalHeaderDependencyParentFieldIds(selectedFieldDependencies);
   const selectedFieldParentLabels = selectedFieldParentFieldIds
     .map((fieldId) => fieldsById.get(fieldId)?.label)
     .filter(Boolean);
-  const selectedFieldDependencyMatrix = selectedField
-    ? buildOperationalHeaderDependencyMatrix({
+  const selectedFieldDependencyMatrix = useMemo(() =>
+    selectedField
+      ? buildOperationalHeaderDependencyMatrix({
+        field: selectedField,
+        fields,
+        dependencies: selectedFieldDependencies,
+        fallbackParentFieldId: dependencyParentFieldId,
+      })
+      : [],
+  [dependencyParentFieldId, fields, selectedField, selectedFieldDependencies]);
+  const requiredDependencyWarning = selectedField
+    ? getOperationalHeaderRequiredDependencyWarning({
       field: selectedField,
-      fields,
-      dependencies: selectedFieldDependencies,
+      matrix: selectedFieldDependencyMatrix,
     })
-    : [];
-  const requiredParentOptionsWithoutChildren = selectedField?.required && selectedField.input_type === "select"
-    ? selectedFieldDependencyMatrix.reduce((total, parentField) =>
-      total + parentField.parentOptions.filter((parentOption) => parentOption.allowedCount === 0).length,
-    0)
-    : 0;
+    : null;
   const behaviorWarnings = getOperationalHeaderBehaviorWarnings({
     form,
     activeOptionCount: selectedFieldActiveOptionCount,
-    requiredParentOptionsWithoutChildren,
+    requiredDependencyWarning,
   });
-  const contextualDependencyDraft = {
-    ...bulkDependencyForm,
-    field_id: selectedField?.id ?? 0,
-    option_ids: selectedOptionIds,
-  };
   const isTextToSelectConversion = editingField?.input_type === "text" && form.input_type === "select";
 
   useEffect(() => {
@@ -570,23 +695,48 @@ export function OperationalHeaderAdminPanel({
 
   useEffect(() => {
     if (selectedField) {
+      const selectedFieldChanged = previousSelectedFieldIdRef.current !== selectedField.id;
+      previousSelectedFieldIdRef.current = selectedField.id;
       setForm(formFromField(selectedField));
       setFormOpen(true);
       setOptionForm(emptyOptionForm);
       setOptionFormOpen(false);
-      setSelectedOptionIds([]);
-      const parentField = activeSelectFields.find((field) => field.id !== selectedField.id);
-      setBulkDependencyForm({
-        field_id: selectedField.id,
-        option_ids: [],
-        depends_on_field_id: parentField?.id ?? 0,
-        depends_on_option_id: parentField?.options.find((option) => option.active)?.id ?? 0,
-      });
-      setBulkDependencySummary(null);
+      if (selectedFieldChanged) {
+        setSelectedOptionIds([]);
+        const parentField = activeSelectFields.find((field) => field.id !== selectedField.id);
+        setDependencyParentFieldId(parentField?.id ?? 0);
+        setSelectedDependencyParentOptionIds({});
+      }
     } else if (!formOpen) {
+      previousSelectedFieldIdRef.current = null;
       setForm(emptyForm);
     }
   }, [activeSelectFields, formOpen, selectedField]);
+
+  useEffect(() => {
+    if (!selectedField || !dependencyParentFieldId) {
+      return;
+    }
+
+    const parentFieldStillAvailable = activeSelectFields.some((field) =>
+      field.id === dependencyParentFieldId && field.id !== selectedField.id
+    );
+
+    if (!parentFieldStillAvailable) {
+      const parentField = activeSelectFields.find((field) => field.id !== selectedField.id);
+      setDependencyParentFieldId(parentField?.id ?? 0);
+      setSelectedDependencyParentOptionIds({});
+    }
+  }, [activeSelectFields, dependencyParentFieldId, selectedField]);
+
+  useEffect(() => {
+    setSelectedDependencyParentOptionIds((current) => {
+      return reconcileOperationalHeaderDependencyParentOptionIds({
+        selectedParentOptionIds: current,
+        matrix: selectedFieldDependencyMatrix,
+      });
+    });
+  }, [selectedFieldDependencyMatrix]);
 
   function resetForm() {
     setForm(emptyForm);
@@ -649,10 +799,6 @@ export function OperationalHeaderAdminPanel({
       optionId,
       checked,
     }));
-  }
-
-  function activeOptionsForField(fieldId: number) {
-    return fields.find((field) => field.id === fieldId)?.options.filter((option) => option.active) ?? [];
   }
 
   function parseMetadata() {
@@ -807,59 +953,6 @@ export function OperationalHeaderAdminPanel({
       onRefresh();
     } catch (mutationError: unknown) {
       setFormError(mutationError instanceof Error ? mutationError.message : "No se pudo eliminar la opcion.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function submitBulkDependencyForm(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setBusy(true);
-    setFormError("");
-
-    if (isBulkDependencySameField(contextualDependencyDraft)) {
-      setBulkDependencySummary({
-        created: 0,
-        skipped: 0,
-        blocked: selectedOptionIds.length,
-      });
-      setFormError("No se puede usar el mismo campo como dependiente y padre.");
-      setBusy(false);
-      return;
-    }
-
-    const candidateOptionIds = getBulkDependencyCandidateOptionIds({
-      draft: contextualDependencyDraft,
-      dependencies,
-    });
-    const summary = createBulkDependencySummary({
-      selectedCount: selectedOptionIds.length,
-      candidateCount: candidateOptionIds.length,
-      created: 0,
-      blocked: 0,
-    });
-
-    try {
-      for (const optionId of candidateOptionIds) {
-        try {
-          await createOperationalHeaderDependency({
-            field_id: contextualDependencyDraft.field_id,
-            option_id: optionId,
-            depends_on_field_id: contextualDependencyDraft.depends_on_field_id,
-            depends_on_option_id: contextualDependencyDraft.depends_on_option_id,
-          }, accessToken);
-          summary.created += 1;
-        } catch {
-          summary.blocked += 1;
-        }
-      }
-
-      setBulkDependencySummary(summary);
-      if (summary.created > 0) {
-        onRefresh();
-      }
-    } catch (mutationError: unknown) {
-      setFormError(mutationError instanceof Error ? mutationError.message : "No se pudieron crear las dependencias.");
     } finally {
       setBusy(false);
     }
@@ -1333,8 +1426,8 @@ export function OperationalHeaderAdminPanel({
                   <p className="body-copy">
                     {selectedField.input_type === "select"
                       ? selectedFieldParentLabels.length
-                        ? `Depende de ${selectedFieldParentLabels.join(", ")}. Ajusta las relaciones en la matriz.`
-                        : "Este campo no depende de otro campo. Puedes asignar opciones hijas a una opción padre."
+                        ? `Depende de ${selectedFieldParentLabels.join(", ")}. Revisa cada opción padre y marca sus opciones permitidas.`
+                        : "Este campo no depende de otro campo. Elige un campo padre para comenzar."
                       : "Los campos de texto no utilizan dependencias por opción."}
                   </p>
                 </div>
@@ -1358,101 +1451,39 @@ export function OperationalHeaderAdminPanel({
               ) : null}
 
               {selectedField.input_type === "select" && selectedFieldOptions.length ? (
-                <form className="operational-header-option-form" onSubmit={submitBulkDependencyForm}>
+                <div className="operational-header-option-form">
                   <div className="operational-header-options-header">
                     <div>
-                      <p className="eyebrow">Asignar a opción padre</p>
+                      <p className="eyebrow">Campo padre</p>
                       <p className="body-copy">
-                        {selectedOptionIds.length
-                          ? `${selectedOptionIds.length} opciones de ${selectedField.label} se asignarán al padre elegido.`
-                          : "Selecciona opciones en la sección anterior y asígnalas a una opción padre."}
+                        Las opciones de {selectedField.label} se habilitan según la opción padre seleccionada.
                       </p>
                     </div>
                   </div>
 
-                  <div className="operational-header-form-grid">
-                    <label className="field">
-                      Campo padre
-                      <select
-                        className="field-input"
-                        value={bulkDependencyForm.depends_on_field_id}
-                        onChange={(event) => {
-                          const fieldId = Number(event.target.value);
-                          setBulkDependencyForm((current) => ({
-                            ...current,
-                            field_id: selectedField.id,
-                            option_ids: selectedOptionIds,
-                            depends_on_field_id: fieldId,
-                            depends_on_option_id: activeOptionsForField(fieldId)[0]?.id ?? 0,
-                          }));
-                          setBulkDependencySummary(null);
-                        }}
-                        disabled={busy || activeSelectFields.length < 2}
-                      >
-                        <option value={0}>Seleccionar campo padre</option>
-                        {activeSelectFields
-                          .filter((field) => field.id !== selectedField.id)
-                          .map((field) => (
-                            <option key={field.id} value={field.id}>{field.label}</option>
-                          ))}
-                      </select>
-                    </label>
-
-                    <label className="field">
-                      Opción padre
-                      <select
-                        className="field-input"
-                        value={bulkDependencyForm.depends_on_option_id}
-                        onChange={(event) => {
-                          setBulkDependencyForm((current) => ({
-                            ...current,
-                            field_id: selectedField.id,
-                            option_ids: selectedOptionIds,
-                            depends_on_option_id: Number(event.target.value),
-                          }));
-                          setBulkDependencySummary(null);
-                        }}
-                        disabled={busy || !bulkDependencyForm.depends_on_field_id}
-                      >
-                        <option value={0}>Seleccionar opción padre</option>
-                        {activeOptionsForField(bulkDependencyForm.depends_on_field_id).map((option) => (
-                          <option key={option.id} value={option.id}>{option.label}</option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-
-                  <div className="catalog-inline-actions">
-                    <button
-                      type="submit"
-                      className="button small primary"
-                      disabled={
-                        busy ||
-                        !selectedOptionIds.length ||
-                        !contextualDependencyDraft.field_id ||
-                        !contextualDependencyDraft.depends_on_field_id ||
-                        !contextualDependencyDraft.depends_on_option_id ||
-                        isBulkDependencySameField(contextualDependencyDraft)
-                      }
+                  <label className="field">
+                    Campo padre
+                    <select
+                      className="field-input"
+                      value={dependencyParentFieldId}
+                      onChange={(event) => {
+                        setDependencyParentFieldId(Number(event.target.value));
+                        setSelectedDependencyParentOptionIds({});
+                      }}
+                      disabled={busy || activeSelectFields.length < 2}
                     >
-                      Asignar opciones
-                    </button>
-                  </div>
-
-                  {isBulkDependencySameField(contextualDependencyDraft) ? (
-                    <p className="feedback">No se puede usar el mismo campo como dependiente y padre.</p>
-                  ) : null}
-
-                  {bulkDependencySummary ? (
-                    <p className="body-copy" role="status">
-                      Resultado: creadas: {bulkDependencySummary.created} · omitidas por existir:{" "}
-                      {bulkDependencySummary.skipped} · bloqueadas/error: {bulkDependencySummary.blocked}
-                    </p>
-                  ) : null}
-                </form>
+                      <option value={0}>Seleccionar campo padre</option>
+                      {activeSelectFields
+                        .filter((field) => field.id !== selectedField.id)
+                        .map((field) => (
+                          <option key={field.id} value={field.id}>{field.label}</option>
+                        ))}
+                    </select>
+                  </label>
+                </div>
               ) : null}
 
-              {selectedFieldDependencies.length ? (
+              {selectedFieldDependencyMatrix.length ? (
                 <div className="operational-header-dependency-matrix">
                   {selectedFieldDependencyMatrix.map((parentGroup) => (
                     <section key={parentGroup.parentField.id} className="operational-header-dependency-parent">
@@ -1464,49 +1495,104 @@ export function OperationalHeaderAdminPanel({
                       </div>
 
                       {parentGroup.parentOptions.length ? (
-                        parentGroup.parentOptions.map((parentOptionGroup) => (
-                          <div key={parentOptionGroup.parentOption.id} className="operational-header-dependency-parent-option">
-                            <div className="operational-header-dependency-parent-option-header">
-                              <div>
-                                <strong>{parentOptionGroup.parentOption.label}</strong>
-                                <code>{parentOptionGroup.parentOption.value}</code>
-                              </div>
-                              <span className="catalog-count">
-                                {parentOptionGroup.allowedCount} permitidas
-                              </span>
-                            </div>
+                        <div className="operational-header-dependency-master-detail">
+                          <div className="operational-header-dependency-parent-list" aria-label={`Opciones padre de ${parentGroup.parentField.label}`}>
+                            {parentGroup.parentOptions.map((parentOptionGroup) => {
+                              const selectedParentOptionId = getOperationalHeaderDependencyParentOptionId({
+                                selectedParentOptionIds: selectedDependencyParentOptionIds,
+                                parentField: parentGroup,
+                              });
+                              const selected = selectedParentOptionId === parentOptionGroup.parentOption.id;
 
-                            <div className="operational-header-dependency-child-grid">
-                              {parentOptionGroup.children.map((child) => (
-                                <label
-                                  key={child.option.id}
+                              return (
+                                <button
+                                  key={parentOptionGroup.parentOption.id}
+                                  type="button"
                                   className={[
-                                    "operational-header-dependency-child",
-                                    child.option.active ? "" : "inactive",
+                                    "operational-header-dependency-parent-list-item",
+                                    selected ? "active" : "",
                                   ].filter(Boolean).join(" ")}
+                                  onClick={() =>
+                                    setSelectedDependencyParentOptionIds((current) =>
+                                      getOperationalHeaderDependencyParentOptionSelection({
+                                        selectedParentOptionIds: current,
+                                        parentFieldId: parentGroup.parentField.id,
+                                        parentOptionId: parentOptionGroup.parentOption.id,
+                                      })
+                                    )
+                                  }
+                                  aria-pressed={selected}
                                 >
-                                  <input
-                                    type="checkbox"
-                                    checked={child.dependency !== null}
-                                    disabled={busy}
-                                    aria-label={`${child.dependency ? "Quitar" : "Permitir"} ${child.option.label} cuando ${parentOptionGroup.parentOption.label} esté seleccionado`}
-                                    onChange={(event) => void toggleMatrixDependency({
-                                      parentFieldId: parentGroup.parentField.id,
-                                      parentOptionId: parentOptionGroup.parentOption.id,
-                                      childOptionId: child.option.id,
-                                      dependency: child.dependency,
-                                      checked: event.target.checked,
-                                    })}
-                                  />
                                   <span>
-                                    <strong>{child.option.label}</strong>
-                                    <code>{child.option.value}</code>
+                                    <strong>{parentOptionGroup.parentOption.label}</strong>
+                                    <code>{parentOptionGroup.parentOption.value}</code>
                                   </span>
-                                </label>
-                              ))}
-                            </div>
+                                  <span className="catalog-count">
+                                    {parentOptionGroup.allowedCount} permitidas
+                                  </span>
+                                </button>
+                              );
+                            })}
                           </div>
-                        ))
+
+                          {(() => {
+                            const selectedParentOptionId = getOperationalHeaderDependencyParentOptionId({
+                              selectedParentOptionIds: selectedDependencyParentOptionIds,
+                              parentField: parentGroup,
+                            });
+                            const parentOptionGroup = parentGroup.parentOptions.find((group) =>
+                              group.parentOption.id === selectedParentOptionId
+                            ) ?? parentGroup.parentOptions[0];
+
+                            return parentOptionGroup ? (
+                              <div className="operational-header-dependency-detail">
+                                <div className="operational-header-dependency-parent-option-header">
+                                  <div>
+                                    <strong>{parentOptionGroup.parentOption.label}</strong>
+                                    <code>{parentOptionGroup.parentOption.value}</code>
+                                  </div>
+                                  <span className="catalog-count">
+                                    {parentOptionGroup.allowedCount} permitidas
+                                  </span>
+                                </div>
+
+                                <p className="body-copy">
+                                  Marca las opciones de {selectedField.label} disponibles cuando se seleccione {parentOptionGroup.parentOption.label}.
+                                </p>
+
+                                <div className="operational-header-dependency-child-grid">
+                                  {parentOptionGroup.children.map((child) => (
+                                    <label
+                                      key={child.option.id}
+                                      className={[
+                                        "operational-header-dependency-child",
+                                        child.option.active ? "" : "inactive",
+                                      ].filter(Boolean).join(" ")}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={child.dependency !== null}
+                                        disabled={busy}
+                                        aria-label={`${child.dependency ? "Quitar" : "Permitir"} ${child.option.label} cuando ${parentOptionGroup.parentOption.label} esté seleccionado`}
+                                        onChange={(event) => void toggleMatrixDependency({
+                                          parentFieldId: parentGroup.parentField.id,
+                                          parentOptionId: parentOptionGroup.parentOption.id,
+                                          childOptionId: child.option.id,
+                                          dependency: child.dependency,
+                                          checked: event.target.checked,
+                                        })}
+                                      />
+                                      <span>
+                                        <strong>{child.option.label}</strong>
+                                        <code>{child.option.value}</code>
+                                      </span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : null;
+                          })()}
+                        </div>
                       ) : (
                         <div className="catalog-future-card">
                           <p className="eyebrow">Sin opciones padre activas</p>
@@ -1519,7 +1605,7 @@ export function OperationalHeaderAdminPanel({
               ) : selectedField.input_type === "select" ? (
                 <div className="catalog-future-card">
                   <p className="eyebrow">Sin dependencias</p>
-                  <p className="body-copy">Este campo muestra todas sus opciones hasta que asignes alguna a una opción padre.</p>
+                  <p className="body-copy">Selecciona un campo padre para definir qué opciones de {selectedField.label} estarán permitidas.</p>
                 </div>
               ) : null}
             </section>

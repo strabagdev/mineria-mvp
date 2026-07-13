@@ -4596,6 +4596,66 @@ select.field-input {
   gap: 0.45rem;
 }
 
+.operational-header-dependency-master-detail {
+  display: grid;
+  grid-template-columns: minmax(13rem, 0.85fr) minmax(16rem, 1.35fr);
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.operational-header-dependency-parent-list {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.operational-header-dependency-parent-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+  width: 100%;
+  min-width: 0;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-solid);
+  color: var(--foreground);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.operational-header-dependency-parent-list-item:hover,
+.operational-header-dependency-parent-list-item:focus-visible,
+.operational-header-dependency-parent-list-item.active {
+  border-color: var(--accent-border);
+  background: color-mix(in srgb, var(--accent-soft) 58%, var(--panel-solid));
+  outline: none;
+}
+
+.operational-header-dependency-parent-list-item span:first-child {
+  display: grid;
+  gap: 0.08rem;
+  min-width: 0;
+}
+
+.operational-header-dependency-parent-list-item strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.operational-header-dependency-detail {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 0;
+  padding: 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--panel-solid) 92%, var(--background-soft));
+}
+
 .operational-header-dependency-child {
   display: flex;
   align-items: center;
@@ -5566,6 +5626,7 @@ select.field-input {
   }
 
   .operational-header-form-grid,
+  .operational-header-dependency-master-detail,
   .operational-header-dependency-child-grid {
     grid-template-columns: 1fr;
   }
