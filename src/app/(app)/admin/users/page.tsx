@@ -23,6 +23,7 @@ type AdminUser = {
   active: boolean;
   approval_status: "pending" | "approved" | "rejected";
   created_at?: string;
+  deletion_eligible?: boolean;
 };
 
 type CreateUserForm = {
@@ -147,7 +148,7 @@ export default function AdminUsersPage() {
     });
   }, [canAdmin, loading, profile, refreshNonce, requestUsers, router, session]);
 
-  async function adminRequest(method: "POST" | "PATCH", payload: Record<string, unknown>) {
+  async function adminRequest(method: "POST" | "PATCH" | "DELETE", payload: Record<string, unknown>) {
     if (!session?.access_token) {
       throw new Error("Necesitas iniciar sesion.");
     }
@@ -197,6 +198,24 @@ export default function AdminUsersPage() {
       await adminRequest("PATCH", payload);
     } catch (error: unknown) {
       setMessage(toNetworkMessage(error) || "No se pudo actualizar usuario.");
+    }
+  }
+
+  async function deleteUser(account: AdminUser) {
+    const confirmation = window.prompt(
+      `Se eliminará la identidad y el perfil de este usuario. Esta acción no se puede deshacer.\n\nEscribe ${account.email} para confirmar.`
+    );
+
+    if (confirmation !== account.email) {
+      setMessage("Eliminacion cancelada.");
+      return;
+    }
+
+    try {
+      await adminRequest("DELETE", { user_id: account.user_id });
+      setMessage("Usuario eliminado definitivamente.");
+    } catch (error: unknown) {
+      setMessage(toNetworkMessage(error) || "No se pudo eliminar usuario.");
     }
   }
 
@@ -353,6 +372,21 @@ export default function AdminUsersPage() {
                   >
                     {account.active ? "Desactivar" : "Activar"}
                   </button>
+
+                  {account.deletion_eligible ? (
+                    <div className="field">
+                      <span className="muted-inline">Solo para usuarios sin historial.</span>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        className="button danger"
+                        onClick={() => void deleteUser(account)}
+                        title="Solo disponible para usuarios sin historial operacional"
+                      >
+                        Eliminar definitivamente
+                      </button>
+                    </div>
+                  ) : null}
 
                   <label className="field">
                     Nueva contrasena

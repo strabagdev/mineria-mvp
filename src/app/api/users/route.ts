@@ -4,20 +4,22 @@ import {
   resolveRole,
   USER_ROLES,
 } from "@/lib/accessControl";
-import { getErrorMessage } from "@/lib/errorMessage";
+import { getErrorMessage, getErrorStatus } from "@/lib/errorMessage";
 import {
   createUser,
+  deleteUserPermanently,
   listUsers,
   resetUserPassword,
   updateUserAccess,
+  USER_DELETE_BLOCKED_BY_ACTIVITY_MESSAGE,
 } from "@/server/services/users.service";
 
 export async function GET(req: Request) {
   try {
-    await requireAdminUser(req);
-    return NextResponse.json(await listUsers());
+    const { user } = await requireAdminUser(req);
+    return NextResponse.json(await listUsers({ currentUserId: user.id }));
   } catch (error: unknown) {
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: getErrorStatus(error) });
   }
 }
 
@@ -66,7 +68,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ user: result.user }, { status: 201 });
   } catch (error: unknown) {
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: getErrorStatus(error) });
   }
 }
 
@@ -135,6 +137,71 @@ export async function PATCH(req: Request) {
 
     return NextResponse.json({ user: result.user });
   } catch (error: unknown) {
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: getErrorStatus(error) });
+  }
+}
+
+export async function DELETE(req: Request) {
+  try {
+    const { user, profile } = await requireAdminUser(req);
+    const body = (await req.json()) as {
+      user_id?: string;
+    };
+    const userId = String(body.user_id ?? "").trim();
+
+    if (!userId) {
+      return NextResponse.json({ error: "Usuario no valido para la operacion." }, { status: 400 });
+    }
+
+    const result = await deleteUserPermanently({
+      actor: { user, profile },
+      userId,
+    });
+
+    if (result.status === "deleted") {
+      return NextResponse.json({ ok: true });
+    }
+
+    if (result.status === "not-found") {
+      return NextResponse.json({ error: "Usuario no encontrado." }, { status: 404 });
+    }
+
+    if (result.status === "self-delete-blocked") {
+      return NextResponse.json(
+        { error: "No puedes eliminar tu propio usuario." },
+        { status: 400 }
+      );
+    }
+
+    if (result.status === "last-admin-blocked") {
+      return NextResponse.json(
+        { error: "No puedes eliminar el ultimo administrador activo y aprobado." },
+        { status: 400 }
+      );
+    }
+
+    if (result.status === "has-activity") {
+      return NextResponse.json(
+        { error: USER_DELETE_BLOCKED_BY_ACTIVITY_MESSAGE, references: result.references },
+        { status: 409 }
+      );
+    }
+
+    if (result.status === "auth-error") {
+      return NextResponse.json(
+        { error: "No se pudo eliminar la identidad del usuario en Supabase Auth." },
+        { status: 502 }
+      );
+    }
+
+    return NextResponse.json(
+      {
+        error:
+          "La identidad Auth fue eliminada, pero no se pudo eliminar el perfil. El perfil quedo inactivo para impedir acceso.",
+      },
+      { status: 500 }
+    );
+  } catch (error: unknown) {
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: getErrorStatus(error) });
   }
 }

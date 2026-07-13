@@ -1,4 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import AdminUsersPage from "./page";
 
@@ -59,5 +60,15 @@ describe("AdminUsersPage role select", () => {
     expect(html).toContain('<option value="admin">Administrador</option>');
     expect(html).toContain('<option value="operator" selected="">Operativo</option>');
     expect(html).toContain('<option value="viewer">Visualizador</option>');
+  });
+
+  it("keeps permanent deletion gated behind explicit eligibility and confirmation", () => {
+    const source = readFileSync("src/app/(app)/admin/users/page.tsx", "utf8");
+
+    expect(source).toContain("account.deletion_eligible");
+    expect(source).toContain("Eliminar definitivamente");
+    expect(source).toContain("window.prompt");
+    expect(source).toContain("Esta acción no se puede deshacer");
+    expect(source).toContain('adminRequest("DELETE"');
   });
 });

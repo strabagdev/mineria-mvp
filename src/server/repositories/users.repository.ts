@@ -109,6 +109,52 @@ export async function getUserProfile(userId: string) {
   return data as ProfileRow | null;
 }
 
+async function countRows(
+  table: string,
+  column: string,
+  value: string
+) {
+  const db = getSupabaseServerClient();
+  const { count, error } = await db
+    .from(table)
+    .select("id", { count: "exact", head: true })
+    .eq(column, value);
+
+  if (error) {
+    throw error;
+  }
+
+  return count ?? 0;
+}
+
+export async function countPlanningItemsCreatedBy(userId: string) {
+  return countRows("planning_items", "created_by", userId);
+}
+
+export async function countExecutionSegmentsCreatedBy(userId: string) {
+  return countRows("activity_execution_segments", "created_by", userId);
+}
+
+export async function countAuditLogsByActor(userId: string) {
+  return countRows("audit_logs", "actor_user_id", userId);
+}
+
+export async function countActiveApprovedAdmins() {
+  const db = getSupabaseServerClient();
+  const { count, error } = await db
+    .from("profiles")
+    .select("user_id", { count: "exact", head: true })
+    .eq("role", "admin")
+    .eq("active", true)
+    .eq("approval_status", "approved");
+
+  if (error) {
+    throw error;
+  }
+
+  return count ?? 0;
+}
+
 export async function updateUserProfile(userId: string, updates: Record<string, unknown>) {
   const db = getSupabaseServerClient();
   const { data, error } = await db
@@ -125,3 +171,14 @@ export async function updateUserProfile(userId: string, updates: Record<string, 
   return data as ProfileRow;
 }
 
+export async function deleteUserProfile(userId: string) {
+  const db = getSupabaseServerClient();
+  const { error } = await db
+    .from("profiles")
+    .delete()
+    .eq("user_id", userId);
+
+  if (error) {
+    throw error;
+  }
+}

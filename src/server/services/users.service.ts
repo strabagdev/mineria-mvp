@@ -10,6 +10,11 @@ import {
   resolveRole,
 } from "@/server/services/access.service";
 import {
+  countActiveApprovedAdmins,
+  countAuditLogsByActor,
+  countExecutionSegmentsCreatedBy,
+  countPlanningItemsCreatedBy,
+  deleteUserProfile,
   getUserProfile,
   insertLegacyUserProfile,
   insertUserProfile,
@@ -21,6 +26,9 @@ import {
 } from "@/server/repositories/users.repository";
 
 type AuditActor = Parameters<typeof writeAuditLog>[0]["actor"];
+
+export const USER_DELETE_BLOCKED_BY_ACTIVITY_MESSAGE =
+  "Este usuario no puede eliminarse porque tiene actividad registrada. Puedes desactivar su acceso para conservar la trazabilidad.";
 
 export function legacyUser(row: LegacyProfileRow) {
   const bootstrapAdminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
@@ -34,9 +42,36 @@ export function legacyUser(row: LegacyProfileRow) {
   };
 }
 
-export async function listUsers() {
+async function withDeletionEligibility(
+  profiles: ProfileRow[],
+  currentUserId?: string | null
+) {
+  const activeApprovedAdmins = await countActiveApprovedAdmins();
+
+  return Promise.all(profiles.map(async (profile) => {
+    const [planningItems, executionSegments, auditLogs] = await Promise.all([
+      countPlanningItemsCreatedBy(profile.user_id),
+      countExecutionSegmentsCreatedBy(profile.user_id),
+      countAuditLogsByActor(profile.user_id),
+    ]);
+    const hasActivity = planningItems > 0 || executionSegments > 0 || auditLogs > 0;
+    const isSelf = currentUserId === profile.user_id;
+    const isLastActiveApprovedAdmin =
+      profile.role === USER_ROLES.ADMIN &&
+      profile.active &&
+      profile.approval_status === APPROVAL_STATUS.APPROVED &&
+      activeApprovedAdmins <= 1;
+
+    return {
+      ...profile,
+      deletion_eligible: !hasActivity && !isSelf && !isLastActiveApprovedAdmin,
+    };
+  }));
+}
+
+export async function listUsers(input: { currentUserId?: string | null } = {}) {
   try {
-    return { users: await listProfiles() };
+    return { users: await withDeletionEligibility(await listProfiles(), input.currentUserId) };
   } catch (error: unknown) {
     if (!isMissingAccessColumns(error)) {
       throw error;
@@ -182,4 +217,112 @@ export async function updateUserAccess(input: {
   });
 
   return { status: "updated" as const, user: profileRow };
+}
+
+export async function getUserDeletionEligibility(userId: string) {
+  const profile = await getUserProfile(userId);
+
+  if (!profile) {
+    return {
+      eligible: false as const,
+      profile: null,
+      reason: "not-found" as const,
+      references: {
+        planningItems: 0,
+        executionSegments: 0,
+        auditLogs: 0,
+      },
+    };
+  }
+
+  const [planningItems, executionSegments, auditLogs] = await Promise.all([
+    countPlanningItemsCreatedBy(userId),
+    countExecutionSegmentsCreatedBy(userId),
+    countAuditLogsByActor(userId),
+  ]);
+  const hasActivity = planningItems > 0 || executionSegments > 0 || auditLogs > 0;
+
+  return {
+    eligible: !hasActivity,
+    profile,
+    reason: hasActivity ? "has-activity" as const : null,
+    references: {
+      planningItems,
+      executionSegments,
+      auditLogs,
+    },
+  };
+}
+
+export async function deleteUserPermanently(input: {
+  actor: AuditActor;
+  userId: string;
+}) {
+  const actorUserId = input.actor?.profile?.user_id ?? input.actor?.user?.id ?? null;
+
+  if (input.userId === actorUserId) {
+    return { status: "self-delete-blocked" as const };
+  }
+
+  const eligibility = await getUserDeletionEligibility(input.userId);
+
+  if (!eligibility.profile) {
+    return { status: "not-found" as const };
+  }
+
+  if (!eligibility.eligible) {
+    return {
+      status: "has-activity" as const,
+      references: eligibility.references,
+    };
+  }
+
+  if (
+    eligibility.profile.role === USER_ROLES.ADMIN &&
+    eligibility.profile.active &&
+    eligibility.profile.approval_status === APPROVAL_STATUS.APPROVED
+  ) {
+    const activeApprovedAdmins = await countActiveApprovedAdmins();
+
+    if (activeApprovedAdmins <= 1) {
+      return { status: "last-admin-blocked" as const };
+    }
+  }
+
+  const { error: authError } = await deleteAuthUser(input.userId);
+
+  if (authError) {
+    return { status: "auth-error" as const, error: authError };
+  }
+
+  try {
+    await deleteUserProfile(input.userId);
+  } catch (error: unknown) {
+    try {
+      await updateUserProfile(input.userId, {
+        active: false,
+        approval_status: APPROVAL_STATUS.REJECTED,
+        updated_at: new Date().toISOString(),
+      });
+    } catch (deactivationError: unknown) {
+      console.error("User profile deactivation failed after auth deletion", {
+        user_id: input.userId,
+        error: deactivationError instanceof Error ? deactivationError.message : String(deactivationError),
+      });
+    }
+
+    console.error("User profile deletion failed after auth deletion", {
+      user_id: input.userId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+
+    return { status: "profile-delete-error" as const, error };
+  }
+
+  console.info("User permanently deleted", {
+    user_id: input.userId,
+    actor_user_id: actorUserId,
+  });
+
+  return { status: "deleted" as const };
 }
