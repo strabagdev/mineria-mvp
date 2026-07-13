@@ -153,6 +153,63 @@ La regla de orden de agrupacion Gantt es:
 grouping_order ?? sort_order
 ```
 
+## Gantt Jerarquico
+
+G7.1 deja el Gantt jerarquico cerrado sobre Cabecera Operacional. La jerarquia
+se construye exclusivamente con campos que cumplen:
+
+```text
+active && groupable && visible_in_gantt
+```
+
+El orden de niveles usa `grouping_order ?? sort_order`. Cambiar `sort_order`
+ordena formularios, detalle y reportabilidad; cambiar `grouping_order` solo
+ordena la agrupacion Gantt.
+
+Reglas visuales vigentes:
+
+- Los dos primeros niveles de agrupacion se muestran siempre como nodos
+  independientes.
+- Desde el tercer nivel, las rutas profundas se compactan en una ruta legible
+  usando `valor > valor`.
+- Si una ruta compacta contiene una sola actividad terminal, se fusiona con la
+  fila operativa: la actividad queda como titulo y la ruta como subtitulo.
+- Si una ruta compacta contiene dos o mas actividades, se muestra una cabecera
+  compacta expandible y las actividades quedan debajo.
+- Los nodos colapsados pueden mostrar una barra resumen no editable con el rango
+  visible agregado de sus actividades.
+- Programados que cruzan de turno siguen siendo un unico `planning_item`, pero
+  se proyectan visualmente en cada turno que intersectan.
+- Reales/interferencias se renderizan desde sus segmentos ya reconciliados.
+
+Persistencia y estado:
+
+- La expansion vive solo en estado local del navegador.
+- Las claves son `gantt-hierarchy:v2:{groupingSignature}:Dia` y
+  `gantt-hierarchy:v2:{groupingSignature}:Noche`.
+- La fecha no forma parte de la clave; cambiar fecha conserva la forma visual
+  cuando la configuracion de agrupacion es la misma.
+- IDs huerfanos o rutas fusionadas que ya no tienen toggle se ignoran al
+  reconciliar el estado.
+
+Densidad:
+
+- Las filas de actividad mantienen altura completa para conservar barras, lanes,
+  acciones y tooltips.
+- Nodos expandidos y rutas compactas expandidas usan altura compacta.
+- Nodos colapsados con barra resumen usan altura intermedia.
+- La columna meta y la timeline comparten la misma variable de altura por fila
+  para evitar desfases.
+
+Rendimiento:
+
+- Los helpers jerarquicos estan cubiertos con volumen sintetico hasta 10.000
+  grupos y 6 niveles.
+- No se implementa virtualizacion en G7.1. Mientras 1.000 filas visibles sigan
+  funcionando razonablemente, la complejidad adicional no se justifica.
+- Si el uso real supera consistentemente miles de filas visibles por turno,
+  virtualizacion de filas con alturas variables queda como optimizacion futura.
+
 Offline consume respuestas previamente calculadas. Si se cambian flags de
 Cabecera Operacional, el snapshot offline debe refrescarse para reflejar la
 nueva configuracion. Los filtros offline quedan limitados a los datos presentes

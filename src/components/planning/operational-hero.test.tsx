@@ -101,10 +101,14 @@ function renderHero(
     isHistoricalView: false,
     isCreateDisabled: false,
     createTitle: "Nueva programacion",
+    canExpandGanttHierarchy: true,
+    canCollapseGanttHierarchy: true,
     formatDateTitle: (value) => value,
     formatMonthTitle: () => "Junio",
     formatLocalDateIso,
     onSelectOperationalDate,
+    onExpandGanttHierarchy: vi.fn(),
+    onCollapseGanttHierarchy: vi.fn(),
     onCreatePlanning: vi.fn(),
     ...overrides,
   });
@@ -189,5 +193,40 @@ describe("OperationalHero operational date navigation", () => {
     });
 
     expect(nextDayButton?.props.disabled).toBe(true);
+  });
+});
+
+describe("OperationalHero view menu", () => {
+  it("renders a view menu in the top action bar", () => {
+    const { tree } = renderHero("Dia");
+
+    expect(getNodeText(tree)).toContain("Vista");
+    expect(getNodeText(tree)).toContain("Expandir todo");
+    expect(getNodeText(tree)).toContain("Colapsar todo");
+  });
+
+  it("runs hierarchy expand and collapse commands from the view menu", () => {
+    const onExpandGanttHierarchy = vi.fn();
+    const onCollapseGanttHierarchy = vi.fn();
+    const { tree } = renderHero("Dia", vi.fn(), {
+      onExpandGanttHierarchy,
+      onCollapseGanttHierarchy,
+    });
+
+    findButtonByText(tree, "Expandir todo")?.props.onClick?.();
+    findButtonByText(tree, "Colapsar todo")?.props.onClick?.();
+
+    expect(onExpandGanttHierarchy).toHaveBeenCalledTimes(1);
+    expect(onCollapseGanttHierarchy).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables hierarchy commands when the visible Gantt cannot run them", () => {
+    const { tree } = renderHero("Dia", vi.fn(), {
+      canExpandGanttHierarchy: false,
+      canCollapseGanttHierarchy: false,
+    });
+
+    expect(findButtonByText(tree, "Expandir todo")?.props.disabled).toBe(true);
+    expect(findButtonByText(tree, "Colapsar todo")?.props.disabled).toBe(true);
   });
 });

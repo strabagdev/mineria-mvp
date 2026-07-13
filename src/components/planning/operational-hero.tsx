@@ -28,10 +28,14 @@ type OperationalHeroProps = {
   isHistoricalView: boolean;
   isCreateDisabled: boolean;
   createTitle: string;
+  canExpandGanttHierarchy: boolean;
+  canCollapseGanttHierarchy: boolean;
   formatDateTitle: (value: string) => string;
   formatMonthTitle: (date: Date) => string;
   formatLocalDateIso: (date: Date) => string;
   onSelectOperationalDate: (date: string) => void;
+  onExpandGanttHierarchy: () => void;
+  onCollapseGanttHierarchy: () => void;
   onCreatePlanning: () => void;
 };
 
@@ -64,10 +68,14 @@ export function OperationalHero({
   isHistoricalView,
   isCreateDisabled,
   createTitle,
+  canExpandGanttHierarchy,
+  canCollapseGanttHierarchy,
   formatDateTitle,
   formatMonthTitle,
   formatLocalDateIso,
   onSelectOperationalDate,
+  onExpandGanttHierarchy,
+  onCollapseGanttHierarchy,
   onCreatePlanning,
 }: OperationalHeroProps) {
   const selectedDateValue = new Date(`${selectedDate}T00:00:00`);
@@ -238,6 +246,35 @@ export function OperationalHero({
           </button>
         </div>
         <div className="toolbar-actions">
+          <details className="view-menu-shell">
+            <summary className="button hero-view-button" aria-label="Opciones de vista">
+              <span>Vista</span>
+              <span aria-hidden="true">▾</span>
+            </summary>
+
+            <div className="view-menu-popover" role="menu" aria-label="Opciones de vista">
+              <p className="view-menu-title">Vista</p>
+              <button
+                type="button"
+                className="view-menu-item"
+                role="menuitem"
+                disabled={!canExpandGanttHierarchy}
+                onClick={onExpandGanttHierarchy}
+              >
+                Expandir todo
+              </button>
+              <button
+                type="button"
+                className="view-menu-item"
+                role="menuitem"
+                disabled={!canCollapseGanttHierarchy}
+                onClick={onCollapseGanttHierarchy}
+              >
+                Colapsar todo
+              </button>
+            </div>
+          </details>
+
           <button
             type="button"
             className="button primary hero-action-button"

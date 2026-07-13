@@ -43,7 +43,7 @@ export type OperationalView = {
 
 export type GanttGroupingField = Pick<
   OperationalHeaderFieldDto,
-  "id" | "slug" | "label" | "input_type" | "sort_order" | "options"
+  "id" | "slug" | "label" | "input_type" | "sort_order" | "grouping_order" | "options"
 >;
 
 export type GanttGroupingPathEntry = {

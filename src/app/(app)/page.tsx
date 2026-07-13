@@ -6,7 +6,7 @@ import { useAuth } from "@/providers/auth-provider";
 import { CatalogSheet } from "@/components/planning/catalog-sheet";
 import { DeleteConfirmationDialog } from "@/components/planning/delete-confirmation-dialog";
 import { GanttTooltipPortal } from "@/components/planning/gantt-tooltip-portal";
-import { GanttShiftSection } from "@/components/planning/gantt-shift-section";
+import { GanttShiftSection, type GanttHierarchyViewControls } from "@/components/planning/gantt-shift-section";
 import { HistoricalModeStrip } from "@/components/planning/historical-mode-strip";
 import { OperationalHero } from "@/components/planning/operational-hero";
 import { PlanningDetailDialog } from "@/components/planning/planning-detail-dialog";
@@ -147,6 +147,12 @@ type DeleteConfirmation = {
 } | null;
 
 type ViewingPlanningItem = PlanningItem | null;
+const disabledGanttHierarchyViewControls: GanttHierarchyViewControls = {
+  canExpandAll: false,
+  canCollapseAll: false,
+  expandAll: () => undefined,
+  collapseAll: () => undefined,
+};
 
 function toPlanningItemAssignmentTarget(planningItemId: number): AssignmentTarget {
   return { target_kind: "planning_item", target_id: planningItemId };
@@ -299,6 +305,9 @@ export default function Home() {
   const [formError, setFormError] = useState("");
   const [editingPlanningItem, setEditingPlanningItem] = useState<EditingPlanningItem | null>(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState<DeleteConfirmation>(null);
+  const [ganttHierarchyViewControls, setGanttHierarchyViewControls] = useState<GanttHierarchyViewControls>(
+    disabledGanttHierarchyViewControls
+  );
   const [formState, setFormState] = useState<PlanningItemForm>(toInitialPlanningForm([], "Dia", formatLocalDateIso()));
   const [dynamicHeaderFormState, setDynamicHeaderFormState] = useState<Record<number, string>>({});
   const resumeRefreshInFlightRef = useRef(false);
@@ -1795,10 +1804,14 @@ export default function Home() {
               ? "Habilita la edicion historica para crear registros"
               : "Nueva programacion"
         }
+        canExpandGanttHierarchy={ganttHierarchyViewControls.canExpandAll}
+        canCollapseGanttHierarchy={ganttHierarchyViewControls.canCollapseAll}
         formatDateTitle={formatDateTitle}
         formatMonthTitle={formatMonthTitle}
         formatLocalDateIso={formatLocalDateIso}
         onSelectOperationalDate={selectOperationalDate}
+        onExpandGanttHierarchy={ganttHierarchyViewControls.expandAll}
+        onCollapseGanttHierarchy={ganttHierarchyViewControls.collapseAll}
         onCreatePlanning={() => {
           if (!canOperatePlanning) {
             return;
@@ -1839,10 +1852,12 @@ export default function Home() {
                 shift={activeShift}
                 groups={planningGroupsByShift[activeShift]}
                 scale={ganttScales[activeShift]}
+                groupingFields={ganttGroupingFields}
                 currentTimeMarker={currentTimeMarker}
                 renderBar={renderGanttBar}
                 renderAssignmentIndicators={renderGanttAssignmentIndicators}
                 renderCreateRealButton={renderCreateRealButton}
+                onHierarchyViewControlsChange={setGanttHierarchyViewControls}
               />
             ) : null}
           </div>
