@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import AdminUsersPage from "./page";
+import { UserAvatar } from "../../../../components/opcl";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
@@ -55,6 +56,23 @@ vi.mock("@/lib/reportsOfflineSnapshot", () => ({
 }));
 
 describe("AdminUsersPage access administration", () => {
+  it("renders deterministic user avatars with normalized initials", () => {
+    const html = renderToStaticMarkup(
+      <>
+        <UserAvatar name="Carlos Muñoz" email="carlos.munoz@strabag.com" userId="user-1" />
+        <UserAvatar name="Sebastián Cuadra" email="sebastian.cuadra@strabag.com" userId="user-2" />
+        <UserAvatar name="Ignacio Díaz" email="ignacio.diaz@strabag.com" userId="user-3" size="detail" />
+      </>
+    );
+
+    expect(html).toContain("CM");
+    expect(html).toContain("SC");
+    expect(html).toContain("ID");
+    expect(html).toContain("opcl-user-avatar compact");
+    expect(html).toContain("opcl-user-avatar detail");
+    expect(html).toContain("data-tone=");
+  });
+
   it("keeps roles out of the primary user administration UI", () => {
     const html = renderToStaticMarkup(<AdminUsersPage />);
     const source = readFileSync("src/app/(app)/admin/users/page.tsx", "utf8");
@@ -74,14 +92,18 @@ describe("AdminUsersPage access administration", () => {
 
     expect(source).toContain('className="admin-users-page"');
     expect(source).not.toContain("dashboard-stack admin-users-page");
-    expect(source).toContain("admin-users-toolbar");
-    expect(source).toContain("admin-users-toolbar-copy");
+    expect(source).toContain("<PageHeader");
+    expect(source).toContain('title="Usuarios y permisos"');
+    expect(source).toContain('description="Gestiona usuarios, permisos y solicitudes de acceso."');
     expect(source).not.toContain('<p className="eyebrow">Administracion</p>');
     expect(source).not.toContain("surface-card hero padded admin-users-hero");
     expect(source).toContain("admin-users-workspace");
     expect(source).toContain("admin-users-directory");
     expect(source).toContain("admin-user-compact-list");
     expect(source).toContain("admin-user-row");
+    expect(source).toContain("UserAvatar");
+    expect(source).toContain("admin-user-row-identity");
+    expect(source).toContain("admin-detail-identity");
     expect(source).toContain("selectedUserId");
     expect(source).toContain("setSelectedUserId(account.user_id)");
     expect(source).toContain("admin-user-detail-panel");
@@ -119,7 +141,7 @@ describe("AdminUsersPage access administration", () => {
 
     expect(source).toContain("pendingUsers");
     expect(source).toContain("Solicitudes");
-    expect(source).toContain("Acceso pendiente");
+    expect(source).toContain("Solicitudes de acceso");
     expect(source).toContain("Solicitudes de acceso pendientes");
     expect(source).toContain("No hay solicitudes pendientes");
     expect(source).toContain("Aprobar");
@@ -185,8 +207,11 @@ describe("AdminUsersPage access administration", () => {
     expect(styles).toContain(".admin-users-page");
     expect(styles).toContain("grid-template-columns: 1fr");
     expect(styles).toContain("width: 100%");
-    expect(styles).toContain(".admin-users-toolbar");
+    expect(styles).toContain(".opcl-page-header");
     expect(styles).toContain("min-height: 4.25rem");
+    expect(styles).toContain(".opcl-user-avatar");
+    expect(styles).toContain(".opcl-user-avatar.detail");
+    expect(styles).toContain('[data-tone="6"]');
     expect(styles).toContain(".admin-users-workspace");
     expect(styles).toContain("grid-template-columns: minmax(0, 42fr) minmax(0, 40fr) minmax(14rem, 18fr)");
     expect(styles).toContain("@media (max-width: 1180px)");

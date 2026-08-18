@@ -2,6 +2,18 @@
 
 import React from "react";
 import { useRouter } from "next/navigation";
+import {
+  CompactRow,
+  DangerAction,
+  EmptyState,
+  PageHeader,
+  Panel,
+  PrimaryAction,
+  SecondaryAction,
+  SectionHeader,
+  StatusBadge,
+  UserAvatar,
+} from "../../../../components/opcl";
 import { useAuth } from "@/providers/auth-provider";
 import { NETWORK_ERROR_MESSAGE, isBrowserOffline, subscribeNetworkStatus } from "@/lib/networkStatus";
 import type { UserRole } from "@/modules/auth/application/auth-types";
@@ -92,6 +104,26 @@ function approvalLabel(status: AdminUser["approval_status"]) {
   }
 
   return "Pendiente";
+}
+
+function approvalTone(status: AdminUser["approval_status"]) {
+  if (status === "approved") {
+    return "success" as const;
+  }
+
+  if (status === "rejected") {
+    return "danger" as const;
+  }
+
+  return "warning" as const;
+}
+
+function accessTone(account: Pick<AdminUser, "role">, summary: UserPermissionSummaryDto | undefined) {
+  if (account.role === "admin") {
+    return "total" as const;
+  }
+
+  return summary?.overrides.length ? "partial" as const : "neutral" as const;
 }
 
 export default function AdminUsersPage() {
@@ -588,27 +620,22 @@ export default function AdminUsersPage() {
 
   return (
     <div className="admin-users-page">
-      <header className="admin-users-toolbar">
-        <div className="admin-users-toolbar-copy">
-          <h2 className="section-title">Usuarios y permisos</h2>
-          <p className="body-copy">
-            Gestiona usuarios, permisos y solicitudes de acceso.
-          </p>
-        </div>
-        <button type="button" className="button primary" disabled={busy} onClick={() => setCreateModalOpen(true)}>
+      <PageHeader
+        title="Usuarios y permisos"
+        description="Gestiona usuarios, permisos y solicitudes de acceso."
+        action={(
+          <PrimaryAction type="button" disabled={busy} onClick={() => setCreateModalOpen(true)}>
           Crear usuario
-        </button>
-      </header>
+          </PrimaryAction>
+        )}
+      />
 
       <section className="admin-users-workspace" aria-label="Administracion de usuarios y permisos">
-        <article className="surface-card padded admin-users-directory">
-          <div className="admin-panel-heading">
-            <div>
-              <p className="eyebrow">Listado</p>
-              <h3 className="section-title">Usuarios</h3>
-            </div>
-            <span className="session-pill">{filteredUsers.length} visibles</span>
-          </div>
+        <Panel className="admin-users-directory">
+          <SectionHeader
+            title="Usuarios"
+            meta={<StatusBadge tone="info">{filteredUsers.length} visibles</StatusBadge>}
+          />
 
           <div className="admin-users-filters">
             <label className="field">
@@ -646,55 +673,74 @@ export default function AdminUsersPage() {
           <div className="admin-user-compact-list" aria-label="Listado compacto de usuarios">
             {filteredUsers.length ? (
               filteredUsers.map((account) => (
-                <button
+                <CompactRow
                   key={account.user_id}
                   type="button"
-                  className={`admin-user-row ${selectedUser?.user_id === account.user_id ? "selected" : ""}`}
+                  selected={selectedUser?.user_id === account.user_id}
+                  className="admin-user-row"
                   onClick={() => setSelectedUserId(account.user_id)}
                 >
-                  <span className="admin-user-row-main">
-                    <strong>{account.full_name || account.email}</strong>
-                    <span>{account.email}</span>
+                  <span className="admin-user-row-identity">
+                    <UserAvatar name={account.full_name} email={account.email} userId={account.user_id} />
+                    <span className="admin-user-row-main">
+                      <strong>{account.full_name || account.email}</strong>
+                      <span>{account.email}</span>
+                    </span>
                   </span>
                   <span className="admin-user-row-meta">
-                    <span className="admin-user-row-badge">{account.active ? "Activo" : "Inactivo"}</span>
-                    <span className="admin-user-row-badge">{approvalLabel(account.approval_status)}</span>
-                    <span className="admin-user-row-access">{getAccessSummary(account)}</span>
+                    <StatusBadge tone={account.active ? "success" : "neutral"}>{account.active ? "Activo" : "Inactivo"}</StatusBadge>
+                    <StatusBadge tone={approvalTone(account.approval_status)}>{approvalLabel(account.approval_status)}</StatusBadge>
+                    <StatusBadge tone={accessTone(account, permissionSummaryByUser[account.user_id])}>{getAccessSummary(account)}</StatusBadge>
                   </span>
-                </button>
+                </CompactRow>
               ))
             ) : (
-              <p className="muted-inline">No hay usuarios para los filtros actuales.</p>
+              <EmptyState>No hay usuarios para los filtros actuales.</EmptyState>
             )}
           </div>
-        </article>
+        </Panel>
 
-        <article className="surface-card padded admin-user-detail-panel">
-          <p className="eyebrow">Detalle</p>
+        <Panel className="admin-user-detail-panel">
           {selectedUser ? (
             <>
+              <SectionHeader
+                title="Detalle"
+                meta={<StatusBadge tone={accessTone(selectedUser, selectedUserSummary ?? undefined)}>{getAccessSummary(selectedUser)}</StatusBadge>}
+              />
               <div className="admin-detail-heading">
-                <div>
-                  <h3 className="section-title">{selectedUser.full_name || selectedUser.email}</h3>
-                  <p className="body-copy">{selectedUser.email}</p>
+                <div className="admin-detail-identity">
+                  <UserAvatar
+                    name={selectedUser.full_name}
+                    email={selectedUser.email}
+                    userId={selectedUser.user_id}
+                    size="detail"
+                  />
+                  <div>
+                    <h3 className="section-title">{selectedUser.full_name || selectedUser.email}</h3>
+                    <p className="body-copy">{selectedUser.email}</p>
+                  </div>
                 </div>
-                <button
+                <PrimaryAction
                   type="button"
-                  className="button primary"
                   disabled={busy}
                   onClick={() => void loadUserPermissions(selectedUser)}
                 >
                   Administrar accesos
-                </button>
+                </PrimaryAction>
               </div>
 
               <div className="admin-user-badges">
-                <span>
-                  {selectedUser.active ? "Activo" : "Inactivo"} · {approvalLabel(selectedUser.approval_status)} ·{" "}
+                <StatusBadge tone={selectedUser.active ? "success" : "neutral"}>
+                  {selectedUser.active ? "Activo" : "Inactivo"}
+                </StatusBadge>
+                <StatusBadge tone={approvalTone(selectedUser.approval_status)}>
+                  {approvalLabel(selectedUser.approval_status)}
+                </StatusBadge>
+                <StatusBadge tone={accessTone(selectedUser, selectedUserSummary ?? undefined)}>
                   {selectedUserSummary
-                    ? `${selectedUserSummary.effective_permissions.length} accesos habilitados`
+                    ? `${selectedUserSummary.effective_permissions.length} accesos`
                     : getAccessSummary(selectedUser)}
-                </span>
+                </StatusBadge>
               </div>
 
               <section className="admin-detail-section">
@@ -708,9 +754,9 @@ export default function AdminUsersPage() {
                       </div>
                     ))
                   ) : selectedUser.role === "admin" ? (
-                    <p className="muted-inline">Acceso total a la plataforma.</p>
+                    <EmptyState>Acceso total a la plataforma.</EmptyState>
                   ) : (
-                    <p className="muted-inline">Los accesos se cargan al seleccionar el usuario.</p>
+                    <EmptyState>Los accesos se cargan al seleccionar el usuario.</EmptyState>
                   )}
                 </div>
               </section>
@@ -719,10 +765,9 @@ export default function AdminUsersPage() {
                 <h4>Administracion de cuenta</h4>
                 <div className="admin-detail-actions" aria-label="Acciones administrativas del usuario">
                   {selectedUser.approval_status === "pending" ? (
-                    <button
+                    <PrimaryAction
                       type="button"
                       disabled={busy}
-                      className="button primary"
                       onClick={() =>
                         void updateUser({
                           action: "update-approval-status",
@@ -732,13 +777,12 @@ export default function AdminUsersPage() {
                       }
                     >
                       Aprobar solicitud
-                    </button>
+                    </PrimaryAction>
                   ) : null}
 
-                  <button
+                  <SecondaryAction
                     type="button"
                     disabled={busy}
-                    className="button"
                     onClick={() =>
                       void updateUser({
                         action: "toggle-active",
@@ -748,44 +792,39 @@ export default function AdminUsersPage() {
                     }
                   >
                     {selectedUser.active ? "Desactivar" : "Reactivar"}
-                  </button>
+                  </SecondaryAction>
 
-                  <button
+                  <SecondaryAction
                     type="button"
                     disabled={busy}
-                    className="button"
                     onClick={() => setPasswordModalUser(selectedUser)}
                   >
                     Actualizar contrasena
-                  </button>
+                  </SecondaryAction>
 
                   {selectedUser.deletion_eligible ? (
-                    <button
+                    <DangerAction
                       type="button"
                       disabled={busy}
-                      className="button danger"
                       onClick={() => void deleteUser(selectedUser)}
                       title="Solo disponible para usuarios sin historial operacional"
                     >
                       Eliminar definitivamente
-                    </button>
+                    </DangerAction>
                   ) : null}
                 </div>
               </section>
             </>
           ) : (
-            <p className="muted-inline">Selecciona un usuario para ver el detalle.</p>
+            <EmptyState>Selecciona un usuario para ver el detalle.</EmptyState>
           )}
-        </article>
+        </Panel>
 
-        <aside className="surface-card padded admin-access-requests">
-          <div className="admin-panel-heading">
-            <div>
-              <p className="eyebrow">Solicitudes</p>
-              <h3 className="section-title">Acceso pendiente</h3>
-            </div>
-            <span className="session-pill">{pendingUsers.length}</span>
-          </div>
+        <Panel as="aside" className="admin-access-requests">
+          <SectionHeader
+            title="Solicitudes de acceso"
+            meta={<StatusBadge tone={pendingUsers.length ? "warning" : "neutral"}>{pendingUsers.length}</StatusBadge>}
+          />
 
           {pendingUsers.length ? (
             <div className="admin-request-list" aria-label="Solicitudes de acceso pendientes">
@@ -796,17 +835,17 @@ export default function AdminUsersPage() {
                     <p className="muted-inline">{account.email}</p>
                   </div>
                   <div className="admin-request-actions">
-                    <button
+                    <SecondaryAction
                       type="button"
-                      className="button small"
+                      className="compact"
                       onClick={() => setSelectedUserId(account.user_id)}
                     >
                       Ver
-                    </button>
-                    <button
+                    </SecondaryAction>
+                    <PrimaryAction
                       type="button"
                       disabled={busy}
-                      className="button small primary"
+                      className="compact"
                       onClick={() =>
                         void updateUser({
                           action: "update-approval-status",
@@ -816,21 +855,21 @@ export default function AdminUsersPage() {
                       }
                     >
                       Aprobar
-                    </button>
+                    </PrimaryAction>
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="muted-inline">No hay solicitudes pendientes</p>
+            <EmptyState>No hay solicitudes pendientes</EmptyState>
           )}
-        </aside>
+        </Panel>
       </section>
 
       {createModalOpen ? (
-        <div className="modal-backdrop" role="presentation" onClick={closeCreateModal}>
+        <div className="modal-backdrop opcl-modal-backdrop" role="presentation" onClick={closeCreateModal}>
           <section
-            className="modal-card create-user-modal"
+            className="modal-card create-user-modal opcl-modal-card"
             role="dialog"
             aria-modal="true"
             aria-labelledby="create-user-title"
@@ -841,9 +880,9 @@ export default function AdminUsersPage() {
                 <p className="eyebrow">Nueva cuenta</p>
                 <h3 id="create-user-title" className="section-title">Crear usuario</h3>
               </div>
-              <button type="button" className="button" onClick={closeCreateModal}>
+              <SecondaryAction type="button" onClick={closeCreateModal}>
                 Cerrar
-              </button>
+              </SecondaryAction>
             </div>
 
             <form onSubmit={createUser} className="auth-form">
@@ -880,12 +919,12 @@ export default function AdminUsersPage() {
               </label>
 
               <div className="modal-actions">
-                <button type="button" className="button" onClick={closeCreateModal} disabled={busy}>
+                <SecondaryAction type="button" onClick={closeCreateModal} disabled={busy}>
                   Cancelar
-                </button>
-                <button type="submit" disabled={busy} className="button primary">
+                </SecondaryAction>
+                <PrimaryAction type="submit" disabled={busy}>
                   Crear usuario
-                </button>
+                </PrimaryAction>
               </div>
             </form>
           </section>
@@ -893,9 +932,9 @@ export default function AdminUsersPage() {
       ) : null}
 
       {passwordModalUser ? (
-        <div className="modal-backdrop" role="presentation" onClick={() => setPasswordModalUser(null)}>
+        <div className="modal-backdrop opcl-modal-backdrop" role="presentation" onClick={() => setPasswordModalUser(null)}>
           <section
-            className="modal-card create-user-modal"
+            className="modal-card create-user-modal opcl-modal-card"
             role="dialog"
             aria-modal="true"
             aria-labelledby="password-user-title"
@@ -907,9 +946,9 @@ export default function AdminUsersPage() {
                 <h3 id="password-user-title" className="section-title">Actualizar contrasena</h3>
                 <p className="body-copy">{passwordModalUser.email}</p>
               </div>
-              <button type="button" className="button" onClick={() => setPasswordModalUser(null)}>
+              <SecondaryAction type="button" onClick={() => setPasswordModalUser(null)}>
                 Cerrar
-              </button>
+              </SecondaryAction>
             </div>
 
             <form
@@ -944,12 +983,12 @@ export default function AdminUsersPage() {
               </label>
 
               <div className="modal-actions">
-                <button type="button" className="button" onClick={() => setPasswordModalUser(null)} disabled={busy}>
+                <SecondaryAction type="button" onClick={() => setPasswordModalUser(null)} disabled={busy}>
                   Cancelar
-                </button>
-                <button type="submit" className="button primary" disabled={busy}>
+                </SecondaryAction>
+                <PrimaryAction type="submit" disabled={busy}>
                   Actualizar contrasena
-                </button>
+                </PrimaryAction>
               </div>
             </form>
           </section>
@@ -957,9 +996,9 @@ export default function AdminUsersPage() {
       ) : null}
 
       {selectedPermissionUser ? (
-        <div className="modal-backdrop" role="presentation" onClick={closePermissionsModal}>
+        <div className="modal-backdrop opcl-modal-backdrop" role="presentation" onClick={closePermissionsModal}>
           <section
-            className="modal-card access-admin-modal"
+            className="modal-card access-admin-modal opcl-modal-card"
             role="dialog"
             aria-modal="true"
             aria-labelledby="access-admin-title"
@@ -973,9 +1012,11 @@ export default function AdminUsersPage() {
                 </p>
               </div>
               {selectedPermissionUser.role === "admin" ? (
-                <span className="session-pill">Acceso total</span>
+                <StatusBadge tone="total">Acceso total</StatusBadge>
               ) : permissionSummary ? (
-                <span className="session-pill">{permissionSummary.effective_permissions.length} accesos habilitados</span>
+                <StatusBadge tone={permissionSummary.overrides.length ? "partial" : "info"}>
+                  {permissionSummary.effective_permissions.length} accesos habilitados
+                </StatusBadge>
               ) : null}
             </div>
 
@@ -989,7 +1030,7 @@ export default function AdminUsersPage() {
               ) : null}
 
               {!permissionSummary ? (
-                <p className="muted-inline">{permissionsBusy ? "Cargando permisos..." : "Sin permisos cargados."}</p>
+                <EmptyState>{permissionsBusy ? "Cargando permisos..." : "Sin permisos cargados."}</EmptyState>
               ) : selectedPermissionUser.role === "admin" ? null : (
                 <div className="access-toggle-list">
                   {PERMISSION_GROUPS.map((group) => (
@@ -1038,18 +1079,17 @@ export default function AdminUsersPage() {
                 {permissionDraftChanges > 0 ? `${permissionDraftChanges} cambios sin guardar` : "Sin cambios pendientes"}
               </span>
               <div className="modal-actions">
-                <button type="button" className="button" onClick={closePermissionsModal} disabled={permissionsBusy}>
+                <SecondaryAction type="button" onClick={closePermissionsModal} disabled={permissionsBusy}>
                   Cancelar
-                </button>
+                </SecondaryAction>
                 {selectedPermissionUser.role === "admin" ? null : (
-                  <button
+                  <PrimaryAction
                     type="button"
-                    className="button primary"
                     disabled={permissionsBusy || !permissionSummary || permissionDraftChanges === 0}
                     onClick={() => void savePermissionChanges()}
                   >
                     Guardar cambios
-                  </button>
+                  </PrimaryAction>
                 )}
               </div>
             </div>
