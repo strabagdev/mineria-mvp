@@ -64,9 +64,7 @@ import {
 import {
   type OfflineStorageScope,
   readCatalogCache,
-  readPlanningCache,
   saveCatalogCache,
-  savePlanningCache,
 } from "@/lib/localOfflineStore";
 import { recordOperationalEvent } from "../../lib/observability/logger";
 import {
@@ -115,6 +113,7 @@ import {
 } from "@/modules/planning/presentation/planning-page-transformers";
 import { usePlanningCatalogAdmin } from "@/modules/planning/presentation/use-planning-catalog-admin";
 import { usePlanningRealtime } from "@/modules/planning/presentation/use-planning-realtime";
+import { planningLocalRepository } from "@/modules/planning/local/planning-local-repository";
 import {
   applyPendingPlanningMutations,
   getRetryablePlanningMutations,
@@ -180,21 +179,6 @@ const PLANNING_NETWORK_ERROR_MESSAGE =
 
 function isInvalidSessionError(error: unknown) {
   return error instanceof Error && /invalid session/i.test(error.message);
-}
-
-function isPlanningConflictError(error: unknown) {
-  return (
-    error instanceof PlanningMutationRequestError &&
-    (error.status === 409 || /solapa|conflicto|conflict/i.test(error.message))
-  );
-}
-
-function shouldQueuePlanningMutation(error: unknown) {
-  return (
-    isBrowserOffline() ||
-    isNetworkRequestError(error) ||
-    isInvalidSessionError(error)
-  );
 }
 
 function isRetryablePlanningSyncError(error: unknown) {
@@ -345,6 +329,7 @@ export default function Home() {
   const [formState, setFormState] = useState<PlanningItemForm>(toInitialPlanningForm([], "Dia", formatLocalDateIso()));
   const [dynamicHeaderFormState, setDynamicHeaderFormState] = useState<Record<number, string>>({});
   const resumeRefreshInFlightRef = useRef(false);
+  const pendingPlanningMutationsRef = useRef<PendingPlanningMutation[]>([]);
 
   const selectActiveShift = useCallback((shift: ShiftKey) => {
     setActiveShift(shift);
@@ -563,13 +548,20 @@ export default function Home() {
     };
   }, [deleteConfirmation, isCatalogModalOpen, isModalOpen, viewingPlanningItem]);
 
-  const refreshPlanningItems = useCallback(async () => {
-    const nextItems = await fetchPlanningItems(selectedDate, session?.access_token);
+  const refreshPlanningItems = useCallback(async (options?: { pendingMutations?: PendingPlanningMutation[] }) => {
+    const serverItems = await fetchPlanningItems(selectedDate, session?.access_token);
+    const pendingMutations = options?.pendingMutations ?? pendingPlanningMutationsRef.current;
+    const nextItems = offlineScope
+      ? await planningLocalRepository.reconcileServerSnapshot(
+          selectedDate,
+          serverItems,
+          pendingMutations,
+          offlineScope
+        )
+      : serverItems;
+
     setPlanningItems(nextItems);
     setItemsError((current) => (isTransientConnectivityMessage(current) ? "" : current));
-    if (offlineScope) {
-      void savePlanningCache(selectedDate, nextItems, offlineScope);
-    }
     void preloadPlanningAssignmentsForItems(nextItems);
   }, [offlineScope, preloadPlanningAssignmentsForItems, selectedDate, session?.access_token]);
 
@@ -677,7 +669,7 @@ export default function Home() {
       }
 
       if (replayResult.syncedCount > 0 || replayResult.foundConflict || failedPermissionMutation) {
-        await refreshPlanningItems().then(() => {
+        await refreshPlanningItems({ pendingMutations: replayResult.nextQueue }).then(() => {
           if (replayResult.nextQueue.length === 0) {
             setItemsError("");
           }
@@ -687,6 +679,10 @@ export default function Home() {
       }
     },
   });
+
+  useEffect(() => {
+    pendingPlanningMutationsRef.current = pendingPlanningMutations;
+  }, [pendingPlanningMutations]);
 
   usePlanningRealtime({
     selectedDate,
@@ -874,38 +870,64 @@ export default function Home() {
     let active = true;
 
     async function loadPlanningItems() {
+      let hydratedFromLocal = false;
+
       try {
         setItemsLoading(true);
         setItemsError("");
-        const nextItems = await fetchPlanningItems(selectedDate, session?.access_token);
 
-        if (!active) {
-          return;
-        }
-
-        setPlanningItems(nextItems);
         if (offlineScope) {
-          void savePlanningCache(selectedDate, nextItems, offlineScope);
-        }
-        void preloadPlanningAssignmentsForItems(nextItems);
-      } catch (error: unknown) {
-        const message = getRequestErrorMessage(error, "No se pudo cargar la planificacion.");
+          const localSnapshot = await planningLocalRepository.readByDate(selectedDate, offlineScope);
 
-        if (active) {
-          const cachedPlanning = offlineScope
-            ? await readPlanningCache<PlanningItem[]>(selectedDate, offlineScope).catch(() => null)
-            : null;
+          if (!active) {
+            return;
+          }
 
-          if (cachedPlanning) {
+          if (localSnapshot) {
+            hydratedFromLocal = true;
+            setPlanningItems(localSnapshot.items);
+            void preloadPlanningAssignmentsForItems(localSnapshot.items);
+            setItemsLoading(false);
             recordOperationalEvent({
               name: "offline.cache_used",
               source: "planningPage",
+              metadata: { dataset: "planning-by-date", selectedDate, mode: "initial-local" },
+            });
+          }
+        }
+
+        if (isBrowserOffline()) {
+          if (!hydratedFromLocal) {
+            recordOperationalEvent({
+              level: "warn",
+              name: "offline.cache_miss",
+              source: "planningPage",
               metadata: { dataset: "planning-by-date", selectedDate },
             });
-            setPlanningItems(cachedPlanning.items);
-            void preloadPlanningAssignmentsForItems(cachedPlanning.items);
+            setItemsError("No hay datos disponibles sin conexión para esta fecha.");
+          }
+          return;
+        }
+
+        await refreshPlanningItems();
+      } catch (error: unknown) {
+        const message = getRequestErrorMessage(error, "No se pudo cargar la planificacion.");
+
+        if (active && !hydratedFromLocal) {
+          const localSnapshot = offlineScope
+            ? await planningLocalRepository.readByDate(selectedDate, offlineScope)
+            : null;
+
+          if (localSnapshot) {
+            recordOperationalEvent({
+              name: "offline.cache_used",
+              source: "planningPage",
+              metadata: { dataset: "planning-by-date", selectedDate, mode: "fallback-local" },
+            });
+            setPlanningItems(localSnapshot.items);
+            void preloadPlanningAssignmentsForItems(localSnapshot.items);
             setItemsError(
-              `Usando planificacion local guardada. Ultima sincronizacion: ${formatLocalDateTime(cachedPlanning.updatedAt)}.`
+              `Usando planificacion local guardada. Ultima sincronizacion: ${formatLocalDateTime(localSnapshot.updatedAt)}.`
             );
           } else {
             recordOperationalEvent({
@@ -914,11 +936,11 @@ export default function Home() {
               source: "planningPage",
               metadata: { dataset: "planning-by-date", selectedDate },
             });
-            setItemsError(message);
+            setItemsError(isBrowserOffline() ? "No hay datos disponibles sin conexión para esta fecha." : message);
           }
         }
       } finally {
-        if (active) {
+        if (active && !hydratedFromLocal) {
           setItemsLoading(false);
         }
       }
@@ -929,7 +951,7 @@ export default function Home() {
     return () => {
       active = false;
     };
-  }, [offlineScope, preloadPlanningAssignmentsForItems, selectedDate, session?.access_token]);
+  }, [offlineScope, preloadPlanningAssignmentsForItems, refreshPlanningItems, selectedDate, session?.access_token]);
 
   useEffect(() => {
     if (formState.tracking_type !== "programado") {
@@ -1231,13 +1253,6 @@ export default function Home() {
     }
   }
 
-  async function sendPlanningMutation(
-    method: PendingPlanningMutation["method"],
-    payload: Record<string, unknown>
-  ) {
-    return sendPlanningMutationRequest(method, payload, session?.access_token);
-  }
-
   function getPlannedAssignmentsForQueue(): PlanningAssignmentInputDto[] | undefined {
     if (formState.tracking_type !== "programado" || !formAssignmentsReady) {
       return undefined;
@@ -1246,7 +1261,7 @@ export default function Home() {
     return toPlanningAssignmentInputs(formAssignmentTypes, planningAssignmentsFormState);
   }
 
-  function enqueuePlanningMutation(
+  async function enqueuePlanningMutation(
     method: PendingPlanningMutation["method"],
     payload: Record<string, unknown>,
     input: {
@@ -1273,6 +1288,13 @@ export default function Home() {
       scope: offlineScope,
     });
     setPendingPlanningMutations((current) => [...current, pendingMutation]);
+    const nextItems = await planningLocalRepository.applyLocalMutation(
+      String(pendingMutation.payload.item_date ?? selectedDate),
+      planningItems,
+      pendingMutation,
+      offlineScope
+    );
+    setPlanningItems(nextItems);
     return pendingMutation;
   }
 
@@ -1301,25 +1323,7 @@ export default function Home() {
         }
       : withClientMutationId(mutationPayload) as PlanningItemMutationPayload;
 
-    if (!session?.access_token) {
-      if (isBrowserOffline()) {
-        if (formState.tracking_type === "real" && formAssignmentsReady) {
-          setFormAssignmentsError("Las asignaciones reales requieren conexión por ahora.");
-          setFormError("Las asignaciones reales requieren conexión por ahora.");
-          return;
-        }
-
-        enqueuePlanningMutation(method, payload, {
-          assignmentPayload: getPlannedAssignmentsForQueue(),
-        });
-        setItemsError(
-          "Sin conexion: el registro quedo guardado en este equipo y se sincronizara automaticamente cuando vuelva la senal."
-        );
-        setIsModalOpen(false);
-        resetPlanningForm();
-        return;
-      }
-
+    if (!session?.access_token && !isBrowserOffline()) {
       setFormError("Necesitas iniciar sesion para registrar actividades.");
       return;
     }
@@ -1327,83 +1331,24 @@ export default function Home() {
     setFormBusy(true);
 
     try {
-      const mutationResult = await sendPlanningMutation(method, payload);
-      const savedItemId = Number(
-        (mutationResult as { item?: { id?: unknown } }).item?.id ?? editingPlanningItem?.id
-      );
-
-      if (canManageAssignments && formAssignmentsReady && Number.isFinite(savedItemId) && savedItemId > 0) {
-        const assignmentPayload = toPlanningAssignmentInputs(formAssignmentTypes, planningAssignmentsFormState);
-        const assignmentTarget = formState.tracking_type === "programado"
-          ? toPlanningItemAssignmentTarget(savedItemId)
-          : ({ target_kind: "execution_segment", target_id: savedItemId } satisfies AssignmentTarget);
-
-        if (isBrowserOffline()) {
-          if (assignmentTarget.target_kind === "execution_segment") {
-            setFormAssignmentsError("Las asignaciones reales requieren conexión por ahora.");
-            setFormError("Las asignaciones reales requieren conexión por ahora.");
-            return;
-          }
-
-          enqueuePlanningMutation(method, payload, { assignmentPayload, syncedPlanningItemId: savedItemId });
-          setItemsError("Sin conexion: la programacion se guardo y sus asignaciones quedaron pendientes de sincronizacion.");
-          setIsModalOpen(false);
-          resetPlanningForm();
-          return;
-        }
-
-        try {
-          const savedAssignments = await savePlanningAssignmentsForTarget(
-            assignmentTarget,
-            assignmentPayload,
-            session.access_token
-          );
-          setPlanningAssignmentsByTargetKey((current) => ({ ...current, [getAssignmentTargetKey(assignmentTarget)]: savedAssignments }));
-          if (offlineScope) {
-            void saveAssignmentsCacheForTarget(assignmentTarget, savedAssignments, offlineScope);
-          }
-        } catch (error: unknown) {
-          if (assignmentTarget.target_kind === "planning_item" && shouldQueuePlanningMutation(error)) {
-            enqueuePlanningMutation(method, payload, { assignmentPayload, syncedPlanningItemId: savedItemId });
-            setItemsError("Sin conexion: la programacion se guardo y sus asignaciones quedaron pendientes de sincronizacion.");
-            setIsModalOpen(false);
-            resetPlanningForm();
-            return;
-          }
-          recordOperationalEvent({
-            level: "warn",
-            name: "planning_assignments.save_failed",
-            source: "planningPage",
-            metadata: { targetKind: assignmentTarget.target_kind, targetId: assignmentTarget.target_id },
-          });
-          setEditingPlanningItem({ id: savedItemId });
-          setFormAssignmentsError(getRequestErrorMessage(error, "El registro se guardo, pero no se pudieron guardar sus asignaciones. Reintenta guardar para completarlas."));
-          await refreshPlanningItems().catch(() => undefined);
-          return;
-        }
-      }
-
-      await refreshPlanningItems();
-      setIsModalOpen(false);
-      resetPlanningForm();
-    } catch (error: unknown) {
-      if (shouldQueuePlanningMutation(error)) {
-        enqueuePlanningMutation(method, payload, {
-          assignmentPayload: getPlannedAssignmentsForQueue(),
-        });
-        setItemsError(
-          "Sin conexion: el registro quedo guardado en este equipo y se sincronizara automaticamente cuando vuelva la senal."
-        );
-        setIsModalOpen(false);
-        resetPlanningForm();
+      if (formState.tracking_type === "real" && formAssignmentsReady && isBrowserOffline()) {
+        setFormAssignmentsError("Las asignaciones reales requieren conexión por ahora.");
+        setFormError("Las asignaciones reales requieren conexión por ahora.");
         return;
       }
 
-      if (isPlanningConflictError(error)) {
-        await refreshPlanningItems().catch(() => undefined);
-      }
-
-      setFormError(getRequestErrorMessage(error, "No se pudo crear el registro."));
+      await enqueuePlanningMutation(method, payload, {
+        assignmentPayload: getPlannedAssignmentsForQueue(),
+      });
+      setItemsError(
+        isBrowserOffline()
+          ? "Sin conexion: el registro quedo guardado en este equipo y se sincronizara automaticamente cuando vuelva la senal."
+          : "El registro quedo guardado localmente y se sincronizara automaticamente."
+      );
+      setIsModalOpen(false);
+      resetPlanningForm();
+    } catch (error: unknown) {
+      setFormError(getRequestErrorMessage(error, "No se pudo guardar el registro localmente."));
     } finally {
       setFormBusy(false);
     }
@@ -1467,20 +1412,7 @@ export default function Home() {
       expected_updated_at: targetItem?.updated_at ?? editingPlanningItem?.expectedUpdatedAt ?? null,
     };
 
-    if (!session?.access_token) {
-      if (isBrowserOffline()) {
-        enqueuePlanningMutation("DELETE", payload);
-        setItemsError(
-          "Sin conexion: la eliminacion quedo pendiente y se sincronizara automaticamente cuando vuelva la senal."
-        );
-        setDeleteConfirmation(null);
-        if (editingPlanningItem?.id === id) {
-          resetPlanningForm();
-          setIsModalOpen(false);
-        }
-        return;
-      }
-
+    if (!session?.access_token && !isBrowserOffline()) {
       setFormError("Necesitas iniciar sesion para eliminar registros.");
       return;
     }
@@ -1488,32 +1420,19 @@ export default function Home() {
     setFormBusy(true);
 
     try {
-      await sendPlanningMutation("DELETE", payload);
-      await refreshPlanningItems();
+      await enqueuePlanningMutation("DELETE", payload);
+      setItemsError(
+        isBrowserOffline()
+          ? "Sin conexion: la eliminacion quedo pendiente y se sincronizara automaticamente cuando vuelva la senal."
+          : "La eliminacion quedo guardada localmente y se sincronizara automaticamente."
+      );
       setDeleteConfirmation(null);
       if (editingPlanningItem?.id === id) {
         resetPlanningForm();
         setIsModalOpen(false);
       }
     } catch (error: unknown) {
-      if (shouldQueuePlanningMutation(error)) {
-        enqueuePlanningMutation("DELETE", payload);
-        setItemsError(
-          "Sin conexion: la eliminacion quedo pendiente y se sincronizara automaticamente cuando vuelva la senal."
-        );
-        setDeleteConfirmation(null);
-        if (editingPlanningItem?.id === id) {
-          resetPlanningForm();
-          setIsModalOpen(false);
-        }
-        return;
-      }
-
-      if (isPlanningConflictError(error)) {
-        await refreshPlanningItems().catch(() => undefined);
-      }
-
-      setFormError(getRequestErrorMessage(error, "No se pudo eliminar el registro."));
+      setFormError(getRequestErrorMessage(error, "No se pudo guardar la eliminacion localmente."));
     } finally {
       setFormBusy(false);
     }

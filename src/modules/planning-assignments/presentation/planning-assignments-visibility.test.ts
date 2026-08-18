@@ -23,7 +23,8 @@ describe("planning assignments UI visibility", () => {
     const pageSource = readFileSync("src/app/(app)/page.tsx", "utf8");
 
     expect(pageSource).toContain("Las asignaciones reales requieren conexión por ahora.");
-    expect(pageSource).toContain("assignmentTarget.target_kind === \"execution_segment\"");
+    expect(pageSource).toContain('formState.tracking_type === "real" && formAssignmentsReady && isBrowserOffline()');
+    expect(pageSource).toContain('formState.tracking_type === "real" && (!session?.access_token || isBrowserOffline())');
   });
 
   it("uses records.edit instead of role-based operation for planning detail edits", () => {

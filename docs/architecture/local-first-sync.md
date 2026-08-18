@@ -2,17 +2,20 @@
 
 ## Estado actual
 
-OpsAhead ya opera con una base offline parcial para planning:
+OpsAhead opera con una base local-first inicial para planning:
 
-- La UI lee planning desde API con `fetchPlanningItems()` en `src/app/(app)/page.tsx`.
-- Cuando la lectura online funciona, la pantalla guarda snapshots en IndexedDB mediante `savePlanningCache()` desde `src/lib/localOfflineStore.ts`.
-- En modo offline o ante errores transitorios, la pantalla lee snapshots con `readPlanningCache()`.
-- Las escrituras de planning que no pueden llegar al servidor se guardan como mutaciones pendientes en IndexedDB.
+- La UI hidrata planning primero desde IndexedDB mediante `PlanningLocalRepository`.
+- En paralelo, si hay conectividad, consulta servidor con `fetchPlanningItems()`.
+- La respuesta servidor se reconcilia con la outbox pendiente antes de actualizar la UI.
+- El resultado reconciliado se persiste nuevamente en IndexedDB.
+- Las escrituras de planning se reflejan localmente y se agregan a la outbox antes del push al servidor.
 - La cola durable de planning vive en `src/modules/planning/sync/planning-mutation-queue.ts` y se persiste mediante `src/modules/planning/sync/planning-mutation-queue-store.ts`.
-- La UI aplica esas mutaciones pendientes como overlay sobre los datos visibles con `applyPendingPlanningMutations()`.
-- Supabase Realtime sigue activo a través de `src/modules/planning/presentation/use-planning-realtime.ts`; hoy se usa como señal de invalidación para refrescar datos desde API.
+- La UI sigue aplicando mutaciones pendientes como overlay defensivo con `applyPendingPlanningMutations()`.
+- Supabase Realtime sigue activo a través de `src/modules/planning/presentation/use-planning-realtime.ts`; se usa como señal de invalidación para reconciliar desde API hacia IndexedDB.
 
 En la Fase 1, `src/modules/planning/sync/use-planning-sync-coordinator.ts` extrae la coordinación de replay que antes estaba embebida en `src/app/(app)/page.tsx`. La página conserva la presentación y los mensajes, pero el coordinador toma responsabilidad por cargar outbox, persistirlo, evitar replay concurrente, responder a reconexión y ejecutar retries programados.
+
+En la Fase 2, `src/modules/planning/local/planning-local-repository.ts` encapsula lectura/escritura por fecha y scope. `src/app/(app)/page.tsx` deja de llamar directamente `readPlanningCache()` y `savePlanningCache()` para planning.
 
 ## Arquitectura objetivo
 
@@ -44,8 +47,8 @@ La dirección final es que la UI consuma primero IndexedDB para dominios operaci
 ## Estado por fase
 
 ```text
-Fase 1 — SyncCoordinator / Outbox        EN PROGRESO
-Fase 2 — IndexedDB-first                 PENDIENTE
+Fase 1 — SyncCoordinator / Outbox        COMPLETA
+Fase 2 — IndexedDB-first planning        COMPLETA
 Fase 3 — Push/Pull incremental           PENDIENTE
 Fase 4 — Multi-dispositivo sin Realtime  PENDIENTE
 Fase 5 — Migración Railway               PENDIENTE
@@ -114,32 +117,71 @@ La implementación actual mantiene nombres de planning para evitar churn inneces
 
 Planning todavía conserva `PendingPlanningMutation` porque su payload incluye detalles propios como `assignmentPayload`, `syncedPlanningItemId` y snapshots de conflicto.
 
-## Preparación IndexedDB-first
+## IndexedDB-first planning
 
-Planning todavía lee desde API como camino normal en:
+Flujo anterior:
 
-- `refreshPlanningItems()` en `src/app/(app)/page.tsx`.
-- Cargas iniciales de planning que llaman `fetchPlanningItems()`.
+```text
+API
+→ estado React
+→ snapshot IndexedDB
+```
 
-Planning escribe snapshots IndexedDB en:
+Flujo nuevo para planning:
 
-- `savePlanningCache()` desde `refreshPlanningItems()`.
-- caches de catálogo con `saveCatalogCache()`;
-- caches de asignaciones con `saveAssignmentTypesCache()` y `saveAssignmentsCacheForTarget()`.
+```text
+IndexedDB
+→ estado UI
+
+API
+→ reconciliación con outbox
+→ IndexedDB
+→ estado UI
+```
+
+Planning lee snapshots locales en:
+
+- `PlanningLocalRepository.readByDate()`.
+
+Planning escribe snapshots locales en:
+
+- `PlanningLocalRepository.replaceSnapshot()`;
+- `PlanningLocalRepository.reconcileServerSnapshot()`;
+- `PlanningLocalRepository.applyLocalMutation()`.
 
 Planning aplica mutaciones pendientes como overlay en:
 
 - `applyPendingPlanningMutations()` en `src/modules/planning/sync/planning-mutation-queue.ts`;
-- composición de items visibles en `src/app/(app)/page.tsx`.
+- reconciliación servidor + outbox en `PlanningLocalRepository`;
+- composición de items visibles en `src/app/(app)/page.tsx` como defensa idempotente.
 
-Para que la Fase 2 invierta el flujo a `UI → IndexedDB`, falta:
+Al cambiar fecha, la pantalla intenta primero `readByDate(date, scope)`. Si no hay snapshot local y el navegador está offline, muestra:
 
-- cargar primero el snapshot local aunque exista red;
-- separar lectura local de fetch remoto;
-- convertir refresh online en reconciliación contra store local;
-- notificar a la UI desde cambios locales;
-- persistir resultados remotos antes de pintar;
-- mantener overlays de outbox sobre el store local o materializarlos en una vista derivada.
+```text
+No hay datos disponibles sin conexión para esta fecha.
+```
+
+## Dependencias actuales
+
+Sigue dependiendo de API:
+
+- lectura remota completa por fecha con `GET /api/planning-items`;
+- push de mutaciones por `/api/planning-items`;
+- catálogo, cabecera operacional y asignaciones;
+- validaciones finales de permisos y concurrencia.
+
+Sigue dependiendo temporalmente de Realtime:
+
+- señales de invalidación remota;
+- disparo de fetch servidor;
+- reconciliación posterior hacia IndexedDB.
+
+Limitaciones conocidas:
+
+- Todavía no existe pull incremental por cursor.
+- Después de un push confirmado se refresca la fecha completa cuando hace falta reconciliar IDs reales, reales derivados o conflictos. Esto se mantiene porque las respuestas actuales no siempre entregan todos los cambios derivados necesarios para reconciliar localmente con total seguridad.
+- La outbox general aún es planning-specific; se generalizará cuando otro dominio necesite el mismo contrato.
+- No hay tombstones persistentes separados; delete pendiente se representa como mutación en outbox y se aplica sobre el snapshot efectivo.
 
 ## Contrato objetivo push/pull
 
@@ -184,4 +226,3 @@ Cada cambio debe poder representar:
 - `payload`.
 
 El JSON definitivo queda pendiente hasta definir dominios, scopes contextuales y formato de revisiones.
-
