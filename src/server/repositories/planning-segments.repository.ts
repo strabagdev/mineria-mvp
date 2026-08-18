@@ -82,6 +82,8 @@ export type ReconcileRealExecutionSegmentsInput = {
   actorUserId?: string | null;
   actorEmail?: string | null;
   createdBy: string;
+  expectedUpdatedAt?: string | null;
+  syncMutationId?: string | null;
 };
 
 export async function listExecutionSegmentsByDate(date: string) {
@@ -238,6 +240,8 @@ export async function reconcileRealExecutionSegments(
     p_actor_user_id: input.actorUserId ?? null,
     p_actor_email: input.actorEmail ?? null,
     p_created_by: input.createdBy,
+    p_expected_updated_at: input.expectedUpdatedAt ?? null,
+    p_sync_mutation_id: input.syncMutationId ?? null,
   });
 
   if (error) {

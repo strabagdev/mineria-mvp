@@ -197,8 +197,9 @@ Sigue dependiendo temporalmente de Realtime:
 Limitaciones conocidas:
 
 - Las mutaciones core de `planning_items` con `tracking_type = 'programado'` y `client_mutation_id` usan `process_planned_item_sync_mutation()`, por lo que `create/update/delete + processed mutation + changelog` ocurren en una transacción PostgreSQL.
+- Las ediciones/reconciliaciones de `activity_execution_segments` usan `reconcile_real_execution_segments()` extendida por `supabase/sql/023_real_segments_sync_rpc.sql`; la validación `expected_updated_at`, el upsert/delete de segmentos, cabecera operacional dinámica de segmentos, audit log, `sync_changes` y `sync_processed_mutations` ocurren en la misma transacción PostgreSQL.
 - La cabecera operacional dinámica de esos programados sigue sincronizándose desde TypeScript después del RPC para no duplicar todavía toda la lógica de dependencias/validación en SQL.
-- Las operaciones `tracking_type = 'real'`, `activity_execution_segments`, `reconcile_real_execution_segments()` y asignaciones vinculadas todavía mantienen frontera transaccional propia. Para volverlas completamente atómicas con sync metadata hace falta una RPC específica que incluya segmentos, valores dinámicos, asignaciones y changelog en una sola unidad.
+- La creación y eliminación simple de `tracking_type = 'real'` fuera de `reconcile_real_execution_segments()` y las asignaciones vinculadas todavía mantienen frontera transaccional propia. Para volverlas completamente atómicas con sync metadata hace falta ampliar el contrato de `/api/sync/push` para incluir asignaciones como parte server-side de la misma mutation.
 - Después de algunos pushes confirmados puede seguir usándose refresh completo de fecha para snapshots de conflicto o datos derivados que la respuesta actual no contiene de forma suficiente.
 - La outbox general aún es planning-specific; se generalizará cuando otro dominio necesite el mismo contrato.
 - Los tombstones remotos viven en `sync_changes`; no existe aún una tabla local separada de tombstones porque el applier remueve del snapshot por fecha.
@@ -259,6 +260,25 @@ public.process_planned_item_sync_mutation(
 ```
 
 La función revisa idempotencia, aplica la mutación core, registra `sync_changes`, registra `sync_processed_mutations` y retorna la respuesta persistida. Si un retry llega después de perderse la respuesta original, retorna `sync_processed_mutations.response` sin volver a mutar ni duplicar changelog.
+
+Para reconciliación de segmentos reales, el handler termina llamando a:
+
+```text
+public.reconcile_real_execution_segments(
+  p_segment_id,
+  p_planning_item_id,
+  p_activity_group_id,
+  p_segments,
+  p_operational_header_values,
+  p_actor_user_id,
+  p_actor_email,
+  p_created_by,
+  p_expected_updated_at,
+  p_sync_mutation_id
+)
+```
+
+La función bloquea los segmentos relacionados, valida la revisión esperada dentro del lock, reconcilia splits/merges de tramos, aplica cabecera operacional dinámica de segmentos, registra tombstones/upserts en `sync_changes` y guarda `sync_processed_mutations` para retries idempotentes.
 
 ### Pull
 
@@ -340,7 +360,7 @@ NO APTO TODAVÍA
 Razones:
 
 - La convergencia sin Realtime está cubierta por polling incremental y tests unitarios, pero falta prueba manual/field test real con dos dispositivos.
-- La atomicidad está cerrada para el core de `planning_items programado`, no para segmentos reales, cabecera operacional dinámica ni asignaciones.
+- La atomicidad está cerrada para el core de `planning_items programado` y para edición/reconciliación de segmentos reales. Sigue abierta para asignaciones vinculadas y para cabecera operacional dinámica de programados, que todavía se aplican fuera del RPC core.
 - Falta un mecanismo de reparación/backfill para detectar cambios históricos sin `sync_changes` si una migración parcial o un error operacional lo requiere.
 
 Realtime puede seguir funcionando como acelerador mientras esas fronteras se cierran.

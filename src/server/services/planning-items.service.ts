@@ -502,14 +502,6 @@ export async function updateRealPlanningSegments(input: {
   operationalHeaderValues?: PlanningItemPayload["operational_header_values"];
 }) {
   let updatedSegments: PlanningSegmentReadRow[];
-  const beforeData = input.expectedUpdatedAt ? await findExecutionSegmentById(input.id) : null;
-
-  if (input.expectedUpdatedAt && beforeData?.updated_at !== input.expectedUpdatedAt) {
-    throw new PlanningConcurrencyConflictError(
-      "El registro fue modificado por otro usuario. Actualiza la planificacion antes de volver a editar.",
-      beforeData ? mapPlanningReadRow({ ...beforeData, tracking_type: "real" }) : null
-    );
-  }
 
   try {
     updatedSegments = await reconcileRealExecutionSegments({
@@ -530,8 +522,20 @@ export async function updateRealPlanningSegments(input: {
       actorUserId: input.actor?.profile?.user_id ?? input.actor?.user?.id ?? null,
       actorEmail: input.actor?.profile?.email ?? input.actor?.user?.email ?? null,
       createdBy: input.userId,
+      expectedUpdatedAt: input.expectedUpdatedAt ?? null,
+      syncMutationId: typeof input.updatePayload.client_mutation_id === "string"
+        ? input.updatePayload.client_mutation_id
+        : null,
     });
   } catch (error) {
+    if (error instanceof Error && /sync_concurrency_conflict/i.test(error.message)) {
+      const current = await findExecutionSegmentById(input.id).catch(() => null);
+      throw new PlanningConcurrencyConflictError(
+        "El registro fue modificado por otro usuario. Actualiza la planificacion antes de volver a editar.",
+        current ? mapPlanningReadRow({ ...current, tracking_type: "real" }) : null
+      );
+    }
+
     return {
       status: "update-error" as const,
       error,

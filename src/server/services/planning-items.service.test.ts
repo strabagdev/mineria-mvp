@@ -520,12 +520,14 @@ describe("planning items operational header sync", () => {
         item_type: "unitaria",
         description: "Perforacion real",
         notes: null,
+        client_mutation_id: "mutation-real-1",
       },
       segments: [
         { ...payload, tracking_type: "real", start_time: "18:00", end_time: "20:00", shift: "Dia" },
         { ...payload, tracking_type: "real", start_time: "20:00", end_time: "22:00", shift: "Noche" },
       ],
       operationalHeaderValues: [{ field_id: 30, value: "Mina" }],
+      expectedUpdatedAt: segmentRow.updated_at,
     });
 
     expect(mocks.reconcileRealExecutionSegments).toHaveBeenCalledWith({
@@ -540,6 +542,8 @@ describe("planning items operational header sync", () => {
       actorUserId: "user-1",
       actorEmail: "user@example.com",
       createdBy: "user-1",
+      expectedUpdatedAt: segmentRow.updated_at,
+      syncMutationId: "mutation-real-1",
     });
     expect(mocks.findExecutionSegmentById).not.toHaveBeenCalled();
     expect(mocks.updateExecutionSegmentById).not.toHaveBeenCalled();
@@ -594,6 +598,36 @@ describe("planning items operational header sync", () => {
     expect(mocks.writeAuditLog).not.toHaveBeenCalledWith(expect.objectContaining({
       action: "activity_execution_segment.updated",
     }));
+  });
+
+  it("maps real segment RPC revision conflicts to PlanningConcurrencyConflictError", async () => {
+    vi.resetAllMocks();
+    mocks.reconcileRealExecutionSegments.mockRejectedValue(new Error("sync_concurrency_conflict"));
+    mocks.findExecutionSegmentById.mockResolvedValue(segmentRow);
+    const { PlanningConcurrencyConflictError, updateRealPlanningSegments } = await import("./planning-items.service");
+
+    await expect(updateRealPlanningSegments({
+      actor,
+      id: segmentRow.id,
+      userId: "user-1",
+      updatePayload: {
+        planning_item_id: plannedRow.id,
+        activity_group_id: "group-1",
+        item_date: "2026-06-01",
+        start_time: "18:00",
+        end_time: "22:00",
+        shift: "Dia",
+        category: "actividad",
+        item_type: "unitaria",
+        description: "Perforacion real",
+        notes: null,
+        client_mutation_id: "mutation-real-conflict",
+      },
+      segments: [
+        { ...payload, tracking_type: "real", start_time: "18:00", end_time: "20:00", shift: "Dia" },
+      ],
+      expectedUpdatedAt: "2026-06-01T11:00:00.000Z",
+    })).rejects.toBeInstanceOf(PlanningConcurrencyConflictError);
   });
 
   it("processes planned sync mutations through the transactional RPC", async () => {

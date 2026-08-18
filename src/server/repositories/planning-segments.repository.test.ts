@@ -51,6 +51,8 @@ describe("planning segments repository", () => {
       actorUserId: "user-1",
       actorEmail: "user@example.com",
       createdBy: "user-1",
+      expectedUpdatedAt: "2026-06-01T12:00:00.000Z",
+      syncMutationId: "mutation-1",
     });
 
     expect(mocks.rpc).toHaveBeenCalledWith("reconcile_real_execution_segments", {
@@ -71,6 +73,8 @@ describe("planning segments repository", () => {
       p_actor_user_id: "user-1",
       p_actor_email: "user@example.com",
       p_created_by: "user-1",
+      p_expected_updated_at: "2026-06-01T12:00:00.000Z",
+      p_sync_mutation_id: "mutation-1",
     });
     expect(result).toEqual(rows);
   });

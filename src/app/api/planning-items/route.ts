@@ -246,7 +246,21 @@ async function existingMutationResponse(mutationId: string | null) {
   }
 
   const processed = await findProcessedPlanningMutation(mutationId);
-  return processed ? NextResponse.json(processed.response, { status: 200 }) : null;
+  if (!processed) {
+    return null;
+  }
+
+  if (Array.isArray(processed.response)) {
+    const items = processed.response.map((item) =>
+      item && typeof item === "object"
+        ? { ...item as Record<string, unknown>, tracking_type: "real" }
+        : item
+    );
+
+    return NextResponse.json({ item: items[0] ?? null, items }, { status: 200 });
+  }
+
+  return NextResponse.json(processed.response, { status: 200 });
 }
 
 async function validateRealSegmentsDoNotOverlap(
@@ -597,6 +611,7 @@ export async function PATCH(req: Request) {
         item_type: payload.item_type,
         description: payload.description,
         notes: payload.notes,
+        client_mutation_id: mutationId,
       },
     });
 
@@ -616,6 +631,10 @@ export async function PATCH(req: Request) {
     }
 
     const responseBody = { item: realResult.item, items: realResult.items };
+    if (mutationId) {
+      return NextResponse.json(responseBody);
+    }
+
     await registerPlanningMutationSync({
       mutationId,
       method: "PATCH",
