@@ -117,21 +117,13 @@ import { usePlanningCatalogAdmin } from "@/modules/planning/presentation/use-pla
 import { usePlanningRealtime } from "@/modules/planning/presentation/use-planning-realtime";
 import {
   applyPendingPlanningMutations,
-  discardConflictedPlanningMutations as discardConflictedPlanningMutationQueue,
   getRetryablePlanningMutations,
   makePendingPlanningMutation,
-  replayPendingPlanningMutations,
   toOptimisticPlanningItem,
   withClientMutationId,
 } from "@/modules/planning/sync/planning-mutation-queue";
-import {
-  loadPendingPlanningMutations,
-  persistPendingPlanningMutations,
-} from "@/modules/planning/sync/planning-mutation-queue-store";
-import {
-  PENDING_SYNC_RETRY_INTERVAL_MS,
-  type PendingPlanningMutation,
-} from "@/modules/planning/sync/planning-sync-models";
+import { type PendingPlanningMutation } from "@/modules/planning/sync/planning-sync-models";
+import { usePlanningSyncCoordinator } from "@/modules/planning/sync/use-planning-sync-coordinator";
 
 type PlanningItemMutationPayload = PlanningItemForm & {
   id?: number;
@@ -325,10 +317,7 @@ export default function Home() {
   const [activeShift, setActiveShift] = useState<ShiftKey>(initialOperationalView.activeShift);
   const [itemsLoading, setItemsLoading] = useState(true);
   const [itemsError, setItemsError] = useState("");
-  const [pendingPlanningMutations, setPendingPlanningMutations] = useState<PendingPlanningMutation[]>([]);
-  const syncPendingPlanningMutationsRef = useRef<() => void>(() => undefined);
   const datePickerRef = useRef<HTMLDivElement | null>(null);
-  const [queueSyncing, setQueueSyncing] = useState(false);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState("");
   const [operationalHeaderConfig, setOperationalHeaderConfig] = useState<OperationalHeaderResponseDto | null>(null);
@@ -356,7 +345,6 @@ export default function Home() {
   const [formState, setFormState] = useState<PlanningItemForm>(toInitialPlanningForm([], "Dia", formatLocalDateIso()));
   const [dynamicHeaderFormState, setDynamicHeaderFormState] = useState<Record<number, string>>({});
   const resumeRefreshInFlightRef = useRef(false);
-  const queueSyncingRef = useRef(false);
 
   const selectActiveShift = useCallback((shift: ShiftKey) => {
     setActiveShift(shift);
@@ -615,6 +603,91 @@ export default function Home() {
     });
   }, [refreshPlanningItems, selectedDate]);
 
+  const {
+    pendingPlanningMutations,
+    setPendingPlanningMutations,
+    queueSyncing,
+    syncPendingPlanningMutations,
+    discardConflictedPlanningMutations,
+    retryFailedPlanningMutations,
+  } = usePlanningSyncCoordinator({
+    scope: offlineScope,
+    accessToken: session?.access_token,
+    canSync: canSyncPendingPlanningMutations,
+    sendMutation: (mutation) => sendPlanningMutationRequest(mutation.method, mutation.payload, session?.access_token),
+    replayAssignmentPayload: async (mutation, response) => {
+      if (mutation.method === "DELETE" || mutation.assignmentPayload === undefined) {
+        return;
+      }
+
+      const responseItemId = Number((response as { item?: { id?: unknown } })?.item?.id);
+      const payloadItemId = Number(mutation.payload.id);
+      const planningItemId =
+        Number.isFinite(responseItemId) && responseItemId > 0
+          ? responseItemId
+          : Number.isFinite(payloadItemId) && payloadItemId > 0
+            ? payloadItemId
+            : null;
+
+      if (!planningItemId) {
+        throw new Error("No se pudo asociar las asignaciones al programado sincronizado.");
+      }
+
+      if (!session?.access_token || !offlineScope) {
+        throw new Error("No se pudo sincronizar asignaciones porque falta la sesion activa.");
+      }
+
+      const savedAssignments = await savePlanningAssignmentsForTarget(
+        toPlanningItemAssignmentTarget(planningItemId),
+        mutation.assignmentPayload,
+        session.access_token
+      );
+      const assignmentTarget = toPlanningItemAssignmentTarget(planningItemId);
+      setPlanningAssignmentsByTargetKey((current) => ({ ...current, [getAssignmentTargetKey(assignmentTarget)]: savedAssignments }));
+      void saveAssignmentsCacheForTarget(assignmentTarget, savedAssignments, offlineScope);
+    },
+    getErrorMessage: (error) =>
+      getRequestErrorMessage(error, "No se pudo sincronizar un registro pendiente."),
+    classifyError: classifyPlanningSyncError,
+    loadServerConflictSnapshot: async (mutation) => {
+      const id = Number(mutation.payload.id ?? mutation.syncedPlanningItemId);
+      if (!Number.isFinite(id) || id <= 0 || !session?.access_token) {
+        return null;
+      }
+      const latestItems = await fetchPlanningItems(String(mutation.payload.item_date ?? selectedDate), session.access_token);
+      return latestItems.find((item) => item.id === id) ?? null;
+    },
+    onReplayResult: async (replayResult) => {
+      if (replayResult.retryableError && !isNetworkRequestError(replayResult.retryableError)) {
+        setItemsError(replayResult.retryableErrorMessage);
+      }
+
+      const failedPermissionMutation = replayResult.nextQueue.find(
+        (mutation) => mutation.status === "failed" && mutation.failureReason === "permission_revoked"
+      );
+
+      if (failedPermissionMutation) {
+        setItemsError(
+          "Un cambio pendiente no pudo sincronizarse porque el acceso fue retirado. Revisa el detalle de sincronizacion y descarta el cambio local."
+        );
+      } else if (replayResult.foundConflict) {
+        setItemsError(
+          "Un registro pendiente no pudo sincronizarse porque entra en conflicto con la planificacion actual. Revisa el detalle y descartalo o vuelve a crearlo con otro horario."
+        );
+      }
+
+      if (replayResult.syncedCount > 0 || replayResult.foundConflict || failedPermissionMutation) {
+        await refreshPlanningItems().then(() => {
+          if (replayResult.nextQueue.length === 0) {
+            setItemsError("");
+          }
+        }).catch((error: unknown) => {
+          setItemsError(getRequestErrorMessage(error, "No se pudo recargar la planificacion."));
+        });
+      }
+    },
+  });
+
   usePlanningRealtime({
     selectedDate,
     accessToken: session?.access_token,
@@ -637,7 +710,7 @@ export default function Home() {
           return;
         }
 
-        syncPendingPlanningMutationsRef.current();
+        void syncPendingPlanningMutations();
 
         const results = await Promise.allSettled([
           refreshPlanningItems(),
@@ -689,7 +762,7 @@ export default function Home() {
       window.removeEventListener("online", recoverFromNetworkStatus);
       document.removeEventListener("visibilitychange", recoverFromVisibility);
     };
-  }, [refreshCatalog, refreshPlanningItems, selectedDate]);
+  }, [refreshCatalog, refreshPlanningItems, selectedDate, syncPendingPlanningMutations]);
 
   useEffect(() => {
     let active = true;
@@ -884,55 +957,6 @@ export default function Home() {
   useEffect(() => {
     setFormState((current) => ({ ...current, item_date: selectedDate }));
   }, [selectedDate]);
-
-  useEffect(() => {
-    let active = true;
-
-    async function loadPendingMutations() {
-      if (!offlineScope) {
-        setPendingPlanningMutations([]);
-        return;
-      }
-
-      const mutations = await loadPendingPlanningMutations(offlineScope);
-
-      if (active) {
-        setPendingPlanningMutations(mutations.filter((mutation) => mutation.userId === offlineScope.userId));
-      }
-    }
-
-    void loadPendingMutations();
-
-    return () => {
-      active = false;
-    };
-  }, [offlineScope]);
-
-  useEffect(() => {
-    if (!offlineScope) {
-      return;
-    }
-
-    void persistPendingPlanningMutations(pendingPlanningMutations, offlineScope);
-  }, [offlineScope, pendingPlanningMutations]);
-
-  useEffect(() => {
-    function syncWhenOnline() {
-      syncPendingPlanningMutationsRef.current();
-    }
-
-    const unsubscribeNetworkStatus = subscribeNetworkStatus(syncWhenOnline);
-    const retryInterval = window.setInterval(syncWhenOnline, PENDING_SYNC_RETRY_INTERVAL_MS);
-
-    return () => {
-      unsubscribeNetworkStatus();
-      window.clearInterval(retryInterval);
-    };
-  }, []);
-
-  useEffect(() => {
-    syncPendingPlanningMutationsRef.current();
-  }, [pendingPlanningMutations, session?.access_token]);
 
   useEffect(() => {
     if (!isDatePickerOpen) {
@@ -1250,135 +1274,6 @@ export default function Home() {
     });
     setPendingPlanningMutations((current) => [...current, pendingMutation]);
     return pendingMutation;
-  }
-
-  async function syncPendingPlanningMutations() {
-    if (!canSyncPendingPlanningMutations) {
-      return;
-    }
-
-    if (!offlineScope?.userId) {
-      return;
-    }
-
-    const scopedMutations = pendingPlanningMutations.filter(
-      (mutation) => mutation.userId === offlineScope.userId
-    );
-    const retryableMutations = getRetryablePlanningMutations(scopedMutations);
-
-    if (!session?.access_token || queueSyncingRef.current || !retryableMutations.length) {
-      return;
-    }
-
-    if (isBrowserOffline()) {
-      return;
-    }
-
-    queueSyncingRef.current = true;
-    setQueueSyncing(true);
-
-    try {
-      const replayResult = await replayPendingPlanningMutations({
-        mutations: scopedMutations,
-        sendMutation: (mutation) => sendPlanningMutation(mutation.method, mutation.payload),
-        replayAssignmentPayload: async (mutation, response) => {
-          if (mutation.method === "DELETE" || mutation.assignmentPayload === undefined) {
-            return;
-          }
-
-          const responseItemId = Number((response as { item?: { id?: unknown } })?.item?.id);
-          const payloadItemId = Number(mutation.payload.id);
-          const planningItemId =
-            Number.isFinite(responseItemId) && responseItemId > 0
-              ? responseItemId
-              : Number.isFinite(payloadItemId) && payloadItemId > 0
-                ? payloadItemId
-                : null;
-
-          if (!planningItemId) {
-            throw new Error("No se pudo asociar las asignaciones al programado sincronizado.");
-          }
-
-          const savedAssignments = await savePlanningAssignmentsForTarget(
-            toPlanningItemAssignmentTarget(planningItemId),
-            mutation.assignmentPayload,
-            session.access_token
-          );
-          const assignmentTarget = toPlanningItemAssignmentTarget(planningItemId);
-          setPlanningAssignmentsByTargetKey((current) => ({ ...current, [getAssignmentTargetKey(assignmentTarget)]: savedAssignments }));
-          void saveAssignmentsCacheForTarget(assignmentTarget, savedAssignments, offlineScope);
-        },
-        getErrorMessage: (error) =>
-          getRequestErrorMessage(error, "No se pudo sincronizar un registro pendiente."),
-        classifyError: classifyPlanningSyncError,
-        loadServerConflictSnapshot: async (mutation) => {
-          const id = Number(mutation.payload.id ?? mutation.syncedPlanningItemId);
-          if (!Number.isFinite(id) || id <= 0) {
-            return null;
-          }
-          const latestItems = await fetchPlanningItems(String(mutation.payload.item_date ?? selectedDate), session.access_token);
-          return latestItems.find((item) => item.id === id) ?? null;
-        },
-      });
-
-      if (replayResult.retryableError && !isNetworkRequestError(replayResult.retryableError)) {
-        setItemsError(replayResult.retryableErrorMessage);
-      }
-
-      const failedPermissionMutation = replayResult.nextQueue.find(
-        (mutation) => mutation.status === "failed" && mutation.failureReason === "permission_revoked"
-      );
-
-      if (failedPermissionMutation) {
-        setItemsError(
-          "Un cambio pendiente no pudo sincronizarse porque el acceso fue retirado. Revisa el detalle de sincronizacion y descarta el cambio local."
-        );
-      } else if (replayResult.foundConflict) {
-        setItemsError(
-          "Un registro pendiente no pudo sincronizarse porque entra en conflicto con la planificacion actual. Revisa el detalle y descartalo o vuelve a crearlo con otro horario."
-        );
-      }
-
-      setPendingPlanningMutations(replayResult.nextQueue);
-
-      if (replayResult.syncedCount > 0 || replayResult.foundConflict || failedPermissionMutation) {
-        await refreshPlanningItems().then(() => {
-          if (replayResult.nextQueue.length === 0) {
-            setItemsError("");
-          }
-        }).catch((error: unknown) => {
-          setItemsError(getRequestErrorMessage(error, "No se pudo recargar la planificacion."));
-        });
-      }
-    } finally {
-      queueSyncingRef.current = false;
-      setQueueSyncing(false);
-    }
-  }
-
-  syncPendingPlanningMutationsRef.current = () => {
-    void syncPendingPlanningMutations();
-  };
-
-  function discardConflictedPlanningMutations() {
-    setPendingPlanningMutations(discardConflictedPlanningMutationQueue);
-  }
-
-  function retryFailedPlanningMutations() {
-    setPendingPlanningMutations((current) =>
-      current.map((mutation) =>
-        mutation.status === "failed" &&
-        mutation.failureReason !== "permission_revoked" &&
-        mutation.failureReason !== "validation"
-          ? {
-              ...mutation,
-              status: "pending",
-              failureReason: undefined,
-              nextRetryAt: undefined,
-            }
-          : mutation
-      )
-    );
   }
 
   async function handleCreateItem(event: React.FormEvent) {

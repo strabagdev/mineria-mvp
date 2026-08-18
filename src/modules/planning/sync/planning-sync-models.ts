@@ -1,14 +1,9 @@
 import type { PlanningAssignmentInputDto } from "@/modules/planning-assignments/contracts/planning-assignments";
 import type { OfflineStorageScope } from "@/lib/localOfflineStore";
+import type { SyncFailureReason, SyncMutationStatus } from "@/modules/sync/sync-contracts";
 
-export type PlanningMutationStatus = "pending" | "syncing" | "conflict" | "failed";
-export type PlanningMutationFailureReason =
-  | "network"
-  | "auth"
-  | "permission_revoked"
-  | "concurrency_conflict"
-  | "validation"
-  | "unknown";
+export type PlanningMutationStatus = SyncMutationStatus;
+export type PlanningMutationFailureReason = SyncFailureReason;
 
 export type PlanningMutationConflictSnapshot = {
   serverItem?: unknown;
