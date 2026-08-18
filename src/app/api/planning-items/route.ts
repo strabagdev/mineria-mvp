@@ -27,6 +27,7 @@ import {
   deletePlanningItem,
   listPlanningItems,
   PlanningConcurrencyConflictError,
+  processPlannedPlanningItemSyncMutation,
   updatePlannedPlanningItem,
   updateRealPlanningSegments,
 } from "@/server/services/planning-items.service";
@@ -442,6 +443,22 @@ export async function POST(req: Request) {
     }
 
     if (payload.tracking_type === "programado") {
+      if (mutationId) {
+        const plannedResult = await processPlannedPlanningItemSyncMutation({
+          actor: { user, profile },
+          userId: user.id,
+          mutationId,
+          operation: "create",
+          payload,
+        });
+        if (plannedResult.status !== "applied") {
+          throw new Error("No se pudo crear la programacion.");
+        }
+        const responseBody = { item: plannedResult.item };
+
+        return NextResponse.json(responseBody, { status: 201 });
+      }
+
       const plannedResult = await createPlannedPlanningItem({
         actor: { user, profile },
         userId: user.id,
@@ -525,6 +542,24 @@ export async function PATCH(req: Request) {
 
     if (payload.tracking_type === "programado") {
       const updatePayload = toPlanningItemUpdatePayload(payload);
+      if (mutationId) {
+        const plannedResult = await processPlannedPlanningItemSyncMutation({
+          actor: { user, profile },
+          userId: user.id,
+          mutationId,
+          operation: "update",
+          id,
+          expectedUpdatedAt: body.expected_updated_at ?? null,
+          payload,
+        });
+        if (plannedResult.status !== "applied") {
+          throw new Error("No se pudo actualizar la programacion.");
+        }
+        const responseBody = { item: plannedResult.item };
+
+        return NextResponse.json(responseBody);
+      }
+
       const { item } = await updatePlannedPlanningItem({
         actor: { user, profile },
         id,
@@ -616,6 +651,30 @@ export async function DELETE(req: Request) {
 
     if (!["programado", "real"].includes(trackingType)) {
       return NextResponse.json({ error: "Debes indicar si eliminas programado o real." }, { status: 400 });
+    }
+
+    if (trackingType === "programado" && mutationId) {
+      const plannedResult = await processPlannedPlanningItemSyncMutation({
+        actor: { user, profile },
+        userId: user.id,
+        mutationId,
+        operation: "delete",
+        id,
+        expectedUpdatedAt: body.expected_updated_at ?? null,
+        payload: {
+          id,
+          tracking_type: trackingType,
+        },
+      });
+
+      if (plannedResult.status === "blocked-by-real") {
+        return NextResponse.json(
+          { error: "No puedes eliminar la programacion mientras exista un real asociado a esa actividad." },
+          { status: 409 }
+        );
+      }
+
+      return NextResponse.json({ ok: true });
     }
 
     const result = await deletePlanningItem({

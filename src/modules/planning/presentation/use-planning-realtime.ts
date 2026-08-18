@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { isBrowserOffline, type OperationalStatus } from "@/lib/networkStatus";
 import { recordOperationalEvent } from "../../../lib/observability/logger";
 import { subscribePlanningRealtimeChanges } from "@/modules/planning/realtime/planning-realtime-adapter";
+import { isPlanningRealtimeEnabled } from "@/lib/featureFlags";
 
 type UsePlanningRealtimeArgs = {
   selectedDate: string;
@@ -22,6 +23,10 @@ export function usePlanningRealtime({
   const realtimeRefreshTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
+    if (!isPlanningRealtimeEnabled()) {
+      return;
+    }
+
     if (!accessToken || networkStatus !== "online" || isBrowserOffline()) {
       return;
     }

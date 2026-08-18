@@ -15,6 +15,10 @@ import {
   type PlanningItemUpdateInput,
   type PlanningItemReadRow,
 } from "@/server/repositories/planning-items.repository";
+import {
+  PlannedSyncRpcError,
+  processPlannedItemSyncMutation,
+} from "@/server/repositories/planned-sync.repository";
 import { writeAuditLog } from "@/lib/auditLog";
 import {
   deleteExecutionSegmentById,
@@ -76,6 +80,96 @@ function mapPlanningReadRow(
   }
 
   return item;
+}
+
+function toPlanningOperationResponseItem(response: unknown) {
+  const item = response && typeof response === "object" && "item" in response
+    ? (response as { item?: unknown }).item
+    : null;
+
+  if (!item || typeof item !== "object") {
+    return null;
+  }
+
+  return mapPlanningReadRow(item as Omit<PlanningItemResponse, "tracking_type"> & { tracking_type?: "programado" | "real" });
+}
+
+function mapPlannedSyncRpcError(error: unknown) {
+  if (!(error instanceof PlannedSyncRpcError)) {
+    throw error;
+  }
+
+  if (/sync_concurrency_conflict/i.test(error.message)) {
+    throw new PlanningConcurrencyConflictError(
+      "El registro fue modificado por otro usuario. Actualiza la planificacion antes de volver a editar.",
+      null
+    );
+  }
+
+  if (/sync_delete_blocked_by_real/i.test(error.message)) {
+    return { status: "blocked-by-real" as const };
+  }
+
+  throw error;
+}
+
+export async function processPlannedPlanningItemSyncMutation(input: {
+  actor: AuditActor;
+  userId: string;
+  mutationId: string;
+  operation: "create" | "update" | "delete";
+  payload: PlanningItemPayload | Record<string, unknown>;
+  id?: number | null;
+  expectedUpdatedAt?: string | null;
+}) {
+  try {
+    const response = await processPlannedItemSyncMutation({
+      mutationId: input.mutationId,
+      operation: input.operation,
+      actorUserId: input.userId,
+      entityId: input.id ?? null,
+      expectedUpdatedAt: input.expectedUpdatedAt ?? null,
+      payload: input.payload,
+    });
+
+    const item = toPlanningOperationResponseItem(response);
+
+    if (input.operation === "delete") {
+      return { status: "deleted" as const, response };
+    }
+
+    if (!item) {
+      throw new Error("La mutacion atomica de planning no devolvio un item valido.");
+    }
+
+    await syncDynamicOperationalHeaderForPlanningItem({
+      planningItemId: item.id,
+      activityGroupId: item.activity_group_id,
+      values: Array.isArray(input.payload.operational_header_values)
+        ? input.payload.operational_header_values
+        : [],
+    });
+
+    await writeAuditLog({
+      actor: input.actor,
+      action: input.operation === "create" ? "planning_item.created" : "planning_item.updated",
+      entityType: "planning_item",
+      entityId: item.id,
+      after: item,
+    });
+
+    return {
+      status: "applied" as const,
+      item,
+      response,
+    };
+  } catch (error) {
+    const mapped = mapPlannedSyncRpcError(error);
+    if (mapped) {
+      return mapped;
+    }
+    throw error;
+  }
 }
 
 export async function listPlanningItems(date: string) {

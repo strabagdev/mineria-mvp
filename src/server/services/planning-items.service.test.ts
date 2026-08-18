@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   hasExecutionSegmentForPlanningItem: vi.fn(),
   deletePlannedItemById: vi.fn(),
   deleteExecutionSegmentById: vi.fn(),
+  processPlannedItemSyncMutation: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -41,6 +42,19 @@ vi.mock("@/server/repositories/planning-items.repository", () => ({
   listPlannedItemsByDate: mocks.listPlannedItemsByDate,
   listPlannedItemsByActivityGroupIds: mocks.listPlannedItemsByActivityGroupIds,
   deletePlannedItemById: mocks.deletePlannedItemById,
+}));
+
+vi.mock("@/server/repositories/planned-sync.repository", () => ({
+  PlannedSyncRpcError: class PlannedSyncRpcError extends Error {
+    code?: string;
+
+    constructor(message: string, code?: string) {
+      super(message);
+      this.name = "PlannedSyncRpcError";
+      this.code = code;
+    }
+  },
+  processPlannedItemSyncMutation: mocks.processPlannedItemSyncMutation,
 }));
 
 vi.mock("@/server/repositories/planning-segments.repository", () => ({
@@ -580,5 +594,57 @@ describe("planning items operational header sync", () => {
     expect(mocks.writeAuditLog).not.toHaveBeenCalledWith(expect.objectContaining({
       action: "activity_execution_segment.updated",
     }));
+  });
+
+  it("processes planned sync mutations through the transactional RPC", async () => {
+    vi.resetAllMocks();
+    mocks.processPlannedItemSyncMutation.mockResolvedValue({ item: plannedRow });
+    mocks.syncDynamicOperationalHeaderForPlanningItem.mockResolvedValue([]);
+    const { processPlannedPlanningItemSyncMutation } = await import("./planning-items.service");
+
+    const result = await processPlannedPlanningItemSyncMutation({
+      actor,
+      userId: "user-1",
+      mutationId: "mutation-1",
+      operation: "update",
+      id: plannedRow.id,
+      expectedUpdatedAt: plannedRow.updated_at,
+      payload,
+    });
+
+    expect(mocks.processPlannedItemSyncMutation).toHaveBeenCalledWith({
+      mutationId: "mutation-1",
+      operation: "update",
+      actorUserId: "user-1",
+      entityId: plannedRow.id,
+      expectedUpdatedAt: plannedRow.updated_at,
+      payload,
+    });
+    expect(mocks.syncDynamicOperationalHeaderForPlanningItem).toHaveBeenCalledWith({
+      planningItemId: plannedRow.id,
+      activityGroupId: plannedRow.activity_group_id,
+      values: [],
+    });
+    expect(result).toMatchObject({
+      status: "applied",
+      item: { id: plannedRow.id, tracking_type: "programado" },
+    });
+  });
+
+  it("maps planned sync RPC concurrency conflicts to PlanningConcurrencyConflictError", async () => {
+    vi.resetAllMocks();
+    const { PlannedSyncRpcError } = await import("@/server/repositories/planned-sync.repository");
+    mocks.processPlannedItemSyncMutation.mockRejectedValue(new PlannedSyncRpcError("sync_concurrency_conflict", "40001"));
+    const { PlanningConcurrencyConflictError, processPlannedPlanningItemSyncMutation } = await import("./planning-items.service");
+
+    await expect(processPlannedPlanningItemSyncMutation({
+      actor,
+      userId: "user-1",
+      mutationId: "mutation-1",
+      operation: "update",
+      id: plannedRow.id,
+      expectedUpdatedAt: plannedRow.updated_at,
+      payload,
+    })).rejects.toBeInstanceOf(PlanningConcurrencyConflictError);
   });
 });

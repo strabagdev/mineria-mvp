@@ -25,10 +25,12 @@ describe("Planning page local-first wiring", () => {
 
   it("uses incremental sync as the Realtime invalidation path", () => {
     const source = readFileSync("src/app/(app)/page.tsx", "utf8");
+    const realtimeHookSource = readFileSync("src/modules/planning/presentation/use-planning-realtime.ts", "utf8");
 
     expect(source).toContain("pullSyncChanges");
     expect(source).toContain("planningRemoteChangeApplier.applyChanges");
     expect(source).toContain("realtime.incremental_sync_failed");
     expect(source).toContain("syncPendingPlanningMutations()");
+    expect(realtimeHookSource).toContain("isPlanningRealtimeEnabled()");
   });
 });
