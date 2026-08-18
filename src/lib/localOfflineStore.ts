@@ -18,6 +18,7 @@ export const OFFLINE_KEYS = {
   assignmentTargetsPrefix: "assignments",
   authProfile: "auth-profile",
   planningMutationQueue: "planning-mutation-queue",
+  syncCursorPrefix: "sync-cursor",
 } as const;
 
 export const OFFLINE_DATASETS = {
@@ -26,6 +27,7 @@ export const OFFLINE_DATASETS = {
   planningAssignments: "planning.assignments",
   authProfile: "auth.profile",
   planningMutationQueue: "planning.mutationQueue",
+  syncCursor: "sync.cursor",
   planningByDate: "planning.byDate",
   keyValueSnapshot: "shared.keyValueSnapshot",
 } as const;
@@ -226,6 +228,26 @@ export async function savePendingPlanningMutations<T>(value: T, scope?: OfflineS
 
 export async function readPendingPlanningMutations<T>(scope?: OfflineStorageScope) {
   return readKeyValueWithLegacyFallback<T>(OFFLINE_KEYS.planningMutationQueue, scope);
+}
+
+export async function saveSyncCursor(domain: string, cursor: number, scope?: OfflineStorageScope) {
+  assertOfflineUserScope(scope);
+  await runTransaction(OFFLINE_STORES.keyval, "readwrite", (store) =>
+    store.put({
+      key: buildOfflineStorageKey(`${OFFLINE_KEYS.syncCursorPrefix}:${domain}`, scope),
+      value: cursor,
+      updatedAt: new Date().toISOString(),
+    } satisfies StoredValue<number>)
+  );
+}
+
+export async function readSyncCursor(domain: string, scope?: OfflineStorageScope) {
+  const cachedCursor = await readKeyValueWithLegacyFallback<number>(
+    `${OFFLINE_KEYS.syncCursorPrefix}:${domain}`,
+    scope
+  );
+
+  return Number(cachedCursor?.value ?? 0);
 }
 
 export async function savePlanningCache<T>(date: string, items: T, scope?: OfflineStorageScope) {

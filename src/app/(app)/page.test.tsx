@@ -22,5 +22,13 @@ describe("Planning page local-first wiring", () => {
     expect(source).toContain("No hay datos disponibles sin conexión para esta fecha.");
     expect(source).toContain('metadata: { dataset: "planning-by-date", selectedDate }');
   });
-});
 
+  it("uses incremental sync as the Realtime invalidation path", () => {
+    const source = readFileSync("src/app/(app)/page.tsx", "utf8");
+
+    expect(source).toContain("pullSyncChanges");
+    expect(source).toContain("planningRemoteChangeApplier.applyChanges");
+    expect(source).toContain("realtime.incremental_sync_failed");
+    expect(source).toContain("syncPendingPlanningMutations()");
+  });
+});

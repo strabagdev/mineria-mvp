@@ -31,4 +31,5 @@ export type PendingPlanningMutation = {
 
 export const LEGACY_PLANNING_MUTATION_QUEUE_KEY = "mineria.pendingPlanningMutations.v1";
 export const PENDING_SYNC_RETRY_INTERVAL_MS = 30_000;
+export const INCREMENTAL_SYNC_INTERVAL_MS = 10_000;
 export const MAX_PLANNING_SYNC_ATTEMPTS = 8;

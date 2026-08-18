@@ -30,6 +30,10 @@ import {
   updatePlannedPlanningItem,
   updateRealPlanningSegments,
 } from "@/server/services/planning-items.service";
+import {
+  findProcessedPlanningMutation,
+  registerPlanningMutationSync,
+} from "@/server/services/sync.service";
 
 const REAL_SEGMENT_OVERLAP_MESSAGE =
   "Ese horario se solapa con otro evento real del mismo programado. Actualiza la planificacion y elige un espacio disponible.";
@@ -231,6 +235,19 @@ function conflictResponse(error: PlanningConcurrencyConflictError) {
   );
 }
 
+function getMutationId(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+async function existingMutationResponse(mutationId: string | null) {
+  if (!mutationId) {
+    return null;
+  }
+
+  const processed = await findProcessedPlanningMutation(mutationId);
+  return processed ? NextResponse.json(processed.response, { status: 200 }) : null;
+}
+
 async function validateRealSegmentsDoNotOverlap(
   activityGroupId: string,
   segments: RealSegmentRangeInputDto[],
@@ -413,11 +430,16 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as PlanningItemMutationPayloadDto;
+    const mutationId = getMutationId(body.client_mutation_id);
     const result = await validateAndNormalizePlanningItem(req, PERMISSIONS.RECORDS_CREATE, body);
     if ("errorResponse" in result) {
       return result.errorResponse;
     }
     const { payload, user, profile, plannedItem } = result;
+    const idempotentResponse = await existingMutationResponse(mutationId);
+    if (idempotentResponse) {
+      return idempotentResponse;
+    }
 
     if (payload.tracking_type === "programado") {
       const plannedResult = await createPlannedPlanningItem({
@@ -425,9 +447,16 @@ export async function POST(req: Request) {
         userId: user.id,
         payload,
       });
+      const responseBody = { item: plannedResult.item };
+      await registerPlanningMutationSync({
+        mutationId,
+        method: "POST",
+        actorUserId: user.id,
+        response: responseBody,
+      });
 
       return NextResponse.json(
-        { item: plannedResult.item },
+        responseBody,
         { status: plannedResult.status === "existing" ? 200 : 201 }
       );
     }
@@ -462,10 +491,15 @@ export async function POST(req: Request) {
       throw realResult.error;
     }
 
-    return NextResponse.json(
-      { item: realResult.item, items: realResult.items },
-      { status: realResult.status === "existing" ? 200 : 201 }
-    );
+    const responseBody = { item: realResult.item, items: realResult.items };
+    await registerPlanningMutationSync({
+      mutationId,
+      method: "POST",
+      actorUserId: user.id,
+      response: responseBody,
+    });
+
+    return NextResponse.json(responseBody, { status: realResult.status === "existing" ? 200 : 201 });
   } catch (error: unknown) {
     return NextResponse.json({ error: getErrorMessage(error) }, { status: getErrorStatus(error) });
   }
@@ -474,6 +508,7 @@ export async function POST(req: Request) {
 export async function PATCH(req: Request) {
   try {
     const body = (await req.json()) as PlanningItemMutationPayloadDto;
+    const mutationId = getMutationId(body.client_mutation_id);
     const id = Number(body.id);
     if (!Number.isFinite(id) || id <= 0) {
       return NextResponse.json({ error: "Debes indicar un id valido." }, { status: 400 });
@@ -483,6 +518,10 @@ export async function PATCH(req: Request) {
       return result.errorResponse;
     }
     const { payload, user, profile, plannedItem } = result;
+    const idempotentResponse = await existingMutationResponse(mutationId);
+    if (idempotentResponse) {
+      return idempotentResponse;
+    }
 
     if (payload.tracking_type === "programado") {
       const updatePayload = toPlanningItemUpdatePayload(payload);
@@ -493,8 +532,15 @@ export async function PATCH(req: Request) {
         expectedUpdatedAt: body.expected_updated_at ?? null,
         operationalHeaderValues: payload.operational_header_values,
       });
+      const responseBody = { item };
+      await registerPlanningMutationSync({
+        mutationId,
+        method: "PATCH",
+        actorUserId: user.id,
+        response: responseBody,
+      });
 
-      return NextResponse.json({ item });
+      return NextResponse.json(responseBody);
     }
 
     const realSegments = buildRealSegments(payload) ?? [];
@@ -534,7 +580,15 @@ export async function PATCH(req: Request) {
       throw realResult.error;
     }
 
-    return NextResponse.json({ item: realResult.item, items: realResult.items });
+    const responseBody = { item: realResult.item, items: realResult.items };
+    await registerPlanningMutationSync({
+      mutationId,
+      method: "PATCH",
+      actorUserId: user.id,
+      response: responseBody,
+    });
+
+    return NextResponse.json(responseBody);
   } catch (error: unknown) {
     if (error instanceof PlanningConcurrencyConflictError) {
       return conflictResponse(error);
@@ -547,6 +601,12 @@ export async function DELETE(req: Request) {
   try {
     const { user, profile } = await requirePermission(req, PERMISSIONS.RECORDS_DELETE);
     const body = (await req.json()) as PlanningItemDeleteRequestDto;
+    const mutationId = getMutationId(body.client_mutation_id);
+    const idempotentResponse = await existingMutationResponse(mutationId);
+    if (idempotentResponse) {
+      return idempotentResponse;
+    }
+
     const id = Number(body.id);
     const trackingType = String(body.tracking_type ?? "").trim().toLowerCase();
 
@@ -572,7 +632,21 @@ export async function DELETE(req: Request) {
       );
     }
 
-    return NextResponse.json({ ok: true });
+    const responseBody = { ok: true };
+    await registerPlanningMutationSync({
+      mutationId,
+      method: "DELETE",
+      actorUserId: user.id,
+      response: responseBody,
+      deleted: result.deletedItem ?? {
+        id,
+        trackingType: trackingType as "programado" | "real",
+        itemDate: null,
+        updatedAt: null,
+      },
+    });
+
+    return NextResponse.json(responseBody);
   } catch (error: unknown) {
     if (error instanceof PlanningConcurrencyConflictError) {
       return conflictResponse(error);

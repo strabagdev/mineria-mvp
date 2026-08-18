@@ -48,6 +48,7 @@ export type PlanningItemMutationPayloadDto = {
 export type PlanningItemDeleteRequestDto = {
   id?: number;
   tracking_type?: string;
+  client_mutation_id?: string | null;
   expected_updated_at?: string | null;
 };
 

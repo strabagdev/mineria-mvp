@@ -15,6 +15,7 @@ export type OperationalEventName =
   | "realtime.subscription_stopped"
   | "realtime.refresh_deferred"
   | "realtime.refresh_failed"
+  | "realtime.incremental_sync_failed"
   | "offline.cache_used"
   | "offline.cache_miss"
   | "offline.snapshot_saved"

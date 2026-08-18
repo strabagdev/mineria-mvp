@@ -6,6 +6,7 @@ import type {
 
 export type PlanningSyncCoordinatorReplayHandlers = {
   sendMutation: (mutation: PendingPlanningMutation) => Promise<unknown>;
+  pullRemoteChanges?: (mutations: PendingPlanningMutation[]) => Promise<PendingPlanningMutation[] | void>;
   replayAssignmentPayload?: (mutation: PendingPlanningMutation, response: unknown) => Promise<void>;
   getErrorMessage: (error: unknown) => string;
   classifyError: (error: unknown) => PlanningMutationFailureReason;
@@ -24,7 +25,7 @@ export type PlanningSyncCoordinatorInput = PlanningSyncCoordinatorReplayHandlers
 };
 
 export class PlanningSyncCoordinator {
-  private replayInFlight = false;
+  private syncInFlight = false;
 
   constructor(private readonly input: PlanningSyncCoordinatorInput) {}
 
@@ -35,36 +36,45 @@ export class PlanningSyncCoordinator {
       return;
     }
 
-    if (this.replayInFlight || this.input.isOffline()) {
+    if (this.syncInFlight || this.input.isOffline()) {
       return;
     }
 
     const scopedMutations = this.input.getMutations().filter((mutation) => mutation.userId === scopeUserId);
     const retryableMutations = getRetryablePlanningMutations(scopedMutations);
 
-    if (!retryableMutations.length) {
+    if (!retryableMutations.length && !this.input.pullRemoteChanges) {
       return;
     }
 
-    this.replayInFlight = true;
+    this.syncInFlight = true;
     this.input.setSyncing?.(true);
 
     try {
-      const replayResult = await replayPendingPlanningMutations({
-        mutations: scopedMutations,
-        sendMutation: this.input.sendMutation,
-        replayAssignmentPayload: this.input.replayAssignmentPayload,
-        getErrorMessage: this.input.getErrorMessage,
-        classifyError: this.input.classifyError,
-        loadServerConflictSnapshot: this.input.loadServerConflictSnapshot,
-      });
+      let queueForPull = scopedMutations;
 
-      this.input.onQueueUpdated(replayResult.nextQueue);
-      await this.input.onReplayResult?.(replayResult);
+      if (retryableMutations.length) {
+        const replayResult = await replayPendingPlanningMutations({
+          mutations: scopedMutations,
+          sendMutation: this.input.sendMutation,
+          replayAssignmentPayload: this.input.replayAssignmentPayload,
+          getErrorMessage: this.input.getErrorMessage,
+          classifyError: this.input.classifyError,
+          loadServerConflictSnapshot: this.input.loadServerConflictSnapshot,
+        });
+
+        this.input.onQueueUpdated(replayResult.nextQueue);
+        await this.input.onReplayResult?.(replayResult);
+        queueForPull = replayResult.nextQueue;
+      }
+
+      const queueAfterPull = await this.input.pullRemoteChanges?.(queueForPull);
+      if (queueAfterPull) {
+        this.input.onQueueUpdated(queueAfterPull);
+      }
     } finally {
-      this.replayInFlight = false;
+      this.syncInFlight = false;
       this.input.setSyncing?.(false);
     }
   }
 }
-

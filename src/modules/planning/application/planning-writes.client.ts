@@ -5,6 +5,8 @@ import type {
   PlanningCatalogUpdateRequestDto,
 } from "@/modules/planning/contracts/planning-catalog";
 import type { PlanningItemMutationPayloadDto } from "@/modules/planning/contracts/planning-items";
+import { pushSyncMutations, SyncApiRequestError } from "@/modules/sync/sync-api.client";
+import type { SyncMutationOperation } from "@/modules/sync/sync-contracts";
 
 export type PlanningWriteMethod = "POST" | "PATCH" | "DELETE";
 export type PlanningMutationRequestPayloadDto =
@@ -79,6 +81,48 @@ export async function sendPlanningMutation(
   }
 
   return response.json().catch(() => ({}));
+}
+
+function toSyncOperation(method: PlanningWriteMethod): SyncMutationOperation {
+  if (method === "POST") {
+    return "create";
+  }
+
+  if (method === "PATCH") {
+    return "update";
+  }
+
+  return "delete";
+}
+
+export async function sendPlanningSyncMutation(
+  method: PlanningWriteMethod,
+  payload: PlanningMutationRequestPayloadDto,
+  accessToken?: string
+) {
+  const mutationId = String(payload.client_mutation_id ?? "").trim() || crypto.randomUUID();
+  let response;
+
+  try {
+    response = await pushSyncMutations([
+      {
+        mutationId,
+        domain: "planning",
+        operation: toSyncOperation(method),
+        entityId: payload.id ?? null,
+        baseRevision: typeof payload.expected_updated_at === "string" ? payload.expected_updated_at : null,
+        payload,
+      },
+    ], accessToken);
+  } catch (error) {
+    if (error instanceof SyncApiRequestError) {
+      throw new PlanningMutationRequestError(error.message, error.status);
+    }
+
+    throw error;
+  }
+
+  return response.results[0]?.response ?? {};
 }
 
 export async function mutatePlanningCatalog(

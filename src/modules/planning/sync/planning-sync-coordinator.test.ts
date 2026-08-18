@@ -35,6 +35,7 @@ function createHarness(input: {
   canSync?: boolean;
   offline?: boolean;
   sendMutation?: (mutation: PendingPlanningMutation) => Promise<unknown>;
+  pullRemoteChanges?: (mutations: PendingPlanningMutation[]) => Promise<PendingPlanningMutation[] | void>;
   classifyError?: (error: unknown) => PlanningMutationFailureReason;
 }) {
   let queue = input.queue ?? [makeMutation()];
@@ -44,6 +45,7 @@ function createHarness(input: {
   });
   const setSyncing = vi.fn();
   const sendMutation = vi.fn(input.sendMutation ?? (() => Promise.resolve({ item: { id: 101 } })));
+  const pullRemoteChanges = input.pullRemoteChanges ? vi.fn(input.pullRemoteChanges) : undefined;
   const coordinator = new PlanningSyncCoordinator({
     getMutations: () => queue,
     getScopeUserId: () => input.scopeUserId ?? "user-1",
@@ -51,6 +53,7 @@ function createHarness(input: {
     canSync: () => input.canSync ?? true,
     isOffline: () => offline,
     sendMutation,
+    pullRemoteChanges,
     getErrorMessage: (error) => error instanceof Error ? error.message : "sync failed",
     classifyError: input.classifyError ?? (() => "unknown"),
     onQueueUpdated,
@@ -68,6 +71,7 @@ function createHarness(input: {
     },
     onQueueUpdated,
     sendMutation,
+    pullRemoteChanges,
     setSyncing,
   };
 }
@@ -102,6 +106,18 @@ describe("PlanningSyncCoordinator", () => {
 
     expect(harness.sendMutation).toHaveBeenCalledWith(expect.objectContaining({ id: "new-mutation" }));
     expect(harness.getQueue()).toEqual([]);
+  });
+
+  it("pulls incremental changes even when the local outbox is empty", async () => {
+    const harness = createHarness({
+      queue: [],
+      pullRemoteChanges: () => Promise.resolve([]),
+    });
+
+    await harness.coordinator.processPendingMutations();
+
+    expect(harness.sendMutation).not.toHaveBeenCalled();
+    expect(harness.pullRemoteChanges).toHaveBeenCalledWith([]);
   });
 
   it("does not destroy the outbox while offline", async () => {
@@ -180,4 +196,3 @@ describe("PlanningSyncCoordinator", () => {
     expect(harness.getQueue()).toEqual([otherUserMutation]);
   });
 });
-

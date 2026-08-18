@@ -52,7 +52,7 @@ import {
 } from "@/modules/planning-assignments/offline/planning-assignments-offline";
 import {
   PlanningMutationRequestError,
-  sendPlanningMutation as sendPlanningMutationRequest,
+  sendPlanningSyncMutation,
 } from "@/modules/planning/application/planning-writes.client";
 import {
   isBrowserOffline,
@@ -114,6 +114,7 @@ import {
 import { usePlanningCatalogAdmin } from "@/modules/planning/presentation/use-planning-catalog-admin";
 import { usePlanningRealtime } from "@/modules/planning/presentation/use-planning-realtime";
 import { planningLocalRepository } from "@/modules/planning/local/planning-local-repository";
+import { planningRemoteChangeApplier } from "@/modules/planning/sync/planning-remote-change-applier";
 import {
   applyPendingPlanningMutations,
   getRetryablePlanningMutations,
@@ -123,6 +124,7 @@ import {
 } from "@/modules/planning/sync/planning-mutation-queue";
 import { type PendingPlanningMutation } from "@/modules/planning/sync/planning-sync-models";
 import { usePlanningSyncCoordinator } from "@/modules/planning/sync/use-planning-sync-coordinator";
+import { pullSyncChanges } from "@/modules/sync/sync-api.client";
 
 type PlanningItemMutationPayload = PlanningItemForm & {
   id?: number;
@@ -280,11 +282,12 @@ export default function Home() {
   const canCreateRecords = hasEffectivePermission(profile, PERMISSIONS.RECORDS_CREATE);
   const canEditRecords = hasEffectivePermission(profile, PERMISSIONS.RECORDS_EDIT);
   const canDeleteRecords = hasEffectivePermission(profile, PERMISSIONS.RECORDS_DELETE);
+  const canViewRecords = hasEffectivePermission(profile, PERMISSIONS.RECORDS_VIEW);
   const canViewCatalog = hasEffectivePermission(profile, PERMISSIONS.CATALOG_VIEW);
   const canManageAssignments = hasEffectivePermission(profile, PERMISSIONS.ASSIGNMENTS_MANAGE);
   const canManageCatalog = hasEffectivePermission(profile, PERMISSIONS.CATALOG_MANAGE);
   const canViewAudit = hasEffectivePermission(profile, PERMISSIONS.AUDIT_VIEW);
-  const canSyncPendingPlanningMutations = canCreateRecords || canEditRecords || canDeleteRecords;
+  const canSyncPlanning = canViewRecords;
   const offlineScope = useMemo<OfflineStorageScope | null>(() => {
     const userId = profile?.user_id ?? session?.user?.id ?? null;
     return userId ? { userId } : null;
@@ -583,18 +586,6 @@ export default function Home() {
     return nextCatalog;
   }, [canViewCatalog, offlineScope, session?.access_token, setDetailForm]);
 
-  const refreshPlanningItemsFromRealtime = useCallback(() => {
-    void refreshPlanningItems().catch((error: unknown) => {
-      recordOperationalEvent({
-        level: "warn",
-        name: "realtime.refresh_failed",
-        source: "planningPage",
-        metadata: { selectedDate },
-      });
-      setItemsError(getRequestErrorMessage(error, "No se pudo actualizar la planificacion."));
-    });
-  }, [refreshPlanningItems, selectedDate]);
-
   const {
     pendingPlanningMutations,
     setPendingPlanningMutations,
@@ -605,8 +596,37 @@ export default function Home() {
   } = usePlanningSyncCoordinator({
     scope: offlineScope,
     accessToken: session?.access_token,
-    canSync: canSyncPendingPlanningMutations,
-    sendMutation: (mutation) => sendPlanningMutationRequest(mutation.method, mutation.payload, session?.access_token),
+    canSync: canSyncPlanning,
+    sendMutation: (mutation) => sendPlanningSyncMutation(mutation.method, mutation.payload, session?.access_token),
+    pullRemoteChanges: async (mutations) => {
+      if (!offlineScope || !session?.access_token) {
+        return mutations;
+      }
+
+      const cursor = await planningRemoteChangeApplier.readCursor(offlineScope);
+      const pullResult = await pullSyncChanges(cursor, session.access_token);
+      const applyResult = await planningRemoteChangeApplier.applyChanges({
+        changes: pullResult.changes,
+        scope: offlineScope,
+        pendingMutations: mutations,
+        currentDate: selectedDate,
+      });
+
+      if (applyResult.foundConflict) {
+        setItemsError(
+          "Un cambio remoto afecta registros con cambios locales pendientes. Revisa el detalle de sincronizacion antes de continuar."
+        );
+      }
+
+      if (applyResult.currentDateTouched) {
+        const localSnapshot = await planningLocalRepository.readByDate(selectedDate, offlineScope);
+        if (localSnapshot) {
+          setPlanningItems(localSnapshot.items);
+        }
+      }
+
+      return applyResult.nextMutations;
+    },
     replayAssignmentPayload: async (mutation, response) => {
       if (mutation.method === "DELETE" || mutation.assignmentPayload === undefined) {
         return;
@@ -684,6 +704,18 @@ export default function Home() {
     pendingPlanningMutationsRef.current = pendingPlanningMutations;
   }, [pendingPlanningMutations]);
 
+  const refreshPlanningItemsFromRealtime = useCallback(() => {
+    void syncPendingPlanningMutations().catch((error: unknown) => {
+      recordOperationalEvent({
+        level: "warn",
+        name: "realtime.incremental_sync_failed",
+        source: "planningPage",
+        metadata: { selectedDate },
+      });
+      setItemsError(getRequestErrorMessage(error, "No se pudo actualizar la planificacion."));
+    });
+  }, [selectedDate, syncPendingPlanningMutations]);
+
   usePlanningRealtime({
     selectedDate,
     accessToken: session?.access_token,
@@ -706,10 +738,8 @@ export default function Home() {
           return;
         }
 
-        void syncPendingPlanningMutations();
-
         const results = await Promise.allSettled([
-          refreshPlanningItems(),
+          syncPendingPlanningMutations(),
           refreshCatalog(),
         ]);
         const failed = results.filter((result) => result.status === "rejected");
@@ -758,7 +788,7 @@ export default function Home() {
       window.removeEventListener("online", recoverFromNetworkStatus);
       document.removeEventListener("visibilitychange", recoverFromVisibility);
     };
-  }, [refreshCatalog, refreshPlanningItems, selectedDate, syncPendingPlanningMutations]);
+  }, [refreshCatalog, selectedDate, syncPendingPlanningMutations]);
 
   useEffect(() => {
     let active = true;

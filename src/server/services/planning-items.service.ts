@@ -500,7 +500,15 @@ export async function deletePlanningItem(input: {
       before: currentItem,
     });
 
-    return { status: "deleted" as const };
+    return {
+      status: "deleted" as const,
+      deletedItem: {
+        id: currentItem.id,
+        trackingType: "programado" as const,
+        itemDate: currentItem.item_date,
+        updatedAt: currentItem.updated_at,
+      },
+    };
   }
 
   const currentSegment = await findExecutionSegmentById(input.id);
@@ -526,5 +534,13 @@ export async function deletePlanningItem(input: {
     before: currentSegment,
   });
 
-  return { status: "deleted" as const };
+  return {
+    status: "deleted" as const,
+    deletedItem: {
+      id: currentSegment.id,
+      trackingType: "real" as const,
+      itemDate: currentSegment.item_date,
+      updatedAt: currentSegment.updated_at,
+    },
+  };
 }

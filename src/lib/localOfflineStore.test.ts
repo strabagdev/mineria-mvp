@@ -28,7 +28,9 @@ describe("local offline storage keys", () => {
       assignmentTargetsPrefix: "assignments",
       authProfile: "auth-profile",
       planningMutationQueue: "planning-mutation-queue",
+      syncCursorPrefix: "sync-cursor",
     });
+    expect(OFFLINE_DATASETS.syncCursor).toBe("sync.cursor");
     expect(OFFLINE_DATASETS.planningByDate).toBe("planning.byDate");
     expect(OFFLINE_DATASETS.planningAssignmentTypes).toBe("planning.assignmentTypes");
     expect(OFFLINE_DATASETS.planningAssignments).toBe("planning.assignments");
@@ -89,6 +91,12 @@ describe("local offline storage keys", () => {
 
     expect(key).toBe(
       "v2:user:user%40example.com:org:org%2Ffaena%20norte:site:site%201:reports-data-v1-start=2026-05-01&level=NTI"
+    );
+  });
+
+  it("builds sync cursor keys inside the scoped keyspace", () => {
+    expect(buildOfflineStorageKey("sync-cursor:planning", { userId: "user-1" })).toBe(
+      "v2:user:user-1:org:default:site:default:sync-cursor:planning"
     );
   });
 });

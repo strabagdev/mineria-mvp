@@ -15,7 +15,7 @@ import {
   type PlanningSyncCoordinatorReplayHandlers,
 } from "./planning-sync-coordinator";
 import {
-  PENDING_SYNC_RETRY_INTERVAL_MS,
+  INCREMENTAL_SYNC_INTERVAL_MS,
   type PendingPlanningMutation,
 } from "./planning-sync-models";
 
@@ -84,6 +84,8 @@ export function usePlanningSyncCoordinator(args: UsePlanningSyncCoordinatorArgs)
         canSync: () => latestArgsRef.current.canSync,
         isOffline: isBrowserOffline,
         sendMutation: (mutation) => latestArgsRef.current.sendMutation(mutation),
+        pullRemoteChanges: (mutations) =>
+          latestArgsRef.current.pullRemoteChanges?.(mutations) ?? Promise.resolve(),
         replayAssignmentPayload: (mutation, response) =>
           latestArgsRef.current.replayAssignmentPayload?.(mutation, response) ?? Promise.resolve(),
         getErrorMessage: (error) => latestArgsRef.current.getErrorMessage(error),
@@ -111,16 +113,18 @@ export function usePlanningSyncCoordinator(args: UsePlanningSyncCoordinatorArgs)
     }
 
     const unsubscribeNetworkStatus = subscribeNetworkStatus(syncWhenOnline);
-    const retryInterval = window.setInterval(syncWhenOnline, PENDING_SYNC_RETRY_INTERVAL_MS);
+    const incrementalInterval = window.setInterval(syncWhenOnline, INCREMENTAL_SYNC_INTERVAL_MS);
     window.addEventListener("focus", syncWhenOnline);
     window.addEventListener("online", syncWhenOnline);
+    window.addEventListener("pageshow", syncWhenOnline);
     document.addEventListener("visibilitychange", syncWhenVisible);
 
     return () => {
       unsubscribeNetworkStatus();
-      window.clearInterval(retryInterval);
+      window.clearInterval(incrementalInterval);
       window.removeEventListener("focus", syncWhenOnline);
       window.removeEventListener("online", syncWhenOnline);
+      window.removeEventListener("pageshow", syncWhenOnline);
       document.removeEventListener("visibilitychange", syncWhenVisible);
     };
   }, [syncPendingPlanningMutations]);

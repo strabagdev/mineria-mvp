@@ -9,9 +9,12 @@ OpsAhead opera con una base local-first inicial para planning:
 - La respuesta servidor se reconcilia con la outbox pendiente antes de actualizar la UI.
 - El resultado reconciliado se persiste nuevamente en IndexedDB.
 - Las escrituras de planning se reflejan localmente y se agregan a la outbox antes del push al servidor.
+- El push de la outbox usa `/api/sync/push`, que delega en los handlers server-side actuales de planning para conservar permisos y validaciones.
+- El pull incremental usa `/api/sync/pull?cursor=<cursor>` y aplica cambios remotos mediante `PlanningRemoteChangeApplier`.
+- El cursor incremental se persiste por scope de usuario en IndexedDB.
 - La cola durable de planning vive en `src/modules/planning/sync/planning-mutation-queue.ts` y se persiste mediante `src/modules/planning/sync/planning-mutation-queue-store.ts`.
 - La UI sigue aplicando mutaciones pendientes como overlay defensivo con `applyPendingPlanningMutations()`.
-- Supabase Realtime sigue activo a través de `src/modules/planning/presentation/use-planning-realtime.ts`; se usa como señal de invalidación para reconciliar desde API hacia IndexedDB.
+- Supabase Realtime sigue activo a través de `src/modules/planning/presentation/use-planning-realtime.ts`; se usa como acelerador para disparar sync incremental.
 
 En la Fase 1, `src/modules/planning/sync/use-planning-sync-coordinator.ts` extrae la coordinación de replay que antes estaba embebida en `src/app/(app)/page.tsx`. La página conserva la presentación y los mensajes, pero el coordinador toma responsabilidad por cargar outbox, persistirlo, evitar replay concurrente, responder a reconexión y ejecutar retries programados.
 
@@ -49,7 +52,7 @@ La dirección final es que la UI consuma primero IndexedDB para dominios operaci
 ```text
 Fase 1 — SyncCoordinator / Outbox        COMPLETA
 Fase 2 — IndexedDB-first planning        COMPLETA
-Fase 3 — Push/Pull incremental           PENDIENTE
+Fase 3 — Push/Pull incremental           COMPLETA
 Fase 4 — Multi-dispositivo sin Realtime  PENDIENTE
 Fase 5 — Migración Railway               PENDIENTE
 ```
@@ -75,6 +78,8 @@ Realtime
 ```
 
 Realtime no debe ser fuente de verdad ni dependencia estructural del `SyncCoordinator`. En fases posteriores se podrá retirar o reemplazar sin reescribir la coordinación de outbox.
+
+En Fase 3, Realtime dispara `syncPendingPlanningMutations()`. El camino de convergencia es el mismo con o sin evento Realtime: push pendiente si existe, pull incremental, aplicación en IndexedDB y actualización de UI desde el snapshot local.
 
 ### Evitar polling de datasets completos
 
@@ -114,6 +119,10 @@ La implementación actual mantiene nombres de planning para evitar churn inneces
 - `SyncMutationStatus`
 - `SyncFailureReason`
 - `SyncCoordinatorState`
+- `SyncChange`
+- `SyncPullResponse`
+- `SyncPushMutation`
+- `SyncPushResponse`
 
 Planning todavía conserva `PendingPlanningMutation` porque su payload incluye detalles propios como `assignmentPayload`, `syncedPlanningItemId` y snapshots de conflicto.
 
@@ -165,27 +174,37 @@ No hay datos disponibles sin conexión para esta fecha.
 
 Sigue dependiendo de API:
 
-- lectura remota completa por fecha con `GET /api/planning-items`;
-- push de mutaciones por `/api/planning-items`;
+- lectura remota completa por fecha con `GET /api/planning-items` para hidratación inicial/fallback y snapshots de conflicto;
+- push de mutaciones por `/api/sync/push`, que internamente reutiliza `/api/planning-items`;
+- pull incremental por `/api/sync/pull`;
 - catálogo, cabecera operacional y asignaciones;
 - validaciones finales de permisos y concurrencia.
 
 Sigue dependiendo temporalmente de Realtime:
 
 - señales de invalidación remota;
-- disparo de fetch servidor;
-- reconciliación posterior hacia IndexedDB.
+- disparo anticipado de sync incremental;
+- polling incremental sigue convergiendo aunque Realtime no llegue.
 
 Limitaciones conocidas:
 
-- Todavía no existe pull incremental por cursor.
-- Después de un push confirmado se refresca la fecha completa cuando hace falta reconciliar IDs reales, reales derivados o conflictos. Esto se mantiene porque las respuestas actuales no siempre entregan todos los cambios derivados necesarios para reconciliar localmente con total seguridad.
+- La atomicidad completa `aplicar mutación + registrar processed mutation + registrar changelog` no está garantizada en una única transacción PostgreSQL porque las rutas actuales usan Supabase REST desde servicios separados. La ventana queda documentada: si falla el registro de sync después de aplicar la mutación, el dato existe pero puede faltar su evento incremental hasta un mecanismo de reparación o RPC transaccional futura.
+- Después de algunos pushes confirmados puede seguir usándose refresh completo de fecha para snapshots de conflicto o datos derivados que la respuesta actual no contiene de forma suficiente.
 - La outbox general aún es planning-specific; se generalizará cuando otro dominio necesite el mismo contrato.
-- No hay tombstones persistentes separados; delete pendiente se representa como mutación en outbox y se aplica sobre el snapshot efectivo.
+- Los tombstones remotos viven en `sync_changes`; no existe aún una tabla local separada de tombstones porque el applier remueve del snapshot por fecha.
 
-## Contrato objetivo push/pull
+## Push/Pull incremental
 
-### Push futuro
+### Schema server-side
+
+`supabase/sql/021_incremental_sync.sql` crea:
+
+- `sync_changes`: changelog con `sequence_id bigserial` como cursor monotónico, `scope_user_id`, `domain`, `entity_type`, `entity_id`, `operation`, `server_revision`, `occurred_at`, `payload`, `mutation_id` y `actor_user_id`.
+- `sync_processed_mutations`: registro idempotente por `domain + scope + mutation_id`, con respuesta persistida para retries de create/update/delete.
+
+Para planning, `scope_user_id` queda `null` porque el modelo funcional actual comparte planning globalmente entre usuarios autorizados con `records.view`. El endpoint filtra cambios globales y, cuando existan scopes contextuales reales, podrá sumar cambios propios del scope.
+
+### Push
 
 Cada cambio enviado al servidor debería contemplar:
 
@@ -196,9 +215,27 @@ Cada cambio enviado al servidor debería contemplar:
 - revisión base, inicialmente `expected_updated_at`;
 - `scope`.
 
-El push debe ser idempotente por `mutationId`.
+Contrato actual:
 
-### Pull futuro
+```text
+POST /api/sync/push
+{
+  "mutations": [
+    {
+      "mutationId": "...",
+      "domain": "planning",
+      "operation": "create | update | delete",
+      "entityId": 123,
+      "baseRevision": "updated_at anterior",
+      "payload": {}
+    }
+  ]
+}
+```
+
+`/api/sync/push` despacha cada mutación hacia el handler actual de planning. La idempotencia se resuelve en `/api/planning-items`: si `client_mutation_id` ya está en `sync_processed_mutations`, devuelve la respuesta persistida sin reaplicar.
+
+### Pull
 
 Conceptualmente:
 
@@ -208,10 +245,10 @@ GET /api/sync/pull?cursor=X
 
 Respuesta conceptual:
 
-```text
+```json
 {
   "changes": [],
-  "nextCursor": "cursor",
+  "nextCursor": 123,
   "hasMore": false
 }
 ```
@@ -225,4 +262,4 @@ Cada cambio debe poder representar:
 - revisión del servidor;
 - `payload`.
 
-El JSON definitivo queda pendiente hasta definir dominios, scopes contextuales y formato de revisiones.
+`PlanningRemoteChangeApplier` recibe esos cambios, detecta conflictos con outbox local pendiente, escribe IndexedDB y avanza el cursor con `saveSyncCursor("planning", cursor, scope)`.

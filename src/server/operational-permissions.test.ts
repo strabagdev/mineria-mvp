@@ -19,6 +19,8 @@ const mocks = vi.hoisted(() => ({
   updatePlannedPlanningItem: vi.fn(),
   updateRealPlanningSegments: vi.fn(),
   updateRealPlanningSegment: vi.fn(),
+  findProcessedPlanningMutation: vi.fn(),
+  registerPlanningMutationSync: vi.fn(),
 }));
 
 vi.mock("@/lib/accessControl", () => ({
@@ -75,6 +77,11 @@ vi.mock("@/server/services/planning-items.service", () => ({
   updatePlannedPlanningItem: mocks.updatePlannedPlanningItem,
   updateRealPlanningSegments: mocks.updateRealPlanningSegments,
   updateRealPlanningSegment: mocks.updateRealPlanningSegment,
+}));
+
+vi.mock("@/server/services/sync.service", () => ({
+  findProcessedPlanningMutation: mocks.findProcessedPlanningMutation,
+  registerPlanningMutationSync: mocks.registerPlanningMutationSync,
 }));
 
 function jsonRequest(method: "POST" | "PATCH" | "DELETE", body: unknown) {
