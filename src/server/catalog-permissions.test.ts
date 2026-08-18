@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   requireApprovedUser: vi.fn(),
+  requirePermission: vi.fn(),
   requireAdminUser: vi.fn(),
   requireOperationalUser: vi.fn(),
   getPlanningCatalog: vi.fn(),
@@ -33,15 +34,25 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/accessControl", () => ({
-  requireApprovedUser: mocks.requireApprovedUser,
-  requireAdminUser: mocks.requireAdminUser,
-  requireOperationalUser: mocks.requireOperationalUser,
+  PERMISSIONS: {
+    CATALOG_VIEW: "catalog.view",
+    CATALOG_MANAGE: "catalog.manage",
+    REPORTS_VIEW: "reports.view",
+    OPERATIONAL_HEADER_VIEW: "operational_header.view",
+    OPERATIONAL_HEADER_MANAGE: "operational_header.manage",
+    ASSIGNMENTS_VIEW: "assignments.view",
+    ASSIGNMENTS_MANAGE: "assignments.manage",
+  },
+  requirePermission: mocks.requirePermission,
+  requireApprovedUser: mocks.requirePermission,
+  requireAdminUser: mocks.requirePermission,
+  requireOperationalUser: mocks.requirePermission,
 }));
 
 vi.mock("@/lib/errorMessage", () => ({
   getErrorMessage: (error: unknown) => error instanceof Error ? error.message : "Unknown error",
   getErrorStatus: (error: unknown) =>
-    error instanceof Error && /permisos de administrador|permisos operativos/i.test(error.message) ? 403 : 500,
+    error instanceof Error && /permisos de administrador|permisos operativos|permisos para/i.test(error.message) ? 403 : 500,
 }));
 
 vi.mock("@/modules/operational-header/contracts/operational-header", () => ({
@@ -140,19 +151,19 @@ describe("catalog permissions", () => {
   });
 
   it("allows approved viewer users to read the planning catalog", async () => {
-    mocks.requireApprovedUser.mockResolvedValue(viewerActor);
+    mocks.requirePermission.mockResolvedValue(viewerActor);
     mocks.getPlanningCatalog.mockResolvedValue({ categories: [], levels: [] });
     const { GET } = await import("../app/api/planning-catalog/route");
 
     const response = await GET(new Request("http://local.test/api/planning-catalog"));
 
     expect(response.status).toBe(200);
-    expect(mocks.requireApprovedUser).toHaveBeenCalledTimes(1);
+    expect(mocks.requirePermission).toHaveBeenCalledTimes(1);
     expect(mocks.getPlanningCatalog).toHaveBeenCalledTimes(1);
   });
 
   it("allows approved viewer users to read reports", async () => {
-    mocks.requireApprovedUser.mockResolvedValue(viewerActor);
+    mocks.requirePermission.mockResolvedValue(viewerActor);
     mocks.getReport.mockResolvedValue({
       filters: {},
       summary: {},
@@ -164,12 +175,12 @@ describe("catalog permissions", () => {
     const response = await GET(new Request("http://local.test/api/reports?date_from=2026-01-01&date_to=2026-01-01"));
 
     expect(response.status).toBe(200);
-    expect(mocks.requireApprovedUser).toHaveBeenCalledTimes(1);
+    expect(mocks.requirePermission).toHaveBeenCalledTimes(1);
     expect(mocks.getReport).toHaveBeenCalledTimes(1);
   });
 
   it("passes dynamic operational header filters to reports", async () => {
-    mocks.requireApprovedUser.mockResolvedValue(viewerActor);
+    mocks.requirePermission.mockResolvedValue(viewerActor);
     mocks.getReport.mockResolvedValue({
       filters: {},
       summary: {},
@@ -195,7 +206,7 @@ describe("catalog permissions", () => {
   });
 
   it("uses dynamic operational header filters in reports", async () => {
-    mocks.requireApprovedUser.mockResolvedValue(viewerActor);
+    mocks.requirePermission.mockResolvedValue(viewerActor);
     mocks.getReport.mockResolvedValue({
       filters: {},
       summary: {},
@@ -216,7 +227,7 @@ describe("catalog permissions", () => {
   });
 
   it("allows approved viewer users to read operational header metadata", async () => {
-    mocks.requireApprovedUser.mockResolvedValue(viewerActor);
+    mocks.requirePermission.mockResolvedValue(viewerActor);
     mocks.getOperationalHeaderConfig.mockResolvedValue({
       fields: [
         {
@@ -260,7 +271,7 @@ describe("catalog permissions", () => {
     const json = await response.json();
 
     expect(response.status).toBe(200);
-    expect(mocks.requireApprovedUser).toHaveBeenCalledTimes(1);
+    expect(mocks.requirePermission).toHaveBeenCalledTimes(1);
     expect(mocks.getOperationalHeaderConfig).toHaveBeenCalledWith({ activeOnly: true });
     expect(json.fields[0]).toMatchObject({
       slug: "nivel",
@@ -280,7 +291,7 @@ describe("catalog permissions", () => {
   });
 
   it("requires admin users for operational header mutations", async () => {
-    mocks.requireAdminUser.mockRejectedValue(new Error("Necesitas permisos de administrador."));
+    mocks.requirePermission.mockRejectedValue(new Error("Necesitas permisos de administrador."));
     const route = await import("../app/api/operational-header/route");
 
     await expect(route.POST(jsonRequest("http://local.test/api/operational-header", {
@@ -303,7 +314,7 @@ describe("catalog permissions", () => {
   });
 
   it("blocks unapproved users from reading operational header metadata", async () => {
-    mocks.requireApprovedUser.mockRejectedValue(new Error("Necesitas una cuenta aprobada."));
+    mocks.requirePermission.mockRejectedValue(new Error("Necesitas una cuenta aprobada."));
     const { GET } = await import("../app/api/operational-header/route");
 
     const response = await GET(new Request("http://local.test/api/operational-header"));
@@ -313,7 +324,7 @@ describe("catalog permissions", () => {
   });
 
   it("allows admin users to create catalog definitions", async () => {
-    mocks.requireAdminUser.mockResolvedValue(adminActor);
+    mocks.requirePermission.mockResolvedValue(adminActor);
     mocks.slugifyPlanningCatalogValue.mockReturnValue("actividad");
     mocks.createCatalogType.mockResolvedValue({ id: 1, category: "actividad", slug: "actividad", label: "Actividad" });
     const { POST } = await import("../app/api/planning-catalog/route");
@@ -325,7 +336,7 @@ describe("catalog permissions", () => {
     }));
 
     expect(response.status).toBe(201);
-    expect(mocks.requireAdminUser).toHaveBeenCalledTimes(1);
+    expect(mocks.requirePermission).toHaveBeenCalledTimes(1);
     expect(mocks.createCatalogType).toHaveBeenCalledWith({
       actor: adminActor,
       category: "actividad",
@@ -335,7 +346,7 @@ describe("catalog permissions", () => {
   });
 
   it("allows admin users to create catalog details", async () => {
-    mocks.requireAdminUser.mockResolvedValue(adminActor);
+    mocks.requirePermission.mockResolvedValue(adminActor);
     mocks.createCatalogDetail.mockResolvedValue({ id: 10, type_id: 1, label: "Avance" });
     const { POST } = await import("../app/api/planning-catalog/route");
 
@@ -354,7 +365,7 @@ describe("catalog permissions", () => {
   });
 
   it("rejects removed planning level creation as unsupported", async () => {
-    mocks.requireAdminUser.mockResolvedValue(adminActor);
+    mocks.requirePermission.mockResolvedValue(adminActor);
     const { POST } = await import("../app/api/planning-catalog/route");
 
     const response = await POST(jsonRequest("http://local.test/api/planning-catalog", {
@@ -368,7 +379,7 @@ describe("catalog permissions", () => {
   });
 
   it("rejects removed planning level updates as unsupported", async () => {
-    mocks.requireAdminUser.mockResolvedValue(adminActor);
+    mocks.requirePermission.mockResolvedValue(adminActor);
     const { PATCH } = await import("../app/api/planning-catalog/route");
 
     const response = await PATCH(new Request("http://local.test/api/planning-catalog", {
@@ -387,7 +398,7 @@ describe("catalog permissions", () => {
   });
 
   it("rejects removed planning level deletes as unsupported", async () => {
-    mocks.requireAdminUser.mockResolvedValue(adminActor);
+    mocks.requirePermission.mockResolvedValue(adminActor);
     const { DELETE } = await import("../app/api/planning-catalog/route");
 
     const response = await DELETE(new Request("http://local.test/api/planning-catalog", {
@@ -405,7 +416,7 @@ describe("catalog permissions", () => {
   });
 
   it("allows admin users to update and delete non-level catalog entities", async () => {
-    mocks.requireAdminUser.mockResolvedValue(adminActor);
+    mocks.requirePermission.mockResolvedValue(adminActor);
     mocks.slugifyPlanningCatalogValue.mockReturnValue("actividad-editada");
     mocks.updateCatalogType.mockResolvedValue({
       id: 1,
@@ -451,7 +462,7 @@ describe("catalog permissions", () => {
   });
 
   it("returns 403 when viewer users try to write catalog definitions", async () => {
-    mocks.requireAdminUser.mockRejectedValue(new Error("Necesitas permisos de administrador."));
+    mocks.requirePermission.mockRejectedValue(new Error("Necesitas permisos de administrador."));
     const { POST } = await import("../app/api/planning-catalog/route");
 
     const response = await POST(jsonRequest("http://local.test/api/planning-catalog", {
@@ -465,7 +476,7 @@ describe("catalog permissions", () => {
   });
 
   it("returns 403 when viewer users try to write planning assignments", async () => {
-    mocks.requireOperationalUser.mockRejectedValue(new Error("Necesitas permisos operativos."));
+    mocks.requirePermission.mockRejectedValue(new Error("Necesitas permisos operativos."));
     const { POST } = await import("../app/api/planning-assignments/route");
 
     const response = await POST(jsonRequest("http://local.test/api/planning-assignments", {
@@ -478,7 +489,7 @@ describe("catalog permissions", () => {
   });
 
   it("keeps planning item assignments writable with the legacy payload", async () => {
-    mocks.requireOperationalUser.mockResolvedValue(operatorActor);
+    mocks.requirePermission.mockResolvedValue(operatorActor);
     mocks.savePlanningAssignments.mockResolvedValue([]);
     const { POST } = await import("../app/api/planning-assignments/route");
 
@@ -497,7 +508,7 @@ describe("catalog permissions", () => {
   });
 
   it("supports execution segment assignments with a target-aware payload", async () => {
-    mocks.requireOperationalUser.mockResolvedValue(operatorActor);
+    mocks.requirePermission.mockResolvedValue(operatorActor);
     mocks.saveAssignmentsForTarget.mockResolvedValue([]);
     const { POST } = await import("../app/api/planning-assignments/route");
 

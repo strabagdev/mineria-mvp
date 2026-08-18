@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireAdminUser, requireApprovedUser } from "@/lib/accessControl";
+import { PERMISSIONS, requirePermission } from "@/lib/accessControl";
 import { getErrorMessage, getErrorStatus } from "@/lib/errorMessage";
 import type {
   OperationalHeaderFieldCreateRequestDto,
@@ -55,7 +55,7 @@ function toMetadata(value: unknown) {
 
 export async function GET(req: Request) {
   try {
-    await requireApprovedUser(req);
+    await requirePermission(req, PERMISSIONS.OPERATIONAL_HEADER_VIEW);
     const { searchParams } = new URL(req.url);
     const activeOnly = searchParams.get("active") !== "false";
 
@@ -67,7 +67,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    await requireAdminUser(req);
+    await requirePermission(req, PERMISSIONS.OPERATIONAL_HEADER_MANAGE);
     const body = (await req.json()) as
       | OperationalHeaderDependencyCreateRequestDto
       | OperationalHeaderFieldCreateRequestDto
@@ -163,7 +163,7 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
-    await requireAdminUser(req);
+    await requirePermission(req, PERMISSIONS.OPERATIONAL_HEADER_MANAGE);
     const body = (await req.json()) as OperationalHeaderFieldUpdateRequestDto | OperationalHeaderOptionUpdateRequestDto;
     const id = Number(body.id);
 
@@ -219,7 +219,7 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    await requireAdminUser(req);
+    await requirePermission(req, PERMISSIONS.OPERATIONAL_HEADER_MANAGE);
     const { searchParams } = new URL(req.url);
     const body = await req.json().catch(() => ({})) as
       | OperationalHeaderDependencyDeleteRequestDto

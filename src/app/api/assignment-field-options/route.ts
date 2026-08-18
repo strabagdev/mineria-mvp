@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireAdminUser, requireApprovedUser } from "@/lib/accessControl";
+import { PERMISSIONS, requirePermission } from "@/lib/accessControl";
 import { getErrorMessage, getErrorStatus } from "@/lib/errorMessage";
 import type {
   AssignmentFieldOptionCreateRequestDto,
@@ -24,7 +24,7 @@ function toMetadata(value: unknown) {
 
 export async function GET(req: Request) {
   try {
-    await requireApprovedUser(req);
+    await requirePermission(req, PERMISSIONS.ASSIGNMENTS_VIEW);
     const { searchParams } = new URL(req.url);
     const fieldIdValue = searchParams.get("field_id");
     const fieldId = fieldIdValue ? Number(fieldIdValue) : undefined;
@@ -39,7 +39,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const { user, profile } = await requireAdminUser(req);
+    const { user, profile } = await requirePermission(req, PERMISSIONS.ASSIGNMENTS_MANAGE);
     const body = (await req.json()) as AssignmentFieldOptionCreateRequestDto;
     const fieldId = Number(body.field_id);
     const label = String(body.label ?? "").trim();
@@ -56,7 +56,7 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
-    const { user, profile } = await requireAdminUser(req);
+    const { user, profile } = await requirePermission(req, PERMISSIONS.ASSIGNMENTS_MANAGE);
     const body = (await req.json()) as AssignmentFieldOptionUpdateRequestDto;
     const id = Number(body.id);
     if (!Number.isFinite(id) || id <= 0) return NextResponse.json({ error: "Debes indicar una opcion valida." }, { status: 400 });
@@ -89,7 +89,7 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    const { user, profile } = await requireAdminUser(req);
+    const { user, profile } = await requirePermission(req, PERMISSIONS.ASSIGNMENTS_MANAGE);
     const body = await req.json().catch(() => ({})) as { id?: unknown };
     const id = Number(body.id);
     if (!Number.isFinite(id) || id <= 0) return NextResponse.json({ error: "Debes indicar una opcion valida." }, { status: 400 });

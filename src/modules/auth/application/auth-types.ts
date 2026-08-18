@@ -17,6 +17,7 @@ export type AppAuthProfile = {
   role: "admin" | "operator" | "viewer";
   active: boolean;
   approval_status: "pending" | "approved" | "rejected";
+  effective_permissions?: string[];
 };
 
 export type UserRole = AppAuthProfile["role"];

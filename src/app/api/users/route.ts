@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
-  requireAdminUser,
+  PERMISSIONS,
+  requirePermission,
   resolveRole,
   USER_ROLES,
 } from "@/lib/accessControl";
@@ -16,7 +17,7 @@ import {
 
 export async function GET(req: Request) {
   try {
-    const { user } = await requireAdminUser(req);
+    const { user } = await requirePermission(req, PERMISSIONS.USERS_VIEW);
     return NextResponse.json(await listUsers({ currentUserId: user.id }));
   } catch (error: unknown) {
     return NextResponse.json({ error: getErrorMessage(error) }, { status: getErrorStatus(error) });
@@ -25,7 +26,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const { user, profile } = await requireAdminUser(req);
+    const { user, profile } = await requirePermission(req, PERMISSIONS.USERS_MANAGE);
     const body = (await req.json()) as {
       name?: string;
       email?: string;
@@ -74,7 +75,7 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
-    const { user, profile } = await requireAdminUser(req);
+    const { user, profile } = await requirePermission(req, PERMISSIONS.USERS_MANAGE);
     const body = (await req.json()) as {
       user_id?: string;
       action?: "update-role" | "toggle-active" | "update-approval-status" | "reset-password";
@@ -143,7 +144,7 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    const { user, profile } = await requireAdminUser(req);
+    const { user, profile } = await requirePermission(req, PERMISSIONS.USERS_MANAGE);
     const body = (await req.json()) as {
       user_id?: string;
     };

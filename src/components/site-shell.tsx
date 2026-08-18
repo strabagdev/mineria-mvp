@@ -11,6 +11,8 @@ import { buildOperationalState } from "@/lib/operationalState";
 import { OfflineRouteContent } from "@/components/offline-route-content";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { signOut as signOutAuthSession } from "@/modules/auth/application/auth-client";
+import { hasEffectivePermission } from "../modules/auth/application/effective-permissions";
+import { PERMISSIONS } from "../modules/auth/contracts/permissions";
 import { loadPendingPlanningMutations } from "@/modules/planning/sync/planning-mutation-queue-store";
 
 type ShellIcon = ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
@@ -218,14 +220,20 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const adminNavItems: NavItem[] =
-    effectiveProfile.role === "admin"
-      ? [
-          { href: "/catalog", label: "Catalogo", icon: Settings, offlineView: "catalog", onClick: openCatalog },
-          { href: "/admin/users", label: "Usuarios", icon: Users, offlineView: "users" },
-          { href: "/admin/audit", label: "Auditoria", icon: ScrollText, offlineView: "audit" },
-        ]
-      : [];
+  const adminNavItems: NavItem[] = [];
+  if (
+    hasEffectivePermission(effectiveProfile, PERMISSIONS.CATALOG_MANAGE) ||
+    hasEffectivePermission(effectiveProfile, PERMISSIONS.OPERATIONAL_HEADER_MANAGE) ||
+    hasEffectivePermission(effectiveProfile, PERMISSIONS.ASSIGNMENTS_MANAGE)
+  ) {
+    adminNavItems.push({ href: "/catalog", label: "Catalogo", icon: Settings, offlineView: "catalog", onClick: openCatalog });
+  }
+  if (hasEffectivePermission(effectiveProfile, PERMISSIONS.USERS_MANAGE)) {
+    adminNavItems.push({ href: "/admin/users", label: "Usuarios", icon: Users, offlineView: "users" });
+  }
+  if (hasEffectivePermission(effectiveProfile, PERMISSIONS.AUDIT_VIEW)) {
+    adminNavItems.push({ href: "/admin/audit", label: "Auditoria", icon: ScrollText, offlineView: "audit" });
+  }
 
   const navItems: NavItem[] = [
     { href: "/", label: "Operaciones", icon: Home, offlineView: "home" },

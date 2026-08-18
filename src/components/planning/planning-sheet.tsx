@@ -53,6 +53,7 @@ type PlanningSheetProps = {
   error: string;
   busy: boolean;
   isEditing: boolean;
+  canDelete?: boolean;
   deleteLabel: string;
   submitLabel: string;
   assignmentsSlot?: ReactNode;
@@ -80,6 +81,7 @@ export function PlanningSheet({
   error,
   busy,
   isEditing,
+  canDelete = true,
   deleteLabel,
   submitLabel,
   assignmentsSlot,
@@ -343,7 +345,7 @@ export function PlanningSheet({
         {error ? <p className="feedback">{error}</p> : null}
 
         <div className="modal-actions">
-          {isEditing ? (
+          {isEditing && canDelete ? (
             <button type="button" className="button danger" onClick={onRequestDelete} disabled={busy}>
               {deleteLabel}
             </button>

@@ -13,6 +13,8 @@ import { PlanningDetailDialog } from "@/components/planning/planning-detail-dial
 import { PlanningSheet } from "@/components/planning/planning-sheet";
 import { PlanningStatusStrip } from "@/components/planning/planning-status-strip";
 import { PlanningAuditTimeline } from "@/modules/audit/presentation/planning-audit-timeline";
+import { hasEffectivePermission } from "../../modules/auth/application/effective-permissions";
+import { PERMISSIONS } from "../../modules/auth/contracts/permissions";
 import {
   fetchPlanningCatalog,
   fetchPlanningItems,
@@ -266,8 +268,13 @@ export default function Home() {
     getNetworkStatusSnapshot,
     () => "offline" as const
   );
-  const canManageCatalog = profile?.role === "admin";
-  const canOperatePlanning = profile?.role === "admin" || profile?.role === "operator";
+  const canCreateRecords = hasEffectivePermission(profile, PERMISSIONS.RECORDS_CREATE);
+  const canEditRecords = hasEffectivePermission(profile, PERMISSIONS.RECORDS_EDIT);
+  const canDeleteRecords = hasEffectivePermission(profile, PERMISSIONS.RECORDS_DELETE);
+  const canManageAssignments = hasEffectivePermission(profile, PERMISSIONS.ASSIGNMENTS_MANAGE);
+  const canManageCatalog = hasEffectivePermission(profile, PERMISSIONS.CATALOG_MANAGE);
+  const canViewAudit = hasEffectivePermission(profile, PERMISSIONS.AUDIT_VIEW);
+  const canSyncPendingPlanningMutations = canCreateRecords || canEditRecords || canDeleteRecords;
   const [currentTime, setCurrentTime] = useState(() => new Date());
   const todayIso = getCurrentOperationalDate(currentTime);
   const initialOperationalView = getInitialOperationalView(currentTime);
@@ -981,7 +988,7 @@ export default function Home() {
   }
 
   async function loadAssignmentTypesForCreate(input: { targetKind?: AssignmentTarget["target_kind"] } = {}) {
-    if (!canOperatePlanning) {
+    if (!canManageAssignments) {
       setFormAssignmentTypes([]);
       setPlanningAssignmentsFormState({});
       setFormAssignmentsReady(false);
@@ -1032,7 +1039,7 @@ export default function Home() {
   }
 
   async function loadAssignmentsForEdit(item: PlanningItem) {
-    if (!canOperatePlanning) {
+    if (!canManageAssignments) {
       setFormAssignmentTypes([]);
       setPlanningAssignmentsFormState({});
       setFormAssignmentsReady(false);
@@ -1134,8 +1141,13 @@ export default function Home() {
       syncedPlanningItemId?: number;
     } = {}
   ) {
-    if (!canOperatePlanning) {
-      throw new Error("Solo los usuarios operativos pueden modificar la planificacion.");
+    const canRunMutation =
+      (method === "POST" && canCreateRecords) ||
+      (method === "PATCH" && canEditRecords) ||
+      (method === "DELETE" && canDeleteRecords);
+
+    if (!canRunMutation) {
+      throw new Error("No tienes permisos para modificar este registro.");
     }
 
     const pendingMutation = makePendingPlanningMutation(method, payload, input);
@@ -1144,7 +1156,7 @@ export default function Home() {
   }
 
   async function syncPendingPlanningMutations() {
-    if (!canOperatePlanning) {
+    if (!canSyncPendingPlanningMutations) {
       return;
     }
 
@@ -1231,8 +1243,10 @@ export default function Home() {
     event.preventDefault();
     setFormError("");
 
-    if (!canOperatePlanning) {
-      setFormError("Solo los usuarios operativos pueden modificar la planificacion.");
+    const canSaveRecord = editingPlanningItem ? canEditRecords : canCreateRecords;
+
+    if (!canSaveRecord) {
+      setFormError(editingPlanningItem ? "No tienes permisos para editar registros." : "No tienes permisos para crear registros.");
       return;
     }
 
@@ -1277,7 +1291,7 @@ export default function Home() {
         (mutationResult as { item?: { id?: unknown } }).item?.id ?? editingPlanningItem?.id
       );
 
-      if (formAssignmentsReady && Number.isFinite(savedItemId) && savedItemId > 0) {
+      if (canManageAssignments && formAssignmentsReady && Number.isFinite(savedItemId) && savedItemId > 0) {
         const assignmentPayload = toPlanningAssignmentInputs(formAssignmentTypes, planningAssignmentsFormState);
         const assignmentTarget = formState.tracking_type === "programado"
           ? toPlanningItemAssignmentTarget(savedItemId)
@@ -1353,7 +1367,7 @@ export default function Home() {
   }
 
   function openEditPlanningItem(item: PlanningItem) {
-    if (!canOperatePlanning) {
+    if (!canEditRecords) {
       return;
     }
 
@@ -1398,8 +1412,8 @@ export default function Home() {
   async function handleDeletePlanningItem(id: number, trackingType: PlanningItem["tracking_type"]) {
     setFormError("");
 
-    if (!canOperatePlanning) {
-      setFormError("Solo los usuarios operativos pueden eliminar registros.");
+    if (!canDeleteRecords) {
+      setFormError("No tienes permisos para eliminar registros.");
       return;
     }
 
@@ -1458,7 +1472,7 @@ export default function Home() {
   }
 
   function requestDeletePlanningItem() {
-    if (!canOperatePlanning) {
+    if (!canDeleteRecords) {
       return;
     }
 
@@ -1698,7 +1712,7 @@ export default function Home() {
   }
 
   function renderCreateRealButton(group: PlanningGroup) {
-    if (!canOperatePlanning || isHistoricalReadOnly || !group.programado) {
+    if (!canCreateRecords || isHistoricalReadOnly || !group.programado) {
       return null;
     }
 
@@ -1723,7 +1737,7 @@ export default function Home() {
   }
 
   function openCreatePlanningVariant(group: PlanningGroup, trackingType: "programado" | "real") {
-    if (!canOperatePlanning) {
+    if (!canCreateRecords) {
       return;
     }
 
@@ -1796,9 +1810,9 @@ export default function Home() {
         setCalendarMonth={setCalendarMonth}
         datePickerRef={datePickerRef}
         isHistoricalView={isHistoricalView}
-        isCreateDisabled={!canOperatePlanning || !session || catalogLoading || !catalog.length || isHistoricalReadOnly}
+        isCreateDisabled={!canCreateRecords || !session || catalogLoading || !catalog.length || isHistoricalReadOnly}
         createTitle={
-          !canOperatePlanning
+          !canCreateRecords
             ? "Solo lectura: no puedes crear registros"
             : isHistoricalReadOnly
               ? "Habilita la edicion historica para crear registros"
@@ -1813,7 +1827,7 @@ export default function Home() {
         onExpandGanttHierarchy={ganttHierarchyViewControls.expandAll}
         onCollapseGanttHierarchy={ganttHierarchyViewControls.collapseAll}
         onCreatePlanning={() => {
-          if (!canOperatePlanning) {
+          if (!canCreateRecords) {
             return;
           }
 
@@ -1880,6 +1894,7 @@ export default function Home() {
           error={formError}
           busy={formBusy}
           isEditing={Boolean(editingPlanningItem)}
+          canDelete={canDeleteRecords}
           deleteLabel={planningDeleteLabel}
           submitLabel={planningSubmitLabel}
           assignmentsSlot={
@@ -1889,7 +1904,11 @@ export default function Home() {
               value={planningAssignmentsFormState}
               onChange={setPlanningAssignmentsFormState}
               online={networkStatus === "online" && !isBrowserOffline()}
-              disabled={formBusy || (formState.tracking_type === "real" && (!session?.access_token || isBrowserOffline()))}
+              disabled={
+                formBusy ||
+                !canManageAssignments ||
+                (formState.tracking_type === "real" && (!session?.access_token || isBrowserOffline()))
+              }
               loading={formAssignmentsLoading}
               error={formAssignmentsError}
             />
@@ -1905,7 +1924,7 @@ export default function Home() {
           item={viewingPlanningItem}
           title={buildEventTitle(viewingPlanningItem)}
           continuation={viewingContinuation}
-          readOnly={isHistoricalReadOnly || !canOperatePlanning}
+          readOnly={isHistoricalReadOnly || !canEditRecords}
           formatDateLabel={formatDateLabel}
           formatDuration={formatDuration}
           toDisplayCategory={toDisplayCategory}
@@ -1921,7 +1940,7 @@ export default function Home() {
             />
           }
           historySlot={
-            viewingPlanningItem.tracking_type === "programado" && canManageCatalog ? (
+            viewingPlanningItem.tracking_type === "programado" && canViewAudit ? (
               <PlanningAuditTimeline
                 planningItemId={viewingPlanningItem.id}
                 accessToken={session?.access_token}

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireApprovedUser, requireOperationalUser } from "@/lib/accessControl";
+import { PERMISSIONS, requirePermission } from "@/lib/accessControl";
 import { getErrorMessage, getErrorStatus } from "@/lib/errorMessage";
 import type { AssignmentTarget, PlanningAssignmentsReplaceRequestDto } from "@/modules/planning-assignments/contracts/planning-assignments";
 import { getAssignmentsForTarget, getPlanningAssignments, getPlanningAssignmentsForPlanningItems, saveAssignmentsForTarget, savePlanningAssignments } from "@/server/services/planning-assignments.service";
@@ -49,7 +49,7 @@ function toAssignmentTarget(input: { target_kind?: unknown; target_id?: unknown;
 
 export async function GET(req: Request) {
   try {
-    await requireApprovedUser(req);
+    await requirePermission(req, PERMISSIONS.ASSIGNMENTS_VIEW);
     const { searchParams } = new URL(req.url);
     const target = toAssignmentTarget({
       target_kind: searchParams.get("target_kind"),
@@ -77,7 +77,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const { user, profile } = await requireOperationalUser(req);
+    const { user, profile } = await requirePermission(req, PERMISSIONS.ASSIGNMENTS_MANAGE);
     const body = (await req.json()) as PlanningAssignmentsReplaceRequestDto;
     const target = toAssignmentTarget({
       target_kind: body.target?.target_kind,

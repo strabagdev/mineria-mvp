@@ -5,8 +5,20 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/providers/auth-provider";
 import { NETWORK_ERROR_MESSAGE, isBrowserOffline, subscribeNetworkStatus } from "@/lib/networkStatus";
 import type { UserRole } from "@/modules/auth/application/auth-types";
-import { USER_ROLE_OPTIONS, toUserRole } from "@/modules/auth/presentation/role-options";
-import { toRoleLabel } from "@/modules/auth/presentation/role-labels";
+import {
+  deleteUserPermissionOverride,
+  fetchUserPermissionSummary,
+  getPermissionVisualState,
+  setUserPermissionOverride,
+  type UserPermissionSummaryDto,
+} from "../../../../modules/auth/application/user-permissions.client";
+import {
+  PERMISSION_CAPABILITY_LABELS,
+  PERMISSION_MODULES,
+  PERMISSIONS,
+  type Permission,
+  type PermissionModuleDescriptor,
+} from "../../../../modules/auth/contracts/permissions";
 import {
   canUseOfflineSnapshot,
   markSnapshotRefreshSucceeded,
@@ -33,11 +45,41 @@ type CreateUserForm = {
   role: UserRole;
 };
 
+type UserStatusFilter = "all" | "active" | "inactive" | "pending" | "rejected";
+type PermissionDraft = Partial<Record<Permission, boolean>>;
+
 const emptyCreateForm: CreateUserForm = {
   name: "",
   email: "",
   password: "",
   role: "operator",
+};
+
+const PERMISSION_GROUPS = PERMISSION_MODULES.reduce(
+  (groups, module) => {
+    const existing = groups.find((group) => group.label === module.groupLabel);
+    if (existing) {
+      existing.modules.push(module);
+      return groups;
+    }
+
+    groups.push({ label: module.groupLabel, modules: [module] });
+    return groups;
+  },
+  [] as Array<{ label: string; modules: PermissionModuleDescriptor[] }>
+);
+
+const PERMISSION_DESCRIPTORS = PERMISSION_MODULES.flatMap((module) =>
+  module.permissions.map((descriptor) => ({
+    ...descriptor,
+    moduleLabel: module.label,
+  }))
+);
+
+const ROLE_ACCESS_SUMMARY: Record<UserRole, string> = {
+  admin: "Acceso total",
+  operator: "9 accesos",
+  viewer: "5 accesos",
 };
 
 function approvalLabel(status: AdminUser["approval_status"]) {
@@ -56,14 +98,78 @@ export default function AdminUsersPage() {
   const router = useRouter();
   const { loading, session, profile } = useAuth();
   const [users, setUsers] = React.useState<AdminUser[]>([]);
+  const [selectedPermissionUser, setSelectedPermissionUser] = React.useState<AdminUser | null>(null);
+  const [permissionSummary, setPermissionSummary] = React.useState<UserPermissionSummaryDto | null>(null);
+  const [permissionSummaryByUser, setPermissionSummaryByUser] = React.useState<Record<string, UserPermissionSummaryDto>>({});
+  const [selectedUserId, setSelectedUserId] = React.useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = React.useState("");
+  const [statusFilter, setStatusFilter] = React.useState<UserStatusFilter>("all");
+  const [createModalOpen, setCreateModalOpen] = React.useState(false);
+  const [passwordModalUser, setPasswordModalUser] = React.useState<AdminUser | null>(null);
+  const [permissionDraft, setPermissionDraft] = React.useState<PermissionDraft>({});
   const [createForm, setCreateForm] = React.useState<CreateUserForm>(emptyCreateForm);
   const [passwordByUser, setPasswordByUser] = React.useState<Record<string, string>>({});
   const [message, setMessage] = React.useState("");
+  const [permissionMessage, setPermissionMessage] = React.useState("");
   const [offlineUpdatedAt, setOfflineUpdatedAt] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
+  const [permissionsBusy, setPermissionsBusy] = React.useState(false);
   const [refreshNonce, setRefreshNonce] = React.useState(0);
+  const [canManageUsers, setCanManageUsers] = React.useState<boolean | null>(null);
 
-  const canAdmin = profile?.role === "admin";
+  const isBaseAdmin = profile?.role === "admin";
+
+  const closePermissionsModal = React.useCallback(() => {
+    setSelectedPermissionUser(null);
+    setPermissionSummary(null);
+    setPermissionMessage("");
+    setPermissionDraft({});
+  }, []);
+
+  const closeCreateModal = React.useCallback(() => {
+    setCreateModalOpen(false);
+    setCreateForm(emptyCreateForm);
+  }, []);
+
+  const pendingUsers = React.useMemo(
+    () => users.filter((account) => account.approval_status === "pending"),
+    [users]
+  );
+
+  const filteredUsers = React.useMemo(() => {
+    const normalizedSearch = searchTerm.trim().toLowerCase();
+
+    return users.filter((account) => {
+      const matchesSearch =
+        !normalizedSearch ||
+        (account.full_name ?? "").toLowerCase().includes(normalizedSearch) ||
+        account.email.toLowerCase().includes(normalizedSearch);
+      const matchesStatus =
+        statusFilter === "all" ||
+        (statusFilter === "active" && account.active) ||
+        (statusFilter === "inactive" && !account.active) ||
+        statusFilter === account.approval_status;
+
+      return matchesSearch && matchesStatus;
+    });
+  }, [searchTerm, statusFilter, users]);
+
+  const selectedUser = React.useMemo(() => {
+    return users.find((account) => account.user_id === selectedUserId) ?? filteredUsers[0] ?? users[0] ?? null;
+  }, [filteredUsers, selectedUserId, users]);
+
+  const selectedUserSummary = selectedUser ? permissionSummaryByUser[selectedUser.user_id] : null;
+
+  const permissionDraftChanges = React.useMemo(() => {
+    if (!permissionSummary) {
+      return 0;
+    }
+
+    return PERMISSION_DESCRIPTORS.filter((descriptor) => {
+      const current = permissionSummary.effective_permissions.includes(descriptor.permission);
+      return permissionDraft[descriptor.permission] !== undefined && permissionDraft[descriptor.permission] !== current;
+    }).length;
+  }, [permissionDraft, permissionSummary]);
 
   React.useEffect(() => {
     function refreshWhenOnline() {
@@ -120,13 +226,36 @@ export default function AdminUsersPage() {
       return;
     }
 
-    if (!session && !profile) {
+    if (!session || !profile) {
       router.replace("/login");
       return;
     }
 
-    if (!canAdmin) {
+    if (isBaseAdmin) {
+      setCanManageUsers(true);
+      return;
+    }
+
+    if (!session?.access_token || !profile?.user_id) {
       router.replace("/");
+      return;
+    }
+
+    fetchUserPermissionSummary(profile.user_id, session.access_token)
+      .then((summary) => {
+        if (summary.effective_permissions.includes(PERMISSIONS.USERS_MANAGE)) {
+          setCanManageUsers(true);
+          return;
+        }
+        router.replace("/");
+      })
+      .catch(() => {
+        router.replace("/");
+      });
+  }, [isBaseAdmin, loading, profile, profile?.user_id, router, session, session?.access_token]);
+
+  React.useEffect(() => {
+    if (loading || canManageUsers !== true) {
       return;
     }
 
@@ -146,7 +275,111 @@ export default function AdminUsersPage() {
       }
       setMessage("No se pudo cargar usuarios.");
     });
-  }, [canAdmin, loading, profile, refreshNonce, requestUsers, router, session]);
+  }, [canManageUsers, loading, refreshNonce, requestUsers]);
+
+  React.useEffect(() => {
+    if (!users.length) {
+      setSelectedUserId(null);
+      return;
+    }
+
+    if (!selectedUserId || !users.some((account) => account.user_id === selectedUserId)) {
+      setSelectedUserId(users[0].user_id);
+    }
+  }, [selectedUserId, users]);
+
+  React.useEffect(() => {
+    if (!selectedPermissionUser) {
+      return;
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        closePermissionsModal();
+      }
+    }
+
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [closePermissionsModal, selectedPermissionUser]);
+
+  React.useEffect(() => {
+    if (!createModalOpen) {
+      return;
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        closeCreateModal();
+      }
+    }
+
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [closeCreateModal, createModalOpen]);
+
+  React.useEffect(() => {
+    if (!passwordModalUser) {
+      return;
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setPasswordModalUser(null);
+      }
+    }
+
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [passwordModalUser]);
+
+  React.useEffect(() => {
+    if (
+      !selectedUser ||
+      !session?.access_token ||
+      canManageUsers !== true ||
+      permissionSummaryByUser[selectedUser.user_id] ||
+      canUseOfflineSnapshot()
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    fetchUserPermissionSummary(selectedUser.user_id, session.access_token)
+      .then((summary) => {
+        if (!cancelled) {
+          setPermissionSummaryByUser((current) => ({ ...current, [selectedUser.user_id]: summary }));
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canManageUsers, permissionSummaryByUser, selectedUser, session?.access_token]);
+
+  React.useEffect(() => {
+    if (!selectedPermissionUser) {
+      return;
+    }
+
+    const refreshedUser = users.find((account) => account.user_id === selectedPermissionUser.user_id);
+    if (!refreshedUser) {
+      setSelectedPermissionUser(null);
+      setPermissionSummary(null);
+      return;
+    }
+
+    if (
+      refreshedUser.email !== selectedPermissionUser.email ||
+      refreshedUser.full_name !== selectedPermissionUser.full_name ||
+      refreshedUser.role !== selectedPermissionUser.role ||
+      refreshedUser.active !== selectedPermissionUser.active ||
+      refreshedUser.approval_status !== selectedPermissionUser.approval_status
+    ) {
+      setSelectedPermissionUser(refreshedUser);
+    }
+  }, [selectedPermissionUser, users]);
 
   async function adminRequest(method: "POST" | "PATCH" | "DELETE", payload: Record<string, unknown>) {
     if (!session?.access_token) {
@@ -182,12 +415,45 @@ export default function AdminUsersPage() {
     }
   }
 
+  async function loadUserPermissions(account: AdminUser) {
+    if (!session?.access_token) {
+      setPermissionMessage("Necesitas iniciar sesion.");
+      return;
+    }
+
+    setSelectedPermissionUser(account);
+    setPermissionSummary(null);
+    setPermissionMessage("");
+    setPermissionsBusy(true);
+
+    try {
+      if (canUseOfflineSnapshot()) {
+        throw new Error(NETWORK_ERROR_MESSAGE);
+      }
+
+      const summary = await fetchUserPermissionSummary(account.user_id, session.access_token);
+      setPermissionSummary(summary);
+      setPermissionSummaryByUser((current) => ({ ...current, [account.user_id]: summary }));
+      setPermissionDraft(Object.fromEntries(
+        PERMISSION_DESCRIPTORS.map((descriptor) => [
+          descriptor.permission,
+          summary.effective_permissions.includes(descriptor.permission),
+        ])
+      ));
+    } catch (error: unknown) {
+      setPermissionMessage(toNetworkMessage(error) || "No se pudo cargar permisos del usuario.");
+    } finally {
+      setPermissionsBusy(false);
+    }
+  }
+
   async function createUser(event: React.FormEvent) {
     event.preventDefault();
 
     try {
       await adminRequest("POST", createForm);
       setCreateForm(emptyCreateForm);
+      setCreateModalOpen(false);
     } catch (error: unknown) {
       setMessage(toNetworkMessage(error) || "No se pudo crear usuario.");
     }
@@ -195,10 +461,100 @@ export default function AdminUsersPage() {
 
   async function updateUser(payload: Record<string, unknown>) {
     try {
+      const selectedUser = selectedPermissionUser;
       await adminRequest("PATCH", payload);
+      if (selectedUser && payload.user_id === selectedUser.user_id) {
+        await loadUserPermissions(selectedUser);
+      }
     } catch (error: unknown) {
       setMessage(toNetworkMessage(error) || "No se pudo actualizar usuario.");
     }
+  }
+
+  async function savePermissionChanges() {
+    if (!selectedPermissionUser || !session?.access_token) {
+      setPermissionMessage("Necesitas iniciar sesion.");
+      return;
+    }
+
+    setPermissionsBusy(true);
+    setPermissionMessage("");
+
+    try {
+      let summary = permissionSummary;
+      if (!summary) {
+        summary = await fetchUserPermissionSummary(selectedPermissionUser.user_id, session.access_token);
+      }
+
+      for (const descriptor of PERMISSION_DESCRIPTORS) {
+        const permission = descriptor.permission;
+        const desired = permissionDraft[permission] ?? summary.effective_permissions.includes(permission);
+        const inherited = summary.base_permissions.includes(permission);
+        const current = summary.effective_permissions.includes(permission);
+        const override = summary.overrides.find((item) => item.permission === permission);
+
+        if (desired === current && (!override || desired !== inherited)) {
+          continue;
+        }
+
+        if (desired === inherited) {
+          summary = await deleteUserPermissionOverride({
+            userId: selectedPermissionUser.user_id,
+            permission,
+            accessToken: session.access_token,
+          });
+          continue;
+        }
+
+        summary = await setUserPermissionOverride({
+          userId: selectedPermissionUser.user_id,
+          permission,
+          effect: desired ? "allow" : "deny",
+          accessToken: session.access_token,
+        });
+      }
+
+      setPermissionSummary(summary);
+      setPermissionSummaryByUser((current) => ({ ...current, [selectedPermissionUser.user_id]: summary }));
+      setPermissionDraft(Object.fromEntries(
+        PERMISSION_DESCRIPTORS.map((descriptor) => [
+          descriptor.permission,
+          summary.effective_permissions.includes(descriptor.permission),
+        ])
+      ));
+      setPermissionMessage("Cambios de accesos guardados.");
+    } catch (error: unknown) {
+      setPermissionMessage(toNetworkMessage(error) || "No se pudo guardar los cambios de accesos.");
+    } finally {
+      setPermissionsBusy(false);
+    }
+  }
+
+  function getAccessSummary(account: AdminUser) {
+    if (account.role === "admin") {
+      return "Acceso total";
+    }
+
+    const summary = permissionSummaryByUser[account.user_id];
+    if (!summary) {
+      return ROLE_ACCESS_SUMMARY[account.role];
+    }
+
+    return `${summary.effective_permissions.length} accesos`;
+  }
+
+  function getEnabledAccessModules(summary: UserPermissionSummaryDto | null) {
+    if (!summary) {
+      return [];
+    }
+
+    return PERMISSION_MODULES.map((module) => ({
+      id: module.id,
+      label: module.label,
+      capabilities: module.permissions
+        .filter((descriptor) => summary.effective_permissions.includes(descriptor.permission))
+        .map((descriptor) => PERMISSION_CAPABILITY_LABELS[descriptor.capability]),
+    })).filter((module) => module.capabilities.length > 0);
   }
 
   async function deleteUser(account: AdminUser) {
@@ -220,82 +576,54 @@ export default function AdminUsersPage() {
   }
 
   return (
-    <div className="dashboard-stack">
-      <section className="surface-card hero padded">
-        <p className="eyebrow">Administracion</p>
-        <h2 className="section-title">Usuarios y permisos</h2>
-        <p className="body-copy">
-          Crea cuentas directas en Supabase Auth, aprueba solicitudes de acceso y controla roles o bloqueos internos.
-        </p>
-      </section>
+    <div className="admin-users-page">
+      <header className="admin-users-toolbar">
+        <div className="admin-users-toolbar-copy">
+          <h2 className="section-title">Usuarios y permisos</h2>
+          <p className="body-copy">
+            Gestiona usuarios, permisos y solicitudes de acceso.
+          </p>
+        </div>
+        <button type="button" className="button primary" disabled={busy} onClick={() => setCreateModalOpen(true)}>
+          Crear usuario
+        </button>
+      </header>
 
-      <section className="ops-grid">
-        <article className="surface-card padded">
-          <p className="eyebrow">Accesos</p>
-          <h3 className="section-title">Crear usuario</h3>
+      <section className="admin-users-workspace" aria-label="Administracion de usuarios y permisos">
+        <article className="surface-card padded admin-users-directory">
+          <div className="admin-panel-heading">
+            <div>
+              <p className="eyebrow">Listado</p>
+              <h3 className="section-title">Usuarios</h3>
+            </div>
+            <span className="session-pill">{filteredUsers.length} visibles</span>
+          </div>
 
-          <form onSubmit={createUser} className="auth-form">
+          <div className="admin-users-filters">
             <label className="field">
-              Nombre
+              Buscar
               <input
                 className="field-input"
-                value={createForm.name}
-                onChange={(event) => setCreateForm((current) => ({ ...current, name: event.target.value }))}
-                placeholder="Nombre completo"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder="Nombre o correo"
               />
             </label>
-
             <label className="field">
-              Correo
-              <input
-                className="field-input"
-                type="email"
-                value={createForm.email}
-                onChange={(event) => setCreateForm((current) => ({ ...current, email: event.target.value }))}
-                placeholder="usuario@empresa.com"
-              />
-            </label>
-
-            <label className="field">
-              Contrasena inicial
-              <input
-                className="field-input"
-                type="password"
-                value={createForm.password}
-                onChange={(event) => setCreateForm((current) => ({ ...current, password: event.target.value }))}
-                placeholder="Minimo 8 caracteres"
-              />
-            </label>
-
-            <label className="field">
-              Rol
+              Estado
               <select
                 className="field-input"
-                value={createForm.role}
-                onChange={(event) =>
-                  setCreateForm((current) => ({
-                    ...current,
-                    role: toUserRole(event.target.value),
-                  }))
-                }
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value as UserStatusFilter)}
               >
-                {USER_ROLE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
+                <option value="all">Todos</option>
+                <option value="active">Activos</option>
+                <option value="inactive">Inactivos</option>
+                <option value="pending">Pendientes</option>
+                <option value="rejected">Rechazados</option>
               </select>
             </label>
-
-            <button type="submit" disabled={busy} className="button primary">
-              Crear usuario
-            </button>
-          </form>
-        </article>
-
-        <article className="surface-card padded">
-          <p className="eyebrow">Solicitudes</p>
-          <h3 className="section-title">Usuarios del sistema</h3>
+          </div>
 
           {message ? <p className="feedback">{message}</p> : null}
           {offlineUpdatedAt ? (
@@ -304,27 +632,170 @@ export default function AdminUsersPage() {
             </p>
           ) : null}
 
-          <div className="admin-user-list">
-            {users.map((account) => (
-              <div key={account.user_id} className="admin-user-card">
-                <div className="admin-user-heading">
-                  <div>
+          <div className="admin-user-compact-list" aria-label="Listado compacto de usuarios">
+            {filteredUsers.length ? (
+              filteredUsers.map((account) => (
+                <button
+                  key={account.user_id}
+                  type="button"
+                  className={`admin-user-row ${selectedUser?.user_id === account.user_id ? "selected" : ""}`}
+                  onClick={() => setSelectedUserId(account.user_id)}
+                >
+                  <span className="admin-user-row-main">
                     <strong>{account.full_name || account.email}</strong>
-                    <p className="muted-inline">{account.email}</p>
-                  </div>
-                  <div className="admin-user-badges">
-                    <span className="session-pill">{toRoleLabel(account.role)}</span>
-                    <span className="session-pill">{account.active ? "Activo" : "Inactivo"}</span>
-                    <span className="session-pill">{approvalLabel(account.approval_status)}</span>
-                  </div>
-                </div>
+                    <span>{account.email}</span>
+                  </span>
+                  <span className="admin-user-row-meta">
+                    <span className="admin-user-row-badge">{account.active ? "Activo" : "Inactivo"}</span>
+                    <span className="admin-user-row-badge">{approvalLabel(account.approval_status)}</span>
+                    <span className="admin-user-row-access">{getAccessSummary(account)}</span>
+                  </span>
+                </button>
+              ))
+            ) : (
+              <p className="muted-inline">No hay usuarios para los filtros actuales.</p>
+            )}
+          </div>
+        </article>
 
-                <div className="admin-user-actions">
-                  {account.approval_status === "pending" ? (
+        <article className="surface-card padded admin-user-detail-panel">
+          <p className="eyebrow">Detalle</p>
+          {selectedUser ? (
+            <>
+              <div className="admin-detail-heading">
+                <div>
+                  <h3 className="section-title">{selectedUser.full_name || selectedUser.email}</h3>
+                  <p className="body-copy">{selectedUser.email}</p>
+                </div>
+                <button
+                  type="button"
+                  className="button primary"
+                  disabled={busy}
+                  onClick={() => void loadUserPermissions(selectedUser)}
+                >
+                  Administrar accesos
+                </button>
+              </div>
+
+              <div className="admin-user-badges">
+                <span>
+                  {selectedUser.active ? "Activo" : "Inactivo"} · {approvalLabel(selectedUser.approval_status)} ·{" "}
+                  {selectedUserSummary
+                    ? `${selectedUserSummary.effective_permissions.length} accesos habilitados`
+                    : getAccessSummary(selectedUser)}
+                </span>
+              </div>
+
+              <section className="admin-detail-section">
+                <h4>Accesos efectivos</h4>
+                <div className="admin-access-chip-list" aria-label="Accesos efectivos del usuario seleccionado">
+                  {getEnabledAccessModules(selectedUserSummary).length ? (
+                    getEnabledAccessModules(selectedUserSummary).map((module) => (
+                      <div key={module.id} className="admin-access-chip-row">
+                        <span>{module.label}</span>
+                        <strong>{module.capabilities.join(" · ")}</strong>
+                      </div>
+                    ))
+                  ) : selectedUser.role === "admin" ? (
+                    <p className="muted-inline">Acceso total a la plataforma.</p>
+                  ) : (
+                    <p className="muted-inline">Los accesos se cargan al seleccionar el usuario.</p>
+                  )}
+                </div>
+              </section>
+
+              <section className="admin-detail-section">
+                <h4>Administracion de cuenta</h4>
+                <div className="admin-detail-actions" aria-label="Acciones administrativas del usuario">
+                  {selectedUser.approval_status === "pending" ? (
                     <button
                       type="button"
                       disabled={busy}
                       className="button primary"
+                      onClick={() =>
+                        void updateUser({
+                          action: "update-approval-status",
+                          user_id: selectedUser.user_id,
+                          approval_status: "approved",
+                        })
+                      }
+                    >
+                      Aprobar solicitud
+                    </button>
+                  ) : null}
+
+                  <button
+                    type="button"
+                    disabled={busy}
+                    className="button"
+                    onClick={() =>
+                      void updateUser({
+                        action: "toggle-active",
+                        user_id: selectedUser.user_id,
+                        active: !selectedUser.active,
+                      })
+                    }
+                  >
+                    {selectedUser.active ? "Desactivar" : "Reactivar"}
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={busy}
+                    className="button"
+                    onClick={() => setPasswordModalUser(selectedUser)}
+                  >
+                    Actualizar contrasena
+                  </button>
+
+                  {selectedUser.deletion_eligible ? (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      className="button danger"
+                      onClick={() => void deleteUser(selectedUser)}
+                      title="Solo disponible para usuarios sin historial operacional"
+                    >
+                      Eliminar definitivamente
+                    </button>
+                  ) : null}
+                </div>
+              </section>
+            </>
+          ) : (
+            <p className="muted-inline">Selecciona un usuario para ver el detalle.</p>
+          )}
+        </article>
+
+        <aside className="surface-card padded admin-access-requests">
+          <div className="admin-panel-heading">
+            <div>
+              <p className="eyebrow">Solicitudes</p>
+              <h3 className="section-title">Acceso pendiente</h3>
+            </div>
+            <span className="session-pill">{pendingUsers.length}</span>
+          </div>
+
+          {pendingUsers.length ? (
+            <div className="admin-request-list" aria-label="Solicitudes de acceso pendientes">
+              {pendingUsers.map((account) => (
+                <div key={account.user_id} className="admin-request-row">
+                  <div>
+                    <strong>{account.full_name || account.email}</strong>
+                    <p className="muted-inline">{account.email}</p>
+                  </div>
+                  <div className="admin-request-actions">
+                    <button
+                      type="button"
+                      className="button small"
+                      onClick={() => setSelectedUserId(account.user_id)}
+                    >
+                      Ver
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      className="button small primary"
                       onClick={() =>
                         void updateUser({
                           action: "update-approval-status",
@@ -335,95 +806,245 @@ export default function AdminUsersPage() {
                     >
                       Aprobar
                     </button>
-                  ) : null}
-
-                  <label className="field">
-                    Rol
-                    <select
-                      className="field-input"
-                      value={account.role}
-                      onChange={(event) =>
-                        void updateUser({
-                          action: "update-role",
-                          user_id: account.user_id,
-                          role: toUserRole(event.target.value),
-                        })
-                      }
-                    >
-                      {USER_ROLE_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <button
-                    type="button"
-                    disabled={busy}
-                    className="button"
-                    onClick={() =>
-                      void updateUser({
-                        action: "toggle-active",
-                        user_id: account.user_id,
-                        active: !account.active,
-                      })
-                    }
-                  >
-                    {account.active ? "Desactivar" : "Activar"}
-                  </button>
-
-                  {account.deletion_eligible ? (
-                    <div className="field">
-                      <span className="muted-inline">Solo para usuarios sin historial.</span>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        className="button danger"
-                        onClick={() => void deleteUser(account)}
-                        title="Solo disponible para usuarios sin historial operacional"
-                      >
-                        Eliminar definitivamente
-                      </button>
-                    </div>
-                  ) : null}
-
-                  <label className="field">
-                    Nueva contrasena
-                    <input
-                      className="field-input"
-                      type="password"
-                      value={passwordByUser[account.user_id] ?? ""}
-                      onChange={(event) =>
-                        setPasswordByUser((current) => ({
-                          ...current,
-                          [account.user_id]: event.target.value,
-                        }))
-                      }
-                      placeholder="Minimo 8 caracteres"
-                    />
-                  </label>
-
-                  <button
-                    type="button"
-                    disabled={busy}
-                    className="button"
-                    onClick={() =>
-                      void updateUser({
-                        action: "reset-password",
-                        user_id: account.user_id,
-                        password: passwordByUser[account.user_id] ?? "",
-                      })
-                    }
-                  >
-                    Actualizar clave
-                  </button>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </article>
+              ))}
+            </div>
+          ) : (
+            <p className="muted-inline">No hay solicitudes pendientes</p>
+          )}
+        </aside>
       </section>
+
+      {createModalOpen ? (
+        <div className="modal-backdrop" role="presentation" onClick={closeCreateModal}>
+          <section
+            className="modal-card create-user-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-user-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div>
+                <p className="eyebrow">Nueva cuenta</p>
+                <h3 id="create-user-title" className="section-title">Crear usuario</h3>
+              </div>
+              <button type="button" className="button" onClick={closeCreateModal}>
+                Cerrar
+              </button>
+            </div>
+
+            <form onSubmit={createUser} className="auth-form">
+              <label className="field">
+                Nombre
+                <input
+                  className="field-input"
+                  value={createForm.name}
+                  onChange={(event) => setCreateForm((current) => ({ ...current, name: event.target.value }))}
+                  placeholder="Nombre completo"
+                />
+              </label>
+
+              <label className="field">
+                Correo
+                <input
+                  className="field-input"
+                  type="email"
+                  value={createForm.email}
+                  onChange={(event) => setCreateForm((current) => ({ ...current, email: event.target.value }))}
+                  placeholder="usuario@empresa.com"
+                />
+              </label>
+
+              <label className="field">
+                Contrasena inicial
+                <input
+                  className="field-input"
+                  type="password"
+                  value={createForm.password}
+                  onChange={(event) => setCreateForm((current) => ({ ...current, password: event.target.value }))}
+                  placeholder="Minimo 8 caracteres"
+                />
+              </label>
+
+              <div className="modal-actions">
+                <button type="button" className="button" onClick={closeCreateModal} disabled={busy}>
+                  Cancelar
+                </button>
+                <button type="submit" disabled={busy} className="button primary">
+                  Crear usuario
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
+
+      {passwordModalUser ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setPasswordModalUser(null)}>
+          <section
+            className="modal-card create-user-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="password-user-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div>
+                <p className="eyebrow">Cuenta</p>
+                <h3 id="password-user-title" className="section-title">Actualizar contrasena</h3>
+                <p className="body-copy">{passwordModalUser.email}</p>
+              </div>
+              <button type="button" className="button" onClick={() => setPasswordModalUser(null)}>
+                Cerrar
+              </button>
+            </div>
+
+            <form
+              className="auth-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void adminRequest("PATCH", {
+                  action: "reset-password",
+                  user_id: passwordModalUser.user_id,
+                  password: passwordByUser[passwordModalUser.user_id] ?? "",
+                })
+                  .then(() => setPasswordModalUser(null))
+                  .catch((error: unknown) => {
+                    setMessage(toNetworkMessage(error) || "No se pudo actualizar usuario.");
+                  });
+              }}
+            >
+              <label className="field">
+                Nueva contrasena
+                <input
+                  className="field-input"
+                  type="password"
+                  value={passwordByUser[passwordModalUser.user_id] ?? ""}
+                  onChange={(event) =>
+                    setPasswordByUser((current) => ({
+                      ...current,
+                      [passwordModalUser.user_id]: event.target.value,
+                    }))
+                  }
+                  placeholder="Minimo 8 caracteres"
+                />
+              </label>
+
+              <div className="modal-actions">
+                <button type="button" className="button" onClick={() => setPasswordModalUser(null)} disabled={busy}>
+                  Cancelar
+                </button>
+                <button type="submit" className="button primary" disabled={busy}>
+                  Actualizar contrasena
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
+
+      {selectedPermissionUser ? (
+        <div className="modal-backdrop" role="presentation" onClick={closePermissionsModal}>
+          <section
+            className="modal-card access-admin-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="access-admin-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="access-modal-header">
+              <div>
+                <h3 id="access-admin-title" className="section-title">Administrar accesos</h3>
+                <p className="body-copy">
+                  {selectedPermissionUser.full_name || selectedPermissionUser.email} · {selectedPermissionUser.email}
+                </p>
+              </div>
+              {selectedPermissionUser.role === "admin" ? (
+                <span className="session-pill">Acceso total</span>
+              ) : permissionSummary ? (
+                <span className="session-pill">{permissionSummary.effective_permissions.length} accesos habilitados</span>
+              ) : null}
+            </div>
+
+            <div className="access-modal-body">
+              {permissionMessage ? <p className="feedback">{permissionMessage}</p> : null}
+              {selectedPermissionUser.role === "admin" ? (
+                <div className="access-superadmin-state">
+                  <strong>Superadministrador</strong>
+                  <p>Este usuario tiene acceso total a la plataforma.</p>
+                </div>
+              ) : null}
+
+              {!permissionSummary ? (
+                <p className="muted-inline">{permissionsBusy ? "Cargando permisos..." : "Sin permisos cargados."}</p>
+              ) : selectedPermissionUser.role === "admin" ? null : (
+                <div className="access-toggle-list">
+                  {PERMISSION_GROUPS.map((group) => (
+                    <section key={group.label} className="access-toggle-group">
+                      <h4>{group.label}</h4>
+                      {group.modules.map((module) => (
+                        <div key={module.id} className="access-toggle-module">
+                          <h5>{module.label}</h5>
+                          {module.permissions.map((descriptor) => {
+                            const state = getPermissionVisualState(permissionSummary, descriptor.permission);
+                            const enabled =
+                              permissionDraft[descriptor.permission] ?? state.effective;
+
+                            return (
+                              <label key={descriptor.permission} className="access-toggle-row">
+                                <span>
+                                  <strong>{PERMISSION_CAPABILITY_LABELS[descriptor.capability]}</strong>
+                                  {state.inherited ? <small>Incluido en acceso base</small> : null}
+                                </span>
+                                <input
+                                  type="checkbox"
+                                  role="switch"
+                                  checked={enabled}
+                                  disabled={permissionsBusy}
+                                  aria-label={`${descriptor.label} de ${selectedPermissionUser.email}`}
+                                  onChange={(event) =>
+                                    setPermissionDraft((current) => ({
+                                      ...current,
+                                      [descriptor.permission]: event.target.checked,
+                                    }))
+                                  }
+                                />
+                              </label>
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </section>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="access-modal-footer">
+              <span className="muted-inline">
+                {permissionDraftChanges > 0 ? `${permissionDraftChanges} cambios sin guardar` : "Sin cambios pendientes"}
+              </span>
+              <div className="modal-actions">
+                <button type="button" className="button" onClick={closePermissionsModal} disabled={permissionsBusy}>
+                  Cancelar
+                </button>
+                {selectedPermissionUser.role === "admin" ? null : (
+                  <button
+                    type="button"
+                    className="button primary"
+                    disabled={permissionsBusy || !permissionSummary || permissionDraftChanges === 0}
+                    onClick={() => void savePermissionChanges()}
+                  >
+                    Guardar cambios
+                  </button>
+                )}
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }

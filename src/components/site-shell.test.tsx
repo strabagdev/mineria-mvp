@@ -4,6 +4,7 @@ import { SiteShell } from "./site-shell";
 
 const authMock = vi.hoisted(() => ({
   role: "admin" as "admin" | "operator" | "viewer",
+  effectivePermissions: [] as string[],
 }));
 
 vi.mock("next/navigation", () => ({
@@ -28,6 +29,7 @@ vi.mock("@/providers/auth-provider", () => ({
       role: authMock.role,
       active: true,
       approval_status: "approved",
+      effective_permissions: authMock.effectivePermissions,
     },
   }),
 }));
@@ -66,9 +68,10 @@ vi.mock("@/modules/planning/sync/planning-mutation-queue-store", () => ({
 describe("SiteShell catalog navigation permissions", () => {
   beforeEach(() => {
     authMock.role = "admin";
+    authMock.effectivePermissions = [];
   });
 
-  it("shows Catalogo only for admin users", () => {
+  it("shows Catalogo for admin users", () => {
     authMock.role = "admin";
 
     const html = renderToStaticMarkup(<SiteShell><main>Contenido</main></SiteShell>);
@@ -76,15 +79,16 @@ describe("SiteShell catalog navigation permissions", () => {
     expect(html).toContain("Catalogo");
   });
 
-  it("hides Catalogo for operator users", () => {
-    authMock.role = "operator";
+  it("shows Catalogo for viewer users with catalog management permission", () => {
+    authMock.role = "viewer";
+    authMock.effectivePermissions = ["catalog.manage"];
 
     const html = renderToStaticMarkup(<SiteShell><main>Contenido</main></SiteShell>);
 
-    expect(html).not.toContain("Catalogo");
+    expect(html).toContain("Catalogo");
   });
 
-  it("hides Catalogo for viewer users", () => {
+  it("hides Catalogo for viewer users without catalog management permission", () => {
     authMock.role = "viewer";
 
     const html = renderToStaticMarkup(<SiteShell><main>Contenido</main></SiteShell>);

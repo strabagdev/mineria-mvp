@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   requireAdminUser: vi.fn(),
+  requirePermission: vi.fn(),
   createUser: vi.fn(),
   deleteUserPermanently: vi.fn(),
   listUsers: vi.fn(),
@@ -10,7 +11,12 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/accessControl", () => ({
-  requireAdminUser: mocks.requireAdminUser,
+  PERMISSIONS: {
+    USERS_VIEW: "users.view",
+    USERS_MANAGE: "users.manage",
+  },
+  requirePermission: mocks.requirePermission,
+  requireAdminUser: mocks.requirePermission,
   resolveRole: (value: string) =>
     value === "admin" || value === "operator" || value === "viewer" ? value : "viewer",
   USER_ROLES: {
@@ -23,7 +29,7 @@ vi.mock("@/lib/accessControl", () => ({
 vi.mock("@/lib/errorMessage", () => ({
   getErrorMessage: (error: unknown) => error instanceof Error ? error.message : "Unknown error",
   getErrorStatus: (error: unknown) =>
-    error instanceof Error && /permisos de administrador/i.test(error.message) ? 403 : 500,
+    error instanceof Error && /permisos de administrador|permisos para/i.test(error.message) ? 403 : 500,
 }));
 
 vi.mock("@/server/services/users.service", () => ({
@@ -48,6 +54,18 @@ const adminActor = {
   },
 } as const;
 
+const usersViewActor = {
+  user: { id: "viewer-1", email: "viewer@example.com" },
+  profile: {
+    user_id: "viewer-1",
+    email: "viewer@example.com",
+    full_name: "Viewer",
+    role: "viewer",
+    active: true,
+    approval_status: "approved",
+  },
+} as const;
+
 function jsonRequest(method: "GET" | "POST" | "PATCH" | "DELETE", body?: unknown) {
   return new Request("http://local.test/api/users", {
     method,
@@ -59,11 +77,12 @@ function jsonRequest(method: "GET" | "POST" | "PATCH" | "DELETE", body?: unknown
 describe("users API", () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    mocks.requireAdminUser.mockResolvedValue(adminActor);
+    mocks.requirePermission.mockResolvedValue(adminActor);
     mocks.listUsers.mockResolvedValue({ users: [] });
   });
 
-  it("passes the current user to list users so deletion eligibility can exclude self", async () => {
+  it("lets users with users.view list users and passes the current user to the service", async () => {
+    mocks.requirePermission.mockResolvedValue(usersViewActor);
     const { GET } = await import("../app/api/users/route");
 
     const response = await GET(jsonRequest("GET"));
@@ -71,7 +90,62 @@ describe("users API", () => {
 
     expect(response.status).toBe(200);
     expect(json).toEqual({ users: [] });
+    expect(mocks.requirePermission).toHaveBeenCalledWith(expect.any(Request), "users.view");
+    expect(mocks.listUsers).toHaveBeenCalledWith({ currentUserId: "viewer-1" });
+  });
+
+  it("keeps users.manage users able to list users", async () => {
+    const { GET } = await import("../app/api/users/route");
+
+    const response = await GET(jsonRequest("GET"));
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json).toEqual({ users: [] });
+    expect(mocks.requirePermission).toHaveBeenCalledWith(expect.any(Request), "users.view");
     expect(mocks.listUsers).toHaveBeenCalledWith({ currentUserId: "admin-1" });
+  });
+
+  it("does not let users with only users.view create users", async () => {
+    mocks.requirePermission.mockImplementation(async (_req: Request, permission: string) => {
+      if (permission === "users.manage") {
+        throw new Error("Necesitas permisos para users.manage.");
+      }
+      return usersViewActor;
+    });
+    const { POST } = await import("../app/api/users/route");
+
+    const response = await POST(jsonRequest("POST", {
+      name: "Nuevo Usuario",
+      email: "nuevo@example.com",
+      password: "password123",
+      role: "operator",
+    }));
+
+    expect(response.status).toBe(403);
+    expect(mocks.createUser).not.toHaveBeenCalled();
+  });
+
+  it("does not let users with only users.view modify users", async () => {
+    mocks.requirePermission.mockImplementation(async (_req: Request, permission: string) => {
+      if (permission === "users.manage") {
+        throw new Error("Necesitas permisos para users.manage.");
+      }
+      return usersViewActor;
+    });
+    const { PATCH, DELETE } = await import("../app/api/users/route");
+
+    const patchResponse = await PATCH(jsonRequest("PATCH", {
+      action: "toggle-active",
+      user_id: "user-1",
+      active: false,
+    }));
+    const deleteResponse = await DELETE(jsonRequest("DELETE", { user_id: "user-1" }));
+
+    expect(patchResponse.status).toBe(403);
+    expect(deleteResponse.status).toBe(403);
+    expect(mocks.updateUserAccess).not.toHaveBeenCalled();
+    expect(mocks.deleteUserPermanently).not.toHaveBeenCalled();
   });
 
   it("deletes a user permanently when the service allows it", async () => {
@@ -157,7 +231,7 @@ describe("users API", () => {
   });
 
   it("does not allow operator or viewer users to delete users", async () => {
-    mocks.requireAdminUser.mockRejectedValue(new Error("Necesitas permisos de administrador."));
+    mocks.requirePermission.mockRejectedValue(new Error("Necesitas permisos de administrador."));
     const { DELETE } = await import("../app/api/users/route");
 
     const response = await DELETE(jsonRequest("DELETE", { user_id: "user-1" }));

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CatalogAdminWorkspace } from "@/components/planning/catalog-admin-workspace";
 import { OperationalHeaderAdminPanel } from "@/components/planning/operational-header-admin-panel";
 import { PlanningAssignmentsAdminPanel } from "@/modules/planning-assignments/presentation/planning-assignments-admin-panel";
@@ -13,6 +13,8 @@ import type {
   CatalogCategory,
   PlanningCatalog,
 } from "@/modules/planning/presentation/planning-page-models";
+import { hasEffectivePermission } from "../../modules/auth/application/effective-permissions";
+import { PERMISSIONS } from "../../modules/auth/contracts/permissions";
 import { useAuth } from "@/providers/auth-provider";
 import { isNetworkRequestError } from "@/lib/networkStatus";
 import { saveCatalogCache } from "@/lib/localOfflineStore";
@@ -36,7 +38,10 @@ function getRequestErrorMessage(error: unknown, fallback: string) {
 
 export function OperationalCatalogPage() {
   const { loading: authLoading, session, profile } = useAuth();
-  const canManageCatalog = profile?.role === "admin";
+  const canManageCatalog = hasEffectivePermission(profile, PERMISSIONS.CATALOG_MANAGE);
+  const canManageOperationalHeader = hasEffectivePermission(profile, PERMISSIONS.OPERATIONAL_HEADER_MANAGE);
+  const canManageAssignments = hasEffectivePermission(profile, PERMISSIONS.ASSIGNMENTS_MANAGE);
+  const canManageAnyCatalogSection = canManageCatalog || canManageOperationalHeader || canManageAssignments;
   const [catalog, setCatalog] = useState<CatalogCategory[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState("");
@@ -44,6 +49,15 @@ export function OperationalCatalogPage() {
   const [operationalHeaderLoading, setOperationalHeaderLoading] = useState(false);
   const [operationalHeaderError, setOperationalHeaderError] = useState("");
   const [activeSection, setActiveSection] = useState<CatalogPageSection>("operational-header");
+  const visibleCatalogSections = useMemo(
+    () => catalogSections.filter((section) =>
+      (section.id === "activities" && canManageCatalog) ||
+      (section.id === "operational-header" && canManageOperationalHeader) ||
+      (section.id === "assignments" && canManageAssignments) ||
+      section.id === "future"
+    ),
+    [canManageAssignments, canManageCatalog, canManageOperationalHeader]
+  );
 
   const syncCatalogState = useCallback((nextCatalog: PlanningCatalog) => {
     setCatalog(nextCatalog.categories);
@@ -151,7 +165,7 @@ export function OperationalCatalogPage() {
   useEffect(() => {
     if (
       authLoading ||
-      !canManageCatalog ||
+      !canManageOperationalHeader ||
       activeSection !== "operational-header"
     ) {
       return;
@@ -163,16 +177,22 @@ export function OperationalCatalogPage() {
     return () => {
       activeRef.active = false;
     };
-  }, [activeSection, authLoading, canManageCatalog, loadOperationalHeaderConfig]);
+  }, [activeSection, authLoading, canManageOperationalHeader, loadOperationalHeaderConfig]);
 
-  if (!authLoading && !canManageCatalog) {
+  useEffect(() => {
+    if (!visibleCatalogSections.some((section) => section.id === activeSection)) {
+      setActiveSection(visibleCatalogSections[0]?.id ?? "future");
+    }
+  }, [activeSection, visibleCatalogSections]);
+
+  if (!authLoading && !canManageAnyCatalogSection) {
     return (
       <section className="catalog-page">
         <div className="surface-card padded">
           <p className="eyebrow">Catalogo operacional</p>
           <h1 className="section-title">Acceso restringido</h1>
           <p className="body-copy">
-            Puedes seguir usando la operación, pero la administración del catálogo está restringida a administradores.
+            Puedes seguir usando la operación, pero no tienes permisos para administrar el catalogo.
           </p>
         </div>
       </section>
@@ -192,7 +212,7 @@ export function OperationalCatalogPage() {
       </header>
 
       <nav className="catalog-page-nav" aria-label="Secciones del catalogo">
-        {catalogSections.map((section) => (
+        {visibleCatalogSections.map((section) => (
           <button
             key={section.id}
             type="button"
@@ -218,9 +238,9 @@ export function OperationalCatalogPage() {
             Esta pagina queda como punto unico para sumar nuevos catalogos sin volver a crecer el modal de planificacion.
           </p>
         </article>
-      ) : activeSection === "assignments" ? (
+      ) : activeSection === "assignments" && canManageAssignments ? (
         <PlanningAssignmentsAdminPanel accessToken={session?.access_token} />
-      ) : activeSection === "operational-header" ? (
+      ) : activeSection === "operational-header" && canManageOperationalHeader ? (
         <OperationalHeaderAdminPanel
           accessToken={session?.access_token}
           config={operationalHeaderConfig}
@@ -228,7 +248,7 @@ export function OperationalCatalogPage() {
           error={operationalHeaderError}
           onRefresh={() => void loadOperationalHeaderConfig()}
         />
-      ) : (
+      ) : canManageCatalog ? (
         <CatalogAdminWorkspace
           catalog={catalog}
           catalogLoading={catalogLoading}
@@ -249,10 +269,10 @@ export function OperationalCatalogPage() {
           onUpdateDetail={handleUpdateDetail}
           onDeleteType={(id) => void handleDeleteType(id)}
           onDeleteDetail={(id) => void handleDeleteDetail(id)}
-          activeSection={activeSection}
+          activeSection="activities"
           showCounts={false}
         />
-      )}
+      ) : null}
     </section>
   );
 }

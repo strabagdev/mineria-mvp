@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   requireApprovedUser: vi.fn(),
+  requirePermission: vi.fn(),
   requireOperationalUser: vi.fn(),
   deletePlanningItem: vi.fn(),
   isPlanningCategoryDto: vi.fn(),
@@ -21,14 +22,21 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/accessControl", () => ({
-  requireApprovedUser: mocks.requireApprovedUser,
-  requireOperationalUser: mocks.requireOperationalUser,
+  PERMISSIONS: {
+    RECORDS_VIEW: "records.view",
+    RECORDS_CREATE: "records.create",
+    RECORDS_EDIT: "records.edit",
+    RECORDS_DELETE: "records.delete",
+  },
+  requirePermission: mocks.requirePermission,
+  requireApprovedUser: mocks.requirePermission,
+  requireOperationalUser: mocks.requirePermission,
 }));
 
 vi.mock("@/lib/errorMessage", () => ({
   getErrorMessage: (error: unknown) => error instanceof Error ? error.message : "Unknown error",
   getErrorStatus: (error: unknown) =>
-    error instanceof Error && /permisos operativos/i.test(error.message) ? 403 : 500,
+    error instanceof Error && /permisos operativos|permisos para/i.test(error.message) ? 403 : 500,
 }));
 
 vi.mock("@/modules/planning/contracts/planning-items", () => ({
@@ -92,7 +100,7 @@ function plannedPayload(overrides: Record<string, unknown> = {}) {
 }
 
 function arrangeValidPlanningMutation(payload: ReturnType<typeof plannedPayload>) {
-  mocks.requireOperationalUser.mockResolvedValue({
+  mocks.requirePermission.mockResolvedValue({
     user: { id: "user-1" },
     profile: { id: "profile-1" },
   });
@@ -119,7 +127,7 @@ describe("operational permissions", () => {
   });
 
   it("returns 403 when viewer users try to create planning items", async () => {
-    mocks.requireOperationalUser.mockRejectedValue(new Error("Necesitas permisos operativos."));
+    mocks.requirePermission.mockRejectedValue(new Error("Necesitas permisos operativos."));
     const { POST } = await import("../app/api/planning-items/route");
 
     const response = await POST(jsonRequest("POST", { tracking_type: "programado" }));
@@ -128,7 +136,7 @@ describe("operational permissions", () => {
   });
 
   it("returns 403 when viewer users try to edit planning items", async () => {
-    mocks.requireOperationalUser.mockRejectedValue(new Error("Necesitas permisos operativos."));
+    mocks.requirePermission.mockRejectedValue(new Error("Necesitas permisos operativos."));
     const { PATCH } = await import("../app/api/planning-items/route");
 
     const response = await PATCH(jsonRequest("PATCH", { id: 10, tracking_type: "programado" }));
@@ -137,7 +145,7 @@ describe("operational permissions", () => {
   });
 
   it("returns 403 when viewer users try to delete planning items", async () => {
-    mocks.requireOperationalUser.mockRejectedValue(new Error("Necesitas permisos operativos."));
+    mocks.requirePermission.mockRejectedValue(new Error("Necesitas permisos operativos."));
     const { DELETE } = await import("../app/api/planning-items/route");
 
     const response = await DELETE(jsonRequest("DELETE", { id: 10, tracking_type: "programado" }));
@@ -164,7 +172,7 @@ describe("operational permissions", () => {
         { field_id: 2, value: "GT1", option_id: 20 },
       ],
     };
-    mocks.requireOperationalUser.mockResolvedValue({
+    mocks.requirePermission.mockResolvedValue({
       user: { id: "user-1" },
       profile: { id: "profile-1" },
     });

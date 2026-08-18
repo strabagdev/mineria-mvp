@@ -10,6 +10,8 @@ import {
   formatJsonPreview,
   getAuditEventSummary,
 } from "@/modules/audit/presentation/audit-events-display";
+import { hasEffectivePermission } from "../../../../modules/auth/application/effective-permissions";
+import { PERMISSIONS } from "../../../../modules/auth/contracts/permissions";
 import { useAuth } from "@/providers/auth-provider";
 
 type AuditFilterForm = {
@@ -182,7 +184,7 @@ export default function AdminAuditPage() {
   const [nextCursor, setNextCursor] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [message, setMessage] = React.useState("");
-  const canAdmin = profile?.role === "admin";
+  const canViewAudit = hasEffectivePermission(profile, PERMISSIONS.AUDIT_VIEW);
   const interferenceRows = React.useMemo(
     () => events.flatMap(getInterferenceRowsFromEvent),
     [events]
@@ -233,13 +235,13 @@ export default function AdminAuditPage() {
       return;
     }
 
-    if (!canAdmin) {
+    if (!canViewAudit) {
       router.replace("/");
       return;
     }
 
     void loadEvents({ filters: appliedFilters });
-  }, [appliedFilters, canAdmin, loadEvents, loading, profile, router, session]);
+  }, [appliedFilters, canViewAudit, loadEvents, loading, profile, router, session]);
 
   function applyFilters(event: React.FormEvent) {
     event.preventDefault();
@@ -259,7 +261,7 @@ export default function AdminAuditPage() {
             <p className="eyebrow">Auditoría</p>
             <h2 className="section-title">Interferencias</h2>
           </div>
-          <span className="session-pill">Solo admin</span>
+          <span className="session-pill">Permiso audit.view</span>
         </div>
 
         <form className="audit-filters" onSubmit={applyFilters}>

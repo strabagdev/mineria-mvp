@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireAdminUser } from "@/lib/accessControl";
+import { PERMISSIONS, requirePermission } from "@/lib/accessControl";
 import { getErrorMessage } from "@/lib/errorMessage";
 import { listAuditEvents } from "@/server/services/audit.service";
 
@@ -13,7 +13,7 @@ function parseLimit(value: string | null) {
 
 export async function GET(req: Request) {
   try {
-    await requireAdminUser(req);
+    await requirePermission(req, PERMISSIONS.AUDIT_VIEW);
     const { searchParams } = new URL(req.url);
 
     return NextResponse.json(

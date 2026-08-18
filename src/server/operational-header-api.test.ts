@@ -10,11 +10,17 @@ const mocks = vi.hoisted(() => ({
   getOperationalHeaderConfig: vi.fn(),
   requireAdminUser: vi.fn(),
   requireApprovedUser: vi.fn(),
+  requirePermission: vi.fn(),
   updateOperationalHeaderFieldDefinition: vi.fn(),
   updateOperationalHeaderOptionDefinition: vi.fn(),
 }));
 
 vi.mock("@/lib/accessControl", () => ({
+  PERMISSIONS: {
+    OPERATIONAL_HEADER_VIEW: "operational_header.view",
+    OPERATIONAL_HEADER_MANAGE: "operational_header.manage",
+  },
+  requirePermission: mocks.requirePermission,
   requireAdminUser: mocks.requireAdminUser,
   requireApprovedUser: mocks.requireApprovedUser,
 }));
@@ -30,7 +36,7 @@ vi.mock("@/lib/errorMessage", () => ({
       return status;
     }
 
-    return error instanceof Error && /permisos de administrador/i.test(error.message) ? 403 : 500;
+    return error instanceof Error && /permisos de administrador|permisos para/i.test(error.message) ? 403 : 500;
   },
 }));
 
@@ -67,6 +73,7 @@ describe("operational header API", () => {
     vi.resetAllMocks();
     mocks.requireApprovedUser.mockResolvedValue({ user: { id: "user-1" } });
     mocks.requireAdminUser.mockResolvedValue({ user: { id: "admin-1" } });
+    mocks.requirePermission.mockResolvedValue({ user: { id: "admin-1" } });
     mocks.getOperationalHeaderConfig.mockResolvedValue({ fields: [], dependencies: [] });
   });
 
@@ -78,7 +85,7 @@ describe("operational header API", () => {
 
     expect(response.status).toBe(200);
     expect(json).toEqual({ fields: [], dependencies: [] });
-    expect(mocks.requireApprovedUser).toHaveBeenCalled();
+    expect(mocks.requirePermission).toHaveBeenCalled();
     expect(mocks.getOperationalHeaderConfig).toHaveBeenCalledWith({ activeOnly: false });
   });
 
@@ -96,7 +103,7 @@ describe("operational header API", () => {
     }));
 
     expect(response.status).toBe(201);
-    expect(mocks.requireAdminUser).toHaveBeenCalled();
+    expect(mocks.requirePermission).toHaveBeenCalled();
     expect(mocks.createOperationalHeaderFieldDefinition).toHaveBeenCalledWith(expect.objectContaining({
       slug: "area",
       label: "Area",
@@ -119,7 +126,7 @@ describe("operational header API", () => {
     }));
 
     expect(response.status).toBe(200);
-    expect(mocks.requireAdminUser).toHaveBeenCalled();
+    expect(mocks.requirePermission).toHaveBeenCalled();
     expect(mocks.updateOperationalHeaderFieldDefinition).toHaveBeenCalledWith({
       id: 10,
       updates: {
@@ -142,7 +149,7 @@ describe("operational header API", () => {
     const response = await DELETE(jsonRequest("DELETE", { id: 10 }));
 
     expect(response.status).toBe(200);
-    expect(mocks.requireAdminUser).toHaveBeenCalled();
+    expect(mocks.requirePermission).toHaveBeenCalled();
     expect(mocks.deleteUnusedOperationalHeaderFieldDefinition).toHaveBeenCalledWith({ id: 10 });
   });
 
@@ -163,7 +170,7 @@ describe("operational header API", () => {
   });
 
   it("does not allow viewer/operator users to mutate fields", async () => {
-    mocks.requireAdminUser.mockRejectedValue(new Error("Necesitas permisos de administrador."));
+    mocks.requirePermission.mockRejectedValue(new Error("Necesitas permisos para operational_header.manage."));
     const { POST, PATCH, DELETE } = await import("../app/api/operational-header/route");
 
     await expect(POST(jsonRequest("POST", { label: "Area", input_type: "text" })))

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireApprovedUser, requireOperationalUser } from "@/lib/accessControl";
+import { PERMISSIONS, requirePermission } from "@/lib/accessControl";
 import { getErrorMessage, getErrorStatus } from "@/lib/errorMessage";
 import {
   isPlanningCategoryDto,
@@ -269,9 +269,10 @@ async function validateRealSegmentsDoNotOverlap(
 
 async function validateAndNormalizePlanningItem(
   req: Request,
+  permission: typeof PERMISSIONS.RECORDS_CREATE | typeof PERMISSIONS.RECORDS_EDIT,
   body: PlanningItemMutationPayloadDto
 ) {
-  const { user, profile } = await requireOperationalUser(req);
+  const { user, profile } = await requirePermission(req, permission);
   const rawPayload = normalizePlanningItemMutationPayload(body);
   const preparedOperationalHeader = await prepareOperationalHeaderMutationValues(
     rawPayload.operational_header_values
@@ -390,7 +391,7 @@ async function validateAndNormalizePlanningItem(
 
 export async function GET(req: Request) {
   try {
-    await requireApprovedUser(req);
+    await requirePermission(req, PERMISSIONS.RECORDS_VIEW);
 
     const { searchParams } = new URL(req.url);
     const date = searchParams.get("date")?.trim() ?? "";
@@ -404,7 +405,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as PlanningItemMutationPayloadDto;
-    const result = await validateAndNormalizePlanningItem(req, body);
+    const result = await validateAndNormalizePlanningItem(req, PERMISSIONS.RECORDS_CREATE, body);
     if ("errorResponse" in result) {
       return result.errorResponse;
     }
@@ -469,7 +470,7 @@ export async function PATCH(req: Request) {
     if (!Number.isFinite(id) || id <= 0) {
       return NextResponse.json({ error: "Debes indicar un id valido." }, { status: 400 });
     }
-    const result = await validateAndNormalizePlanningItem(req, body);
+    const result = await validateAndNormalizePlanningItem(req, PERMISSIONS.RECORDS_EDIT, body);
     if ("errorResponse" in result) {
       return result.errorResponse;
     }
@@ -531,7 +532,7 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    const { user, profile } = await requireOperationalUser(req);
+    const { user, profile } = await requirePermission(req, PERMISSIONS.RECORDS_DELETE);
     const body = (await req.json()) as PlanningItemDeleteRequestDto;
     const id = Number(body.id);
     const trackingType = String(body.tracking_type ?? "").trim().toLowerCase();

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireAdminUser, requireApprovedUser } from "@/lib/accessControl";
+import { PERMISSIONS, requirePermission } from "@/lib/accessControl";
 import { getErrorMessage, getErrorStatus } from "@/lib/errorMessage";
 import type {
   PlanningCatalogCreateRequestDto,
@@ -19,7 +19,7 @@ import {
 
 export async function GET(req: Request) {
   try {
-    await requireApprovedUser(req);
+    await requirePermission(req, PERMISSIONS.CATALOG_VIEW);
 
     return NextResponse.json(await getPlanningCatalog());
   } catch (error: unknown) {
@@ -29,7 +29,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const { user, profile } = await requireAdminUser(req);
+    const { user, profile } = await requirePermission(req, PERMISSIONS.CATALOG_MANAGE);
     const body = (await req.json()) as PlanningCatalogCreateRequestDto;
 
     if (body.entity === "type") {
@@ -93,7 +93,7 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
-    const { user, profile } = await requireAdminUser(req);
+    const { user, profile } = await requirePermission(req, PERMISSIONS.CATALOG_MANAGE);
     const body = (await req.json()) as PlanningCatalogUpdateRequestDto;
 
     if (body.entity === "type") {
@@ -161,7 +161,7 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    const { user, profile } = await requireAdminUser(req);
+    const { user, profile } = await requirePermission(req, PERMISSIONS.CATALOG_MANAGE);
     const body = (await req.json()) as PlanningCatalogDeleteRequestDto;
 
     const id = Number(body.id);

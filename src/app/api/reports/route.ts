@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireApprovedUser } from "@/lib/accessControl";
+import { PERMISSIONS, requirePermission } from "@/lib/accessControl";
 import { getErrorMessage } from "@/lib/errorMessage";
 import { getReport } from "@/server/services/reports.service";
 
@@ -24,7 +24,7 @@ function getOperationalHeaderFilters(searchParams: URLSearchParams) {
 
 export async function GET(req: Request) {
   try {
-    await requireApprovedUser(req);
+    await requirePermission(req, PERMISSIONS.REPORTS_VIEW);
 
     const { searchParams } = new URL(req.url);
     const dateFrom = searchParams.get("date_from")?.trim() ?? "";

@@ -61,7 +61,7 @@ export function getErrorStatus(error: unknown, fallback = 500) {
   }
 
   if (
-    /permisos de administrador|permisos operativos|solicitud aun no ha sido aprobada|solicitud fue rechazada|cuenta esta inactiva/i.test(
+    /permisos de administrador|permisos operativos|permisos para|solicitud aun no ha sido aprobada|solicitud fue rechazada|cuenta esta inactiva/i.test(
       message
     )
   ) {

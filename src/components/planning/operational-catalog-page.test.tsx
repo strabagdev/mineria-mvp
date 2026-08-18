@@ -4,6 +4,7 @@ import { OperationalCatalogPage } from "./operational-catalog-page";
 
 const authMock = vi.hoisted(() => ({
   role: "viewer" as "admin" | "operator" | "viewer",
+  effectivePermissions: [] as string[],
 }));
 
 vi.mock("@/components/planning/catalog-admin-workspace", () => ({
@@ -49,6 +50,7 @@ vi.mock("@/providers/auth-provider", () => ({
       role: authMock.role,
       active: true,
       approval_status: "approved",
+      effective_permissions: authMock.effectivePermissions,
     },
   }),
 }));
@@ -81,6 +83,7 @@ vi.mock("@/modules/planning/presentation/use-planning-catalog-admin", () => ({
 describe("OperationalCatalogPage permissions", () => {
   beforeEach(() => {
     authMock.role = "viewer";
+    authMock.effectivePermissions = [];
   });
 
   it("shows a restricted catalog fallback for viewer users", () => {
@@ -88,7 +91,7 @@ describe("OperationalCatalogPage permissions", () => {
 
     expect(html).toContain("Acceso restringido");
     expect(html).toContain(
-      "Puedes seguir usando la operación, pero la administración del catálogo está restringida a administradores."
+      "Puedes seguir usando la operación, pero no tienes permisos para administrar el catalogo."
     );
   });
 
@@ -99,12 +102,13 @@ describe("OperationalCatalogPage permissions", () => {
 
     expect(html).toContain("Acceso restringido");
     expect(html).toContain(
-      "Puedes seguir usando la operación, pero la administración del catálogo está restringida a administradores."
+      "Puedes seguir usando la operación, pero no tienes permisos para administrar el catalogo."
     );
   });
 
-  it("shows the operational header section entry for admin users", () => {
-    authMock.role = "admin";
+  it("shows the operational header section entry when a viewer has operational_header.manage", () => {
+    authMock.role = "viewer";
+    authMock.effectivePermissions = ["operational_header.manage"];
 
     const html = renderToStaticMarkup(<OperationalCatalogPage />);
 
@@ -112,8 +116,18 @@ describe("OperationalCatalogPage permissions", () => {
     expect(html).toContain("<button");
     expect(html).toMatch(/<button[^>]*>Cabecera Operacional<\/button>/);
     expect(html).toMatch(/<button[^>]*aria-pressed="true"[^>]*>Cabecera Operacional<\/button>/);
-    expect(html.indexOf("Cabecera Operacional")).toBeLessThan(html.indexOf("Actividades"));
+    expect(html).not.toContain("Actividades");
     expect(html).not.toContain("Niveles");
     expect(html).not.toContain("Campos configurables");
+  });
+
+  it("shows catalog administration when a viewer has catalog.manage", () => {
+    authMock.role = "viewer";
+    authMock.effectivePermissions = ["catalog.manage"];
+
+    const html = renderToStaticMarkup(<OperationalCatalogPage />);
+
+    expect(html).toContain("Actividades");
+    expect(html).not.toContain("Acceso restringido");
   });
 });
