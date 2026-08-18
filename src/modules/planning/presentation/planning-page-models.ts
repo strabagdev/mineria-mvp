@@ -17,6 +17,7 @@ export type PlanningItem = {
   item_date: string;
   start: string;
   end: string;
+  updated_at?: string;
   shift: string;
   category: PlanningCategoryDto;
   tracking_type: PlanningTrackingTypeDto;

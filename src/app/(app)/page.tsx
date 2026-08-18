@@ -62,6 +62,7 @@ import {
   subscribeNetworkStatus,
 } from "@/lib/networkStatus";
 import {
+  type OfflineStorageScope,
   readCatalogCache,
   readPlanningCache,
   saveCatalogCache,
@@ -135,11 +136,13 @@ import {
 type PlanningItemMutationPayload = PlanningItemForm & {
   id?: number;
   client_mutation_id?: string;
+  expected_updated_at?: string | null;
   operational_header_values?: PlanningItem["operational_header_values"];
 };
 
 type EditingPlanningItem = {
   id: number;
+  expectedUpdatedAt?: string | null;
 };
 
 type DeleteConfirmation = {
@@ -204,6 +207,36 @@ function shouldQueuePlanningMutation(error: unknown) {
 
 function isRetryablePlanningSyncError(error: unknown) {
   return isNetworkRequestError(error) || isInvalidSessionError(error) || isBrowserOffline();
+}
+
+function classifyPlanningSyncError(error: unknown) {
+  if (isNetworkRequestError(error) || isBrowserOffline()) {
+    return "network" as const;
+  }
+
+  if (isInvalidSessionError(error)) {
+    return "auth" as const;
+  }
+
+  if (error instanceof PlanningMutationRequestError) {
+    if (error.status === 401) {
+      return "auth" as const;
+    }
+    if (error.status === 403) {
+      return "permission_revoked" as const;
+    }
+    if (error.status === 409) {
+      return "concurrency_conflict" as const;
+    }
+    if (error.status >= 400 && error.status <= 499) {
+      return "validation" as const;
+    }
+    if (error.status >= 500) {
+      return "network" as const;
+    }
+  }
+
+  return isRetryablePlanningSyncError(error) ? "network" as const : "unknown" as const;
 }
 
 function getRequestErrorMessage(error: unknown, fallback: string) {
@@ -271,10 +304,15 @@ export default function Home() {
   const canCreateRecords = hasEffectivePermission(profile, PERMISSIONS.RECORDS_CREATE);
   const canEditRecords = hasEffectivePermission(profile, PERMISSIONS.RECORDS_EDIT);
   const canDeleteRecords = hasEffectivePermission(profile, PERMISSIONS.RECORDS_DELETE);
+  const canViewCatalog = hasEffectivePermission(profile, PERMISSIONS.CATALOG_VIEW);
   const canManageAssignments = hasEffectivePermission(profile, PERMISSIONS.ASSIGNMENTS_MANAGE);
   const canManageCatalog = hasEffectivePermission(profile, PERMISSIONS.CATALOG_MANAGE);
   const canViewAudit = hasEffectivePermission(profile, PERMISSIONS.AUDIT_VIEW);
   const canSyncPendingPlanningMutations = canCreateRecords || canEditRecords || canDeleteRecords;
+  const offlineScope = useMemo<OfflineStorageScope | null>(() => {
+    const userId = profile?.user_id ?? session?.user?.id ?? null;
+    return userId ? { userId } : null;
+  }, [profile?.user_id, session?.user?.id]);
   const [currentTime, setCurrentTime] = useState(() => new Date());
   const todayIso = getCurrentOperationalDate(currentTime);
   const initialOperationalView = getInitialOperationalView(currentTime);
@@ -318,6 +356,7 @@ export default function Home() {
   const [formState, setFormState] = useState<PlanningItemForm>(toInitialPlanningForm([], "Dia", formatLocalDateIso()));
   const [dynamicHeaderFormState, setDynamicHeaderFormState] = useState<Record<number, string>>({});
   const resumeRefreshInFlightRef = useRef(false);
+  const queueSyncingRef = useRef(false);
 
   const selectActiveShift = useCallback((shift: ShiftKey) => {
     setActiveShift(shift);
@@ -360,6 +399,7 @@ export default function Home() {
     handleDeleteDetail,
   } = usePlanningCatalogAdmin({
     accessToken: session?.access_token,
+    offlineScope,
     onRefresh: syncAdminCatalogRefresh,
     getRequestErrorMessage,
   });
@@ -377,12 +417,16 @@ export default function Home() {
     ];
 
     async function loadCachedAssignments() {
+      if (!offlineScope) {
+        return;
+      }
+
       const [cachedTypes, cachedEntries] = await Promise.all([
-        readAssignmentTypesCache().catch(() => null),
+        readAssignmentTypesCache(offlineScope).catch(() => null),
         Promise.all(
           visibleTargets.map(async (target) => [
             getAssignmentTargetKey(target),
-            await readAssignmentsCacheForTarget(target).catch(() => null),
+            await readAssignmentsCacheForTarget(target, offlineScope).catch(() => null),
           ] as const)
         ),
       ]);
@@ -436,11 +480,15 @@ export default function Home() {
       }
       setAssignmentTypes(types);
       setPlanningAssignmentsByTargetKey((current) => ({ ...current, ...nextAssignmentsByTargetKey }));
-      void saveAssignmentTypesCache(types);
+      if (!offlineScope) {
+        return;
+      }
+
+      void saveAssignmentTypesCache(types, offlineScope);
       void Promise.all(
         Object.entries(nextAssignmentsByTargetKey).map(([key, itemAssignments]) => {
           const target = visibleTargets.find((entry) => getAssignmentTargetKey(entry) === key);
-          return target ? saveAssignmentsCacheForTarget(target, itemAssignments).catch(() => undefined) : Promise.resolve();
+          return target ? saveAssignmentsCacheForTarget(target, itemAssignments, offlineScope).catch(() => undefined) : Promise.resolve();
         })
       );
     } catch {
@@ -452,7 +500,7 @@ export default function Home() {
       });
       await loadCachedAssignments();
     }
-  }, [selectedDate, session?.access_token]);
+  }, [offlineScope, selectedDate, session?.access_token]);
 
   useEffect(() => {
     function openCatalogFromNavigation() {
@@ -531,19 +579,29 @@ export default function Home() {
     const nextItems = await fetchPlanningItems(selectedDate, session?.access_token);
     setPlanningItems(nextItems);
     setItemsError((current) => (isTransientConnectivityMessage(current) ? "" : current));
-    void savePlanningCache(selectedDate, nextItems);
+    if (offlineScope) {
+      void savePlanningCache(selectedDate, nextItems, offlineScope);
+    }
     void preloadPlanningAssignmentsForItems(nextItems);
-  }, [preloadPlanningAssignmentsForItems, selectedDate, session?.access_token]);
+  }, [offlineScope, preloadPlanningAssignmentsForItems, selectedDate, session?.access_token]);
 
   const refreshCatalog = useCallback(async () => {
+    if (!canViewCatalog) {
+      setCatalog([]);
+      setCatalogError("");
+      return { categories: [] };
+    }
+
     const nextCatalog = await fetchPlanningCatalog(session?.access_token);
     setCatalog(nextCatalog.categories);
     setFormState((current) => syncPlanningForm(current, nextCatalog.categories));
     setDetailForm((current) => syncDetailAdminForm(current, nextCatalog.categories));
     setCatalogError((current) => (isTransientConnectivityMessage(current) ? "" : current));
-    void saveCatalogCache(nextCatalog);
+    if (offlineScope) {
+      void saveCatalogCache(nextCatalog, offlineScope);
+    }
     return nextCatalog;
-  }, [session?.access_token, setDetailForm]);
+  }, [canViewCatalog, offlineScope, session?.access_token, setDetailForm]);
 
   const refreshPlanningItemsFromRealtime = useCallback(() => {
     void refreshPlanningItems().catch((error: unknown) => {
@@ -654,7 +712,9 @@ export default function Home() {
         );
 
         if (active) {
-          const cachedCatalog = await readCatalogCache<PlanningCatalog>().catch(() => null);
+          const cachedCatalog = offlineScope
+            ? await readCatalogCache<PlanningCatalog>(offlineScope).catch(() => null)
+            : null;
 
           if (cachedCatalog) {
             recordOperationalEvent({
@@ -690,7 +750,7 @@ export default function Home() {
     return () => {
       active = false;
     };
-  }, [refreshCatalog, setDetailForm]);
+  }, [offlineScope, refreshCatalog, setDetailForm]);
 
   useEffect(() => {
     if (!session?.access_token) {
@@ -720,7 +780,11 @@ export default function Home() {
   useEffect(() => {
     let active = true;
 
-    void readAssignmentTypesCache()
+    if (!offlineScope) {
+      return;
+    }
+
+    void readAssignmentTypesCache(offlineScope)
       .then((types) => {
         if (active && types) {
           setAssignmentTypes(types);
@@ -731,7 +795,7 @@ export default function Home() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [offlineScope]);
 
   useEffect(() => {
     let active = true;
@@ -747,13 +811,17 @@ export default function Home() {
         }
 
         setPlanningItems(nextItems);
-        void savePlanningCache(selectedDate, nextItems);
+        if (offlineScope) {
+          void savePlanningCache(selectedDate, nextItems, offlineScope);
+        }
         void preloadPlanningAssignmentsForItems(nextItems);
       } catch (error: unknown) {
         const message = getRequestErrorMessage(error, "No se pudo cargar la planificacion.");
 
         if (active) {
-          const cachedPlanning = await readPlanningCache<PlanningItem[]>(selectedDate).catch(() => null);
+          const cachedPlanning = offlineScope
+            ? await readPlanningCache<PlanningItem[]>(selectedDate, offlineScope).catch(() => null)
+            : null;
 
           if (cachedPlanning) {
             recordOperationalEvent({
@@ -788,7 +856,7 @@ export default function Home() {
     return () => {
       active = false;
     };
-  }, [preloadPlanningAssignmentsForItems, selectedDate, session?.access_token]);
+  }, [offlineScope, preloadPlanningAssignmentsForItems, selectedDate, session?.access_token]);
 
   useEffect(() => {
     if (formState.tracking_type !== "programado") {
@@ -821,10 +889,15 @@ export default function Home() {
     let active = true;
 
     async function loadPendingMutations() {
-      const mutations = await loadPendingPlanningMutations();
+      if (!offlineScope) {
+        setPendingPlanningMutations([]);
+        return;
+      }
+
+      const mutations = await loadPendingPlanningMutations(offlineScope);
 
       if (active) {
-        setPendingPlanningMutations(mutations);
+        setPendingPlanningMutations(mutations.filter((mutation) => mutation.userId === offlineScope.userId));
       }
     }
 
@@ -833,11 +906,15 @@ export default function Home() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [offlineScope]);
 
   useEffect(() => {
-    void persistPendingPlanningMutations(pendingPlanningMutations);
-  }, [pendingPlanningMutations]);
+    if (!offlineScope) {
+      return;
+    }
+
+    void persistPendingPlanningMutations(pendingPlanningMutations, offlineScope);
+  }, [offlineScope, pendingPlanningMutations]);
 
   useEffect(() => {
     function syncWhenOnline() {
@@ -930,13 +1007,15 @@ export default function Home() {
     if (!session?.access_token) {
       setViewingAssignmentsLoading(false);
       if (!getPendingAssignmentsForItem(item)) {
-        void Promise.all([
-          readAssignmentTypesCache().catch(() => null),
-          readAssignmentsCacheForTarget(assignmentTarget).catch(() => null),
-        ]).then(([types, assignments]) => {
-          if (types) setViewingAssignmentTypes(types);
-          if (assignments) setViewingPlanningAssignments(assignments);
-        });
+        if (offlineScope) {
+          void Promise.all([
+            readAssignmentTypesCache(offlineScope).catch(() => null),
+            readAssignmentsCacheForTarget(assignmentTarget, offlineScope).catch(() => null),
+          ]).then(([types, assignments]) => {
+            if (types) setViewingAssignmentTypes(types);
+            if (assignments) setViewingPlanningAssignments(assignments);
+          });
+        }
       }
       return;
     }
@@ -945,19 +1024,21 @@ export default function Home() {
 
     if (isBrowserOffline()) {
       if (!getPendingAssignmentsForItem(item)) {
-        void Promise.all([
-          readAssignmentTypesCache().catch(() => null),
-          readAssignmentsCacheForTarget(assignmentTarget).catch(() => null),
-        ]).then(([types, assignments]) => {
-          if (types) {
-            setAssignmentTypes(types);
-            setViewingAssignmentTypes(types);
-          }
-          if (assignments) {
-            setViewingPlanningAssignments(assignments);
-            setPlanningAssignmentsByTargetKey((current) => ({ ...current, [assignmentTargetKey]: assignments }));
-          }
-        });
+        if (offlineScope) {
+          void Promise.all([
+            readAssignmentTypesCache(offlineScope).catch(() => null),
+            readAssignmentsCacheForTarget(assignmentTarget, offlineScope).catch(() => null),
+          ]).then(([types, assignments]) => {
+            if (types) {
+              setAssignmentTypes(types);
+              setViewingAssignmentTypes(types);
+            }
+            if (assignments) {
+              setViewingPlanningAssignments(assignments);
+              setPlanningAssignmentsByTargetKey((current) => ({ ...current, [assignmentTargetKey]: assignments }));
+            }
+          });
+        }
       }
       setViewingAssignmentsError("");
     } else {
@@ -970,8 +1051,10 @@ export default function Home() {
           setViewingPlanningAssignments(assignments);
           setAssignmentTypes(types);
           setPlanningAssignmentsByTargetKey((current) => ({ ...current, [assignmentTargetKey]: assignments }));
-          void saveAssignmentTypesCache(types);
-          void saveAssignmentsCacheForTarget(assignmentTarget, assignments);
+          if (offlineScope) {
+            void saveAssignmentTypesCache(types, offlineScope);
+            void saveAssignmentsCacheForTarget(assignmentTarget, assignments, offlineScope);
+          }
           setViewingAssignmentsError("");
         })
         .catch((error: unknown) => {
@@ -1007,7 +1090,7 @@ export default function Home() {
     }
 
     if (!session?.access_token || isBrowserOffline()) {
-      const cachedTypes = await readAssignmentTypesCache().catch(() => null);
+      const cachedTypes = offlineScope ? await readAssignmentTypesCache(offlineScope).catch(() => null) : null;
       const operationalTypes = toOperationalAssignmentTypes(cachedTypes ?? []);
       setAssignmentTypes(cachedTypes ?? []);
       setFormAssignmentTypes(operationalTypes);
@@ -1024,11 +1107,13 @@ export default function Home() {
       const types = await fetchAssignmentTypes(session.access_token, { activeOnly: false });
       setFormAssignmentTypes(toOperationalAssignmentTypes(types));
       setAssignmentTypes(types);
-      void saveAssignmentTypesCache(types);
+      if (offlineScope) {
+        void saveAssignmentTypesCache(types, offlineScope);
+      }
       setPlanningAssignmentsFormState({});
       setFormAssignmentsReady(true);
     } catch (error: unknown) {
-      const cachedTypes = await readAssignmentTypesCache().catch(() => null);
+      const cachedTypes = offlineScope ? await readAssignmentTypesCache(offlineScope).catch(() => null) : null;
       setAssignmentTypes(cachedTypes ?? []);
       setFormAssignmentTypes(toOperationalAssignmentTypes(cachedTypes ?? []));
       setFormAssignmentsReady(Boolean(cachedTypes?.length));
@@ -1057,7 +1142,9 @@ export default function Home() {
     if (pendingAssignments) {
       const cachedTypes = assignmentTypes.length
         ? assignmentTypes
-        : (await readAssignmentTypesCache().catch(() => null)) ?? [];
+        : offlineScope
+          ? (await readAssignmentTypesCache(offlineScope).catch(() => null)) ?? []
+          : [];
       setFormAssignmentTypes(toOperationalAssignmentTypes(cachedTypes));
       setAssignmentTypes(cachedTypes);
       setPlanningAssignmentsFormState(buildPlanningAssignmentsFormState(pendingAssignments));
@@ -1078,8 +1165,8 @@ export default function Home() {
 
     if (!session?.access_token || isBrowserOffline() || item.id <= 0) {
       const [cachedTypes, cachedAssignments] = await Promise.all([
-        readAssignmentTypesCache().catch(() => null),
-        item.id > 0 ? readAssignmentsCacheForTarget(target).catch(() => null) : Promise.resolve(null),
+        offlineScope ? readAssignmentTypesCache(offlineScope).catch(() => null) : Promise.resolve(null),
+        item.id > 0 && offlineScope ? readAssignmentsCacheForTarget(target, offlineScope).catch(() => null) : Promise.resolve(null),
       ]);
       setFormAssignmentTypes(toOperationalAssignmentTypes(cachedTypes ?? []));
       setAssignmentTypes(cachedTypes ?? []);
@@ -1101,12 +1188,14 @@ export default function Home() {
       setAssignmentTypes(types);
       setPlanningAssignmentsFormState(buildPlanningAssignmentsFormState(assignments));
       setFormAssignmentsReady(true);
-      void saveAssignmentTypesCache(types);
-      void saveAssignmentsCacheForTarget(target, assignments);
+      if (offlineScope) {
+        void saveAssignmentTypesCache(types, offlineScope);
+        void saveAssignmentsCacheForTarget(target, assignments, offlineScope);
+      }
     } catch (error: unknown) {
       const [cachedTypes, cachedAssignments] = await Promise.all([
-        readAssignmentTypesCache().catch(() => null),
-        readAssignmentsCacheForTarget(target).catch(() => null),
+        offlineScope ? readAssignmentTypesCache(offlineScope).catch(() => null) : Promise.resolve(null),
+        offlineScope ? readAssignmentsCacheForTarget(target, offlineScope).catch(() => null) : Promise.resolve(null),
       ]);
       setFormAssignmentTypes(toOperationalAssignmentTypes(cachedTypes ?? []));
       setAssignmentTypes(cachedTypes ?? []);
@@ -1141,6 +1230,10 @@ export default function Home() {
       syncedPlanningItemId?: number;
     } = {}
   ) {
+    if (!offlineScope?.userId) {
+      throw new Error("No se pudo guardar el cambio offline porque falta el usuario activo.");
+    }
+
     const canRunMutation =
       (method === "POST" && canCreateRecords) ||
       (method === "PATCH" && canEditRecords) ||
@@ -1150,7 +1243,11 @@ export default function Home() {
       throw new Error("No tienes permisos para modificar este registro.");
     }
 
-    const pendingMutation = makePendingPlanningMutation(method, payload, input);
+    const pendingMutation = makePendingPlanningMutation(method, payload, {
+      ...input,
+      userId: offlineScope.userId,
+      scope: offlineScope,
+    });
     setPendingPlanningMutations((current) => [...current, pendingMutation]);
     return pendingMutation;
   }
@@ -1160,9 +1257,16 @@ export default function Home() {
       return;
     }
 
-    const retryableMutations = getRetryablePlanningMutations(pendingPlanningMutations);
+    if (!offlineScope?.userId) {
+      return;
+    }
 
-    if (!session?.access_token || queueSyncing || !retryableMutations.length) {
+    const scopedMutations = pendingPlanningMutations.filter(
+      (mutation) => mutation.userId === offlineScope.userId
+    );
+    const retryableMutations = getRetryablePlanningMutations(scopedMutations);
+
+    if (!session?.access_token || queueSyncingRef.current || !retryableMutations.length) {
       return;
     }
 
@@ -1170,64 +1274,85 @@ export default function Home() {
       return;
     }
 
+    queueSyncingRef.current = true;
     setQueueSyncing(true);
 
-    const replayResult = await replayPendingPlanningMutations({
-      mutations: pendingPlanningMutations,
-      sendMutation: (mutation) => sendPlanningMutation(mutation.method, mutation.payload),
-      replayAssignmentPayload: async (mutation, response) => {
-        if (mutation.method === "DELETE" || mutation.assignmentPayload === undefined) {
-          return;
-        }
+    try {
+      const replayResult = await replayPendingPlanningMutations({
+        mutations: scopedMutations,
+        sendMutation: (mutation) => sendPlanningMutation(mutation.method, mutation.payload),
+        replayAssignmentPayload: async (mutation, response) => {
+          if (mutation.method === "DELETE" || mutation.assignmentPayload === undefined) {
+            return;
+          }
 
-        const responseItemId = Number((response as { item?: { id?: unknown } })?.item?.id);
-        const payloadItemId = Number(mutation.payload.id);
-        const planningItemId =
-          Number.isFinite(responseItemId) && responseItemId > 0
-            ? responseItemId
-            : Number.isFinite(payloadItemId) && payloadItemId > 0
-              ? payloadItemId
-              : null;
+          const responseItemId = Number((response as { item?: { id?: unknown } })?.item?.id);
+          const payloadItemId = Number(mutation.payload.id);
+          const planningItemId =
+            Number.isFinite(responseItemId) && responseItemId > 0
+              ? responseItemId
+              : Number.isFinite(payloadItemId) && payloadItemId > 0
+                ? payloadItemId
+                : null;
 
-        if (!planningItemId) {
-          throw new Error("No se pudo asociar las asignaciones al programado sincronizado.");
-        }
+          if (!planningItemId) {
+            throw new Error("No se pudo asociar las asignaciones al programado sincronizado.");
+          }
 
-        const savedAssignments = await savePlanningAssignmentsForTarget(
-          toPlanningItemAssignmentTarget(planningItemId),
-          mutation.assignmentPayload,
-          session.access_token
-        );
-        const assignmentTarget = toPlanningItemAssignmentTarget(planningItemId);
-        setPlanningAssignmentsByTargetKey((current) => ({ ...current, [getAssignmentTargetKey(assignmentTarget)]: savedAssignments }));
-        void saveAssignmentsCacheForTarget(assignmentTarget, savedAssignments);
-      },
-      getErrorMessage: (error) =>
-        getRequestErrorMessage(error, "No se pudo sincronizar un registro pendiente."),
-      isRetryableError: isRetryablePlanningSyncError,
-    });
-
-    if (replayResult.retryableError && !isNetworkRequestError(replayResult.retryableError)) {
-      setItemsError(replayResult.retryableErrorMessage);
-    }
-
-    if (replayResult.foundConflict) {
-      setItemsError(
-        "Un registro pendiente no pudo sincronizarse porque entra en conflicto con la planificacion actual. Revisa el detalle y descartalo o vuelve a crearlo con otro horario."
-      );
-    }
-
-    setPendingPlanningMutations(replayResult.nextQueue);
-    setQueueSyncing(false);
-
-    if (replayResult.syncedCount > 0 || replayResult.foundConflict) {
-      await refreshPlanningItems().then(() => {
-        if (replayResult.nextQueue.length === 0) {
-          setItemsError("");
-        }
-      }).catch((error: unknown) => {
-        setItemsError(getRequestErrorMessage(error, "No se pudo recargar la planificacion."));
+          const savedAssignments = await savePlanningAssignmentsForTarget(
+            toPlanningItemAssignmentTarget(planningItemId),
+            mutation.assignmentPayload,
+            session.access_token
+          );
+          const assignmentTarget = toPlanningItemAssignmentTarget(planningItemId);
+          setPlanningAssignmentsByTargetKey((current) => ({ ...current, [getAssignmentTargetKey(assignmentTarget)]: savedAssignments }));
+          void saveAssignmentsCacheForTarget(assignmentTarget, savedAssignments, offlineScope);
+        },
+        getErrorMessage: (error) =>
+          getRequestErrorMessage(error, "No se pudo sincronizar un registro pendiente."),
+        classifyError: classifyPlanningSyncError,
+        loadServerConflictSnapshot: async (mutation) => {
+          const id = Number(mutation.payload.id ?? mutation.syncedPlanningItemId);
+          if (!Number.isFinite(id) || id <= 0) {
+            return null;
+          }
+          const latestItems = await fetchPlanningItems(String(mutation.payload.item_date ?? selectedDate), session.access_token);
+          return latestItems.find((item) => item.id === id) ?? null;
+        },
       });
+
+      if (replayResult.retryableError && !isNetworkRequestError(replayResult.retryableError)) {
+        setItemsError(replayResult.retryableErrorMessage);
+      }
+
+      const failedPermissionMutation = replayResult.nextQueue.find(
+        (mutation) => mutation.status === "failed" && mutation.failureReason === "permission_revoked"
+      );
+
+      if (failedPermissionMutation) {
+        setItemsError(
+          "Un cambio pendiente no pudo sincronizarse porque el acceso fue retirado. Revisa el detalle de sincronizacion y descarta el cambio local."
+        );
+      } else if (replayResult.foundConflict) {
+        setItemsError(
+          "Un registro pendiente no pudo sincronizarse porque entra en conflicto con la planificacion actual. Revisa el detalle y descartalo o vuelve a crearlo con otro horario."
+        );
+      }
+
+      setPendingPlanningMutations(replayResult.nextQueue);
+
+      if (replayResult.syncedCount > 0 || replayResult.foundConflict || failedPermissionMutation) {
+        await refreshPlanningItems().then(() => {
+          if (replayResult.nextQueue.length === 0) {
+            setItemsError("");
+          }
+        }).catch((error: unknown) => {
+          setItemsError(getRequestErrorMessage(error, "No se pudo recargar la planificacion."));
+        });
+      }
+    } finally {
+      queueSyncingRef.current = false;
+      setQueueSyncing(false);
     }
   }
 
@@ -1237,6 +1362,23 @@ export default function Home() {
 
   function discardConflictedPlanningMutations() {
     setPendingPlanningMutations(discardConflictedPlanningMutationQueue);
+  }
+
+  function retryFailedPlanningMutations() {
+    setPendingPlanningMutations((current) =>
+      current.map((mutation) =>
+        mutation.status === "failed" &&
+        mutation.failureReason !== "permission_revoked" &&
+        mutation.failureReason !== "validation"
+          ? {
+              ...mutation,
+              status: "pending",
+              failureReason: undefined,
+              nextRetryAt: undefined,
+            }
+          : mutation
+      )
+    );
   }
 
   async function handleCreateItem(event: React.FormEvent) {
@@ -1257,7 +1399,11 @@ export default function Home() {
       operational_header_values: operationalHeaderValues,
     };
     const payload: PlanningItemMutationPayload = editingPlanningItem
-      ? { id: editingPlanningItem.id, ...mutationPayload }
+      ? {
+          id: editingPlanningItem.id,
+          expected_updated_at: editingPlanningItem.expectedUpdatedAt ?? null,
+          ...mutationPayload,
+        }
       : withClientMutationId(mutationPayload) as PlanningItemMutationPayload;
 
     if (!session?.access_token) {
@@ -1318,7 +1464,9 @@ export default function Home() {
             session.access_token
           );
           setPlanningAssignmentsByTargetKey((current) => ({ ...current, [getAssignmentTargetKey(assignmentTarget)]: savedAssignments }));
-          void saveAssignmentsCacheForTarget(assignmentTarget, savedAssignments);
+          if (offlineScope) {
+            void saveAssignmentsCacheForTarget(assignmentTarget, savedAssignments, offlineScope);
+          }
         } catch (error: unknown) {
           if (assignmentTarget.target_kind === "planning_item" && shouldQueuePlanningMutation(error)) {
             enqueuePlanningMutation(method, payload, { assignmentPayload, syncedPlanningItemId: savedItemId });
@@ -1397,7 +1545,7 @@ export default function Home() {
       notes: item.notes ?? "",
     });
     setDynamicHeaderFormState(toOperationalHeaderFormState(item));
-    setEditingPlanningItem({ id: item.id });
+    setEditingPlanningItem({ id: item.id, expectedUpdatedAt: item.updated_at ?? null });
     setFormAssignmentTypes([]);
     setPlanningAssignmentsFormState({});
     setFormAssignmentsError("");
@@ -1417,7 +1565,12 @@ export default function Home() {
       return;
     }
 
-    const payload = { id, tracking_type: trackingType };
+    const targetItem = planningItems.find((item) => item.id === id && item.tracking_type === trackingType);
+    const payload = {
+      id,
+      tracking_type: trackingType,
+      expected_updated_at: targetItem?.updated_at ?? editingPlanningItem?.expectedUpdatedAt ?? null,
+    };
 
     if (!session?.access_token) {
       if (isBrowserOffline()) {
@@ -1505,12 +1658,16 @@ export default function Home() {
   const conflictedPlanningMutations = pendingPlanningMutations.filter(
     (mutation) => mutation.status === "conflict"
   );
+  const failedPlanningMutations = pendingPlanningMutations.filter(
+    (mutation) => mutation.status === "failed"
+  );
   const retryablePlanningMutations = getRetryablePlanningMutations(pendingPlanningMutations);
   useEffect(() => {
     window.dispatchEvent(new CustomEvent("planning-sync-status", {
       detail: {
         pendingCount: retryablePlanningMutations.length,
         conflictCount: conflictedPlanningMutations.length,
+        failedCount: failedPlanningMutations.length,
         syncing: queueSyncing,
         lastSyncLabel: extractLastSyncLabel(itemsError, catalogError),
         errorMessage: [itemsError, catalogError].find((message) => message && !isTransientConnectivityMessage(message)) ?? "",
@@ -1519,6 +1676,7 @@ export default function Home() {
   }, [
     catalogError,
     conflictedPlanningMutations.length,
+    failedPlanningMutations.length,
     itemsError,
     queueSyncing,
     retryablePlanningMutations.length,
@@ -1851,9 +2009,11 @@ export default function Home() {
         catalogError={catalogError}
         retryablePlanningMutations={retryablePlanningMutations}
         conflictedPlanningMutations={conflictedPlanningMutations}
+        failedPlanningMutations={failedPlanningMutations}
         queueSyncing={queueSyncing}
         networkStatus={networkStatus}
         onDiscardConflicts={discardConflictedPlanningMutations}
+        onRetryFailed={retryFailedPlanningMutations}
       />
 
       <section className="gantt-stage">

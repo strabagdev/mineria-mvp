@@ -14,6 +14,7 @@ export type PlanningItemDto = {
   item_type: string;
   description: string;
   notes: string | null;
+  updated_at: string;
   operational_header_values?: PlanningItemOperationalHeaderValueDto[];
 };
 
@@ -40,12 +41,14 @@ export type PlanningItemMutationPayloadDto = {
   description?: string;
   notes?: string | null;
   client_mutation_id?: string | null;
+  expected_updated_at?: string | null;
   operational_header_values?: PlanningItemOperationalHeaderValueDto[];
 };
 
 export type PlanningItemDeleteRequestDto = {
   id?: number;
   tracking_type?: string;
+  expected_updated_at?: string | null;
 };
 
 export type NormalizedPlanningItemPayloadDto = {

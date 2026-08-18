@@ -2,7 +2,10 @@ import { buildOperationalState, type OperationalStatus } from "@/lib/operational
 
 type PendingPlanningMutation = {
   id: string;
-  status?: "pending" | "conflict";
+  method?: "POST" | "PATCH" | "DELETE";
+  status?: "pending" | "syncing" | "conflict" | "failed";
+  failureReason?: string;
+  lastError?: string;
 };
 
 type PlanningStatusStripProps = {
@@ -10,9 +13,11 @@ type PlanningStatusStripProps = {
   catalogError: string;
   retryablePlanningMutations: PendingPlanningMutation[];
   conflictedPlanningMutations: PendingPlanningMutation[];
+  failedPlanningMutations: PendingPlanningMutation[];
   queueSyncing: boolean;
   networkStatus?: OperationalStatus;
   onDiscardConflicts: () => void;
+  onRetryFailed: () => void;
 };
 
 export function PlanningStatusStrip({
@@ -20,9 +25,11 @@ export function PlanningStatusStrip({
   catalogError,
   retryablePlanningMutations,
   conflictedPlanningMutations,
+  failedPlanningMutations,
   queueSyncing,
   networkStatus = "online",
   onDiscardConflicts,
+  onRetryFailed,
 }: PlanningStatusStripProps) {
   const isLocalPlanningMessage = /^Usando planificacion local guardada\./.test(itemsError);
   const isLocalCatalogMessage = /^Usando catalogo local guardado\./.test(catalogError);
@@ -36,7 +43,8 @@ export function PlanningStatusStrip({
     Boolean(visibleItemsError) ||
     Boolean(visibleCatalogError && visibleCatalogError !== visibleItemsError) ||
     Boolean(retryablePlanningMutations.length) ||
-    Boolean(conflictedPlanningMutations.length);
+    Boolean(conflictedPlanningMutations.length) ||
+    Boolean(failedPlanningMutations.length);
   const hasLocalSnapshot = Boolean(unifiedLocalMessage || isLocalPlanningMessage || isLocalCatalogMessage);
   const operationalState = buildOperationalState({
     network: networkStatus,
@@ -44,7 +52,7 @@ export function PlanningStatusStrip({
     hasLocalSnapshot,
     expectsLocalSnapshot: networkStatus === "offline",
     pendingSyncCount: retryablePlanningMutations.length,
-    conflictCount: conflictedPlanningMutations.length,
+    conflictCount: conflictedPlanningMutations.length + failedPlanningMutations.length,
     syncing: queueSyncing,
     refreshFailed: Boolean(visibleItemsError || visibleCatalogError),
   });
@@ -52,6 +60,9 @@ export function PlanningStatusStrip({
   if (!hasVisibleStatus) {
     return null;
   }
+  const canRetryFailed = failedPlanningMutations.some(
+    (mutation) => mutation.failureReason !== "permission_revoked" && mutation.failureReason !== "validation"
+  );
 
   return (
     <div
@@ -81,6 +92,27 @@ export function PlanningStatusStrip({
             {conflictedPlanningMutations.length === 1 ? "" : "s"} pendiente
             {conflictedPlanningMutations.length === 1 ? "" : "s"} con conflicto. Otro usuario pudo haber ocupado ese horario o la informacion ya no es valida.
           </span>
+          <button type="button" className="button small danger" onClick={onDiscardConflicts}>
+            Descartar
+          </button>
+        </div>
+      ) : null}
+      {failedPlanningMutations.length ? (
+        <div className="feedback sync-feedback conflict-feedback">
+          <span>
+            {failedPlanningMutations.length} cambio
+            {failedPlanningMutations.length === 1 ? "" : "s"} no se pudo
+            {failedPlanningMutations.length === 1 ? "" : "ieron"} sincronizar.
+            {" "}
+            {failedPlanningMutations[0]?.failureReason === "permission_revoked"
+              ? "El acceso fue retirado."
+              : failedPlanningMutations[0]?.lastError ?? "Revisa el detalle antes de reintentar."}
+          </span>
+          {canRetryFailed ? (
+            <button type="button" className="button small secondary" onClick={onRetryFailed}>
+              Reintentar
+            </button>
+          ) : null}
           <button type="button" className="button small danger" onClick={onDiscardConflicts}>
             Descartar
           </button>

@@ -26,6 +26,7 @@ import {
   createRealPlanningSegments,
   deletePlanningItem,
   listPlanningItems,
+  PlanningConcurrencyConflictError,
   updatePlannedPlanningItem,
   updateRealPlanningSegments,
 } from "@/server/services/planning-items.service";
@@ -221,6 +222,13 @@ function toPlanningItemUpdatePayload(payload: NormalizedPlanningItemPayloadDto) 
     description: payload.description,
     notes: payload.notes,
   };
+}
+
+function conflictResponse(error: PlanningConcurrencyConflictError) {
+  return NextResponse.json(
+    { error: error.message, current: error.current },
+    { status: error.status }
+  );
 }
 
 async function validateRealSegmentsDoNotOverlap(
@@ -482,6 +490,7 @@ export async function PATCH(req: Request) {
         actor: { user, profile },
         id,
         updatePayload,
+        expectedUpdatedAt: body.expected_updated_at ?? null,
         operationalHeaderValues: payload.operational_header_values,
       });
 
@@ -494,6 +503,7 @@ export async function PATCH(req: Request) {
       id,
       userId: user.id,
       operationalHeaderValues: payload.operational_header_values,
+      expectedUpdatedAt: body.expected_updated_at ?? null,
       segments: realSegments,
       updatePayload: {
         planning_item_id: plannedItem?.id,
@@ -526,6 +536,9 @@ export async function PATCH(req: Request) {
 
     return NextResponse.json({ item: realResult.item, items: realResult.items });
   } catch (error: unknown) {
+    if (error instanceof PlanningConcurrencyConflictError) {
+      return conflictResponse(error);
+    }
     return NextResponse.json({ error: getErrorMessage(error) }, { status: getErrorStatus(error) });
   }
 }
@@ -549,6 +562,7 @@ export async function DELETE(req: Request) {
       actor: { user, profile },
       id,
       trackingType,
+      expectedUpdatedAt: body.expected_updated_at ?? null,
     });
 
     if (result.status === "blocked-by-real") {
@@ -560,6 +574,9 @@ export async function DELETE(req: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (error: unknown) {
+    if (error instanceof PlanningConcurrencyConflictError) {
+      return conflictResponse(error);
+    }
     return NextResponse.json({ error: getErrorMessage(error) }, { status: getErrorStatus(error) });
   }
 }

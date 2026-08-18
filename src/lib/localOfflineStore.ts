@@ -57,6 +57,16 @@ export function hasOfflineStorageScope(scope?: OfflineStorageScope) {
   return Boolean(scope?.userId?.trim() || scope?.organizationId?.trim() || scope?.siteId?.trim());
 }
 
+export function hasRequiredOfflineUserScope(scope?: OfflineStorageScope) {
+  return Boolean(scope?.userId?.trim());
+}
+
+function assertOfflineUserScope(scope?: OfflineStorageScope) {
+  if (!hasRequiredOfflineUserScope(scope)) {
+    throw new Error("Offline storage requires a user scope.");
+  }
+}
+
 export function buildOfflineStorageKey(key: string, scope?: OfflineStorageScope) {
   if (!hasOfflineStorageScope(scope)) {
     return key;
@@ -80,6 +90,19 @@ export function buildPlanningDateCacheKey(date: string, scope?: OfflineStorageSc
   }
 
   return buildOfflineStorageKey(`planning:${date}`, scope);
+}
+
+export function buildOfflineScopePrefix(scope: OfflineStorageScope) {
+  assertOfflineUserScope(scope);
+  return [
+    OFFLINE_SCOPED_KEY_VERSION,
+    "user",
+    normalizeScopePart(scope.userId),
+    "org",
+    normalizeScopePart(scope.organizationId),
+    "site",
+    normalizeScopePart(scope.siteId),
+  ].join(":");
 }
 
 export function buildPlanningAssignmentsCacheKey(planningItemId: number) {
@@ -149,6 +172,7 @@ function runTransaction<T>(
 }
 
 async function readKeyValueWithLegacyFallback<T>(key: string, scope?: OfflineStorageScope) {
+  assertOfflineUserScope(scope);
   const scopedKey = buildOfflineStorageKey(key, scope);
   const scopedResult = await runTransaction<StoredValue<T> | undefined>(
     OFFLINE_STORES.keyval,
@@ -156,20 +180,11 @@ async function readKeyValueWithLegacyFallback<T>(key: string, scope?: OfflineSto
     (store) => store.get(scopedKey)
   );
 
-  if (scopedResult || scopedKey === key) {
-    return scopedResult ?? null;
-  }
-
-  const legacyResult = await runTransaction<StoredValue<T> | undefined>(
-    OFFLINE_STORES.keyval,
-    "readonly",
-    (store) => store.get(key)
-  );
-
-  return legacyResult ?? null;
+  return scopedResult ?? null;
 }
 
 export async function saveCatalogCache<T>(value: T, scope?: OfflineStorageScope) {
+  assertOfflineUserScope(scope);
   await runTransaction(OFFLINE_STORES.keyval, "readwrite", (store) =>
     store.put({
       key: buildOfflineStorageKey(OFFLINE_KEYS.planningCatalog, scope),
@@ -184,6 +199,7 @@ export async function readCatalogCache<T>(scope?: OfflineStorageScope) {
 }
 
 export async function saveProfileCache<T>(value: T, scope?: OfflineStorageScope) {
+  assertOfflineUserScope(scope);
   await runTransaction(OFFLINE_STORES.keyval, "readwrite", (store) =>
     store.put({
       key: buildOfflineStorageKey(OFFLINE_KEYS.authProfile, scope),
@@ -198,6 +214,7 @@ export async function readProfileCache<T>(scope?: OfflineStorageScope) {
 }
 
 export async function savePendingPlanningMutations<T>(value: T, scope?: OfflineStorageScope) {
+  assertOfflineUserScope(scope);
   await runTransaction(OFFLINE_STORES.keyval, "readwrite", (store) =>
     store.put({
       key: buildOfflineStorageKey(OFFLINE_KEYS.planningMutationQueue, scope),
@@ -212,6 +229,7 @@ export async function readPendingPlanningMutations<T>(scope?: OfflineStorageScop
 }
 
 export async function savePlanningCache<T>(date: string, items: T, scope?: OfflineStorageScope) {
+  assertOfflineUserScope(scope);
   await runTransaction(OFFLINE_STORES.planningByDate, "readwrite", (store) =>
     store.put({
       date: buildPlanningDateCacheKey(date, scope),
@@ -222,6 +240,7 @@ export async function savePlanningCache<T>(date: string, items: T, scope?: Offli
 }
 
 export async function readPlanningCache<T>(date: string, scope?: OfflineStorageScope) {
+  assertOfflineUserScope(scope);
   const scopedDate = buildPlanningDateCacheKey(date, scope);
   const scopedResult = await runTransaction<PlanningCache<T> | undefined>(
     OFFLINE_STORES.planningByDate,
@@ -229,20 +248,11 @@ export async function readPlanningCache<T>(date: string, scope?: OfflineStorageS
     (store) => store.get(scopedDate)
   );
 
-  if (scopedResult || scopedDate === date) {
-    return scopedResult ?? null;
-  }
-
-  const legacyResult = await runTransaction<PlanningCache<T> | undefined>(
-    OFFLINE_STORES.planningByDate,
-    "readonly",
-    (store) => store.get(date)
-  );
-
-  return legacyResult ?? null;
+  return scopedResult ?? null;
 }
 
 export async function saveKeyValueCache<T>(key: string, value: T, scope?: OfflineStorageScope) {
+  assertOfflineUserScope(scope);
   await runTransaction(OFFLINE_STORES.keyval, "readwrite", (store) =>
     store.put({
       key: buildOfflineStorageKey(key, scope),
@@ -254,4 +264,73 @@ export async function saveKeyValueCache<T>(key: string, value: T, scope?: Offlin
 
 export async function readKeyValueCache<T>(key: string, scope?: OfflineStorageScope) {
   return readKeyValueWithLegacyFallback<T>(key, scope);
+}
+
+async function deleteKeysByPrefix(
+  storeName: (typeof OFFLINE_STORES)[keyof typeof OFFLINE_STORES],
+  prefix: string,
+  keyField: "key" | "date",
+  shouldDelete: (key: string) => boolean = () => true
+) {
+  if (typeof indexedDB === "undefined") {
+    return;
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    openOfflineDb().then((db) => {
+      const transaction = db.transaction(storeName, "readwrite");
+      const store = transaction.objectStore(storeName);
+      const cursorRequest = store.openCursor();
+
+      cursorRequest.onsuccess = () => {
+        const cursor = cursorRequest.result;
+        if (!cursor) {
+          return;
+        }
+
+        const value = cursor.value as Partial<Record<typeof keyField, unknown>>;
+        const key = typeof value[keyField] === "string" ? value[keyField] : "";
+        if (key.startsWith(prefix) && shouldDelete(key)) {
+          cursor.delete();
+        }
+        cursor.continue();
+      };
+      cursorRequest.onerror = () => {
+        db.close();
+        reject(cursorRequest.error);
+      };
+      transaction.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      transaction.onerror = () => {
+        db.close();
+        reject(transaction.error);
+      };
+    }).catch(reject);
+  });
+}
+
+export async function clearOfflineDataForScope(
+  scope: OfflineStorageScope,
+  options: { preservePlanningMutationQueue?: boolean } = {}
+) {
+  const prefix = `${buildOfflineScopePrefix(scope)}:`;
+  const scopedQueueKey = buildOfflineStorageKey(OFFLINE_KEYS.planningMutationQueue, scope);
+
+  await Promise.all([
+    deleteKeysByPrefix(
+      OFFLINE_STORES.keyval,
+      prefix,
+      "key",
+      (key) => !options.preservePlanningMutationQueue || key !== scopedQueueKey
+    ),
+    deleteKeysByPrefix(OFFLINE_STORES.planningByDate, prefix, "date"),
+  ]);
+
+  recordOperationalEvent({
+    name: "offline.snapshot_saved",
+    source: "localOfflineStore",
+    metadata: { hasUserScope: hasRequiredOfflineUserScope(scope) },
+  });
 }

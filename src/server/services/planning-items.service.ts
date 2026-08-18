@@ -42,6 +42,17 @@ type PlanningItemPayload = NormalizedPlanningItemPayloadDto;
 
 type AuditActor = Parameters<typeof writeAuditLog>[0]["actor"];
 
+export class PlanningConcurrencyConflictError extends Error {
+  status = 409;
+  current: PlanningItemResponse | null;
+
+  constructor(message: string, current: PlanningItemResponse | null = null) {
+    super(message);
+    this.name = "PlanningConcurrencyConflictError";
+    this.current = current;
+  }
+}
+
 function mapPlanningReadRow(
   row: Omit<PlanningItemResponse, "tracking_type"> & { tracking_type?: "programado" | "real" }
 ): PlanningItemResponse {
@@ -57,6 +68,7 @@ function mapPlanningReadRow(
     item_type: row.item_type,
     description: row.description,
     notes: row.notes ?? null,
+    updated_at: row.updated_at,
   };
 
   if (row.operational_header_values !== undefined) {
@@ -298,10 +310,19 @@ export async function updatePlannedPlanningItem(input: {
   actor: AuditActor;
   id: number;
   updatePayload: PlanningItemUpdateInput;
+  expectedUpdatedAt?: string | null;
   operationalHeaderValues?: PlanningItemPayload["operational_header_values"];
 }) {
   const beforeData = await findPlannedItemById(input.id);
-  const item = await updatePlannedItemById(input.id, input.updatePayload);
+  const item = await updatePlannedItemById(input.id, input.updatePayload, input.expectedUpdatedAt);
+
+  if (!item) {
+    const current = await findPlannedItemById(input.id);
+    throw new PlanningConcurrencyConflictError(
+      "El registro fue modificado por otro usuario. Actualiza la planificacion antes de volver a editar.",
+      current ? mapPlanningReadRow(current) : null
+    );
+  }
 
   await syncDynamicOperationalHeaderForPlanningItem({
     planningItemId: item.id,
@@ -327,9 +348,16 @@ export async function updateRealPlanningSegment(input: {
   actor: AuditActor;
   id: number;
   updatePayload: PlanningSegmentUpdateRow;
+  expectedUpdatedAt?: string | null;
   operationalHeaderValues?: PlanningItemPayload["operational_header_values"];
 }) {
   const beforeData = await findExecutionSegmentById(input.id);
+  if (input.expectedUpdatedAt && beforeData?.updated_at !== input.expectedUpdatedAt) {
+    throw new PlanningConcurrencyConflictError(
+      "El registro fue modificado por otro usuario. Actualiza la planificacion antes de volver a editar.",
+      beforeData ? mapPlanningReadRow({ ...beforeData, tracking_type: "real" }) : null
+    );
+  }
   const { data, error } = await updateExecutionSegmentById(
     input.id,
     input.updatePayload
@@ -376,9 +404,18 @@ export async function updateRealPlanningSegments(input: {
   userId: string;
   updatePayload: PlanningSegmentUpdateRow;
   segments: PlanningItemPayload[];
+  expectedUpdatedAt?: string | null;
   operationalHeaderValues?: PlanningItemPayload["operational_header_values"];
 }) {
   let updatedSegments: PlanningSegmentReadRow[];
+  const beforeData = input.expectedUpdatedAt ? await findExecutionSegmentById(input.id) : null;
+
+  if (input.expectedUpdatedAt && beforeData?.updated_at !== input.expectedUpdatedAt) {
+    throw new PlanningConcurrencyConflictError(
+      "El registro fue modificado por otro usuario. Actualiza la planificacion antes de volver a editar.",
+      beforeData ? mapPlanningReadRow({ ...beforeData, tracking_type: "real" }) : null
+    );
+  }
 
   try {
     updatedSegments = await reconcileRealExecutionSegments({
@@ -430,6 +467,7 @@ export async function deletePlanningItem(input: {
   actor: AuditActor;
   id: number;
   trackingType: string;
+  expectedUpdatedAt?: string | null;
 }) {
   if (input.trackingType === "programado") {
     const currentItem = await findPlannedItemById(input.id);
@@ -444,7 +482,15 @@ export async function deletePlanningItem(input: {
       return { status: "blocked-by-real" as const };
     }
 
-    await deletePlannedItemById(input.id);
+    const deleted = await deletePlannedItemById(input.id, input.expectedUpdatedAt);
+
+    if (!deleted) {
+      const current = await findPlannedItemById(input.id);
+      throw new PlanningConcurrencyConflictError(
+        "El registro fue modificado por otro usuario. Actualiza la planificacion antes de eliminar.",
+        current ? mapPlanningReadRow(current) : null
+      );
+    }
 
     await writeAuditLog({
       actor: input.actor,
@@ -461,6 +507,13 @@ export async function deletePlanningItem(input: {
 
   if (!currentSegment) {
     return { status: "deleted" as const };
+  }
+
+  if (input.expectedUpdatedAt && currentSegment.updated_at !== input.expectedUpdatedAt) {
+    throw new PlanningConcurrencyConflictError(
+      "El registro fue modificado por otro usuario. Actualiza la planificacion antes de eliminar.",
+      mapPlanningReadRow({ ...currentSegment, tracking_type: "real" })
+    );
   }
 
   await deleteExecutionSegmentById(input.id);

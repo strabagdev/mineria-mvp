@@ -21,7 +21,11 @@ import {
 } from "@/lib/reports";
 
 export default function DashboardPage() {
-  const { session } = useAuth();
+  const { session, profile } = useAuth();
+  const offlineScope = useMemo(() => {
+    const userId = profile?.user_id ?? session?.user?.id ?? null;
+    return userId ? { userId } : null;
+  }, [profile?.user_id, session?.user?.id]);
   const filters = useMemo(() => getInitialReportFilters(), []);
   const [report, setReport] = useState<ReportResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -50,7 +54,7 @@ export default function DashboardPage() {
     async function loadDashboard() {
       setLoading(true);
       setError("");
-      const cached = await readReportSnapshot(filters);
+      const cached = offlineScope ? await readReportSnapshot(filters, offlineScope) : null;
       if (cached?.value) {
         setReport(cached.value);
         setOfflineUpdatedAt(cached.updatedAt);
@@ -86,7 +90,9 @@ export default function DashboardPage() {
         setReport(nextReport);
         setOfflineUpdatedAt(null);
         markSnapshotRefreshSucceeded();
-        void saveReportSnapshot(filters, nextReport);
+        if (offlineScope) {
+          void saveReportSnapshot(filters, nextReport, offlineScope);
+        }
       }
     }
 
@@ -94,7 +100,12 @@ export default function DashboardPage() {
       .catch((dashboardError: unknown) => {
         if (active) {
           if (toNetworkMessage(dashboardError) || canUseOfflineSnapshot()) {
-            void readReportSnapshot(filters)
+            if (!offlineScope) {
+              setError(NETWORK_ERROR_MESSAGE);
+              return;
+            }
+
+            void readReportSnapshot(filters, offlineScope)
               .then((cached) => {
                 if (!active) {
                   return;
@@ -131,7 +142,7 @@ export default function DashboardPage() {
     return () => {
       active = false;
     };
-  }, [filters, refreshNonce, session?.access_token]);
+  }, [filters, offlineScope, refreshNonce, session?.access_token]);
 
   return (
     <div className="reports-stack">

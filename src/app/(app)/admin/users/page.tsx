@@ -97,6 +97,10 @@ function approvalLabel(status: AdminUser["approval_status"]) {
 export default function AdminUsersPage() {
   const router = useRouter();
   const { loading, session, profile } = useAuth();
+  const offlineScope = React.useMemo(() => {
+    const userId = profile?.user_id ?? session?.user?.id ?? null;
+    return userId ? { userId } : null;
+  }, [profile?.user_id, session?.user?.id]);
   const [users, setUsers] = React.useState<AdminUser[]>([]);
   const [selectedPermissionUser, setSelectedPermissionUser] = React.useState<AdminUser | null>(null);
   const [permissionSummary, setPermissionSummary] = React.useState<UserPermissionSummaryDto | null>(null);
@@ -186,7 +190,7 @@ export default function AdminUsersPage() {
   }, []);
 
   const requestUsers = React.useCallback(async () => {
-    const cached = await readAdminUsersSnapshot();
+    const cached = offlineScope ? await readAdminUsersSnapshot(offlineScope) : null;
     if (cached?.value) {
       setUsers(cached.value);
       setOfflineUpdatedAt(cached.updatedAt);
@@ -218,8 +222,10 @@ export default function AdminUsersPage() {
     setUsers(nextUsers);
     setOfflineUpdatedAt(null);
     markSnapshotRefreshSucceeded();
-    void saveAdminUsersSnapshot(nextUsers);
-  }, [session?.access_token]);
+    if (offlineScope) {
+      void saveAdminUsersSnapshot(nextUsers, offlineScope);
+    }
+  }, [offlineScope, session?.access_token]);
 
   React.useEffect(() => {
     if (loading) {
@@ -262,7 +268,12 @@ export default function AdminUsersPage() {
     requestUsers().catch((error: unknown) => {
       const networkMessage = toNetworkMessage(error);
       if (networkMessage || canUseOfflineSnapshot()) {
-        void readAdminUsersSnapshot().then((cached) => {
+        if (!offlineScope) {
+          setMessage(NETWORK_ERROR_MESSAGE);
+          return;
+        }
+
+        void readAdminUsersSnapshot(offlineScope).then((cached) => {
           if (cached?.value) {
             setUsers(cached.value);
             setOfflineUpdatedAt(cached.updatedAt);
@@ -275,7 +286,7 @@ export default function AdminUsersPage() {
       }
       setMessage("No se pudo cargar usuarios.");
     });
-  }, [canManageUsers, loading, refreshNonce, requestUsers]);
+  }, [canManageUsers, loading, offlineScope, refreshNonce, requestUsers]);
 
   React.useEffect(() => {
     if (!users.length) {

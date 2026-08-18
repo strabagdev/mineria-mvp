@@ -2,6 +2,7 @@
 
 import { BarChart3, Clock3, Gauge, ListChecks, ScrollText, Settings, TimerReset, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { useAuth } from "@/providers/auth-provider";
 import { readAdminUsersSnapshot, readReportSnapshot, type AdminUsersSnapshot } from "@/lib/reportsOfflineSnapshot";
 import { toRoleLabel } from "@/modules/auth/presentation/role-labels";
 import {
@@ -31,7 +32,12 @@ function OfflineNotice({ updatedAt }: { updatedAt: string | null }) {
 }
 
 function OfflineDashboard() {
+  const { session, profile } = useAuth();
   const filters = useMemo(() => getInitialReportFilters(), []);
+  const offlineScope = useMemo(() => {
+    const userId = profile?.user_id ?? session?.user?.id ?? null;
+    return userId ? { userId } : null;
+  }, [profile?.user_id, session?.user?.id]);
   const [report, setReport] = useState<ReportResponse | null>(null);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const summary = report?.summary ?? emptyReportSummary;
@@ -39,7 +45,11 @@ function OfflineDashboard() {
   useEffect(() => {
     let active = true;
 
-    void readReportSnapshot(filters).then((snapshot) => {
+    if (!offlineScope) {
+      return;
+    }
+
+    void readReportSnapshot(filters, offlineScope).then((snapshot) => {
       if (!active) {
         return;
       }
@@ -51,7 +61,7 @@ function OfflineDashboard() {
     return () => {
       active = false;
     };
-  }, [filters]);
+  }, [filters, offlineScope]);
 
   return (
     <div className="reports-stack">
@@ -106,7 +116,12 @@ function OfflineDashboard() {
 }
 
 function OfflineReports() {
+  const { session, profile } = useAuth();
   const filters = useMemo(() => getInitialReportFilters(), []);
+  const offlineScope = useMemo(() => {
+    const userId = profile?.user_id ?? session?.user?.id ?? null;
+    return userId ? { userId } : null;
+  }, [profile?.user_id, session?.user?.id]);
   const [report, setReport] = useState<ReportResponse | null>(null);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const rows = report?.rows ?? [];
@@ -115,7 +130,11 @@ function OfflineReports() {
   useEffect(() => {
     let active = true;
 
-    void readReportSnapshot(filters).then((snapshot) => {
+    if (!offlineScope) {
+      return;
+    }
+
+    void readReportSnapshot(filters, offlineScope).then((snapshot) => {
       if (!active) {
         return;
       }
@@ -127,7 +146,7 @@ function OfflineReports() {
     return () => {
       active = false;
     };
-  }, [filters]);
+  }, [filters, offlineScope]);
 
   return (
     <div className="reports-stack">
@@ -204,13 +223,22 @@ function OfflineReports() {
 }
 
 function OfflineUsers() {
+  const { session, profile } = useAuth();
+  const offlineScope = useMemo(() => {
+    const userId = profile?.user_id ?? session?.user?.id ?? null;
+    return userId ? { userId } : null;
+  }, [profile?.user_id, session?.user?.id]);
   const [users, setUsers] = useState<AdminUsersSnapshot>([]);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
 
-    void readAdminUsersSnapshot().then((snapshot) => {
+    if (!offlineScope) {
+      return;
+    }
+
+    void readAdminUsersSnapshot(offlineScope).then((snapshot) => {
       if (!active) {
         return;
       }
@@ -222,7 +250,7 @@ function OfflineUsers() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [offlineScope]);
 
   return (
     <div className="dashboard-stack">

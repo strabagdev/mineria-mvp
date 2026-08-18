@@ -39,6 +39,8 @@ import type {
   OperationalHeaderFieldDto,
   OperationalHeaderResponseDto,
 } from "@/modules/operational-header/contracts/operational-header";
+import { hasEffectivePermission } from "@/modules/auth/application/effective-permissions";
+import { PERMISSIONS } from "@/modules/auth/contracts/permissions";
 
 type CatalogResponse = ReportsCatalog;
 type ReportBreakdownItem = ReportBreakdown;
@@ -328,7 +330,12 @@ function getOperationalHeaderOptionValue(option: OperationalHeaderFieldDto["opti
 }
 
 export default function ReportsPage() {
-  const { session } = useAuth();
+  const { session, profile } = useAuth();
+  const canViewCatalog = hasEffectivePermission(profile, PERMISSIONS.CATALOG_VIEW);
+  const offlineScope = useMemo(() => {
+    const userId = profile?.user_id ?? session?.user?.id ?? null;
+    return userId ? { userId } : null;
+  }, [profile?.user_id, session?.user?.id]);
   const [filters, setFilters] = useState<ReportFilters>(() =>
     getInitialReportFilters(
       typeof window === "undefined" ? undefined : new URLSearchParams(window.location.search)
@@ -454,7 +461,13 @@ export default function ReportsPage() {
     let active = true;
 
     async function loadCatalog() {
-      const cachedCatalog = await readCatalogSnapshot();
+      if (!canViewCatalog) {
+        setCatalog({ categories: [], levels: [] });
+        setOfflineUpdatedAt(null);
+        return;
+      }
+
+      const cachedCatalog = offlineScope ? await readCatalogSnapshot(offlineScope) : null;
       if (cachedCatalog?.value) {
         setCatalog(cachedCatalog.value);
         setOfflineUpdatedAt(cachedCatalog.updatedAt);
@@ -491,14 +504,21 @@ export default function ReportsPage() {
         setCatalog(nextCatalog);
         setOfflineUpdatedAt(null);
         markSnapshotRefreshSucceeded();
-        void saveCatalogSnapshot(nextCatalog);
+        if (offlineScope) {
+          void saveCatalogSnapshot(nextCatalog, offlineScope);
+        }
       }
     }
 
     void loadCatalog().catch((catalogError: unknown) => {
       if (active) {
         if (toNetworkMessage(catalogError) || canUseOfflineSnapshot()) {
-          void readCatalogSnapshot()
+          if (!offlineScope) {
+            setError(NETWORK_ERROR_MESSAGE);
+            return;
+          }
+
+          void readCatalogSnapshot(offlineScope)
             .then((cachedCatalog) => {
               if (!active) {
                 return;
@@ -529,7 +549,7 @@ export default function ReportsPage() {
     return () => {
       active = false;
     };
-  }, [refreshNonce, session?.access_token]);
+  }, [canViewCatalog, offlineScope, refreshNonce, session?.access_token]);
 
   useEffect(() => {
     let active = true;
@@ -537,7 +557,7 @@ export default function ReportsPage() {
     async function loadReport() {
       setLoading(true);
       setError("");
-      const cachedReport = await readReportSnapshot(filters);
+      const cachedReport = offlineScope ? await readReportSnapshot(filters, offlineScope) : null;
       if (cachedReport?.value) {
         setReport(cachedReport.value);
         setOfflineUpdatedAt(cachedReport.updatedAt);
@@ -573,7 +593,9 @@ export default function ReportsPage() {
         setReport(nextReport);
         setOfflineUpdatedAt(null);
         markSnapshotRefreshSucceeded();
-        void saveReportSnapshot(filters, nextReport);
+        if (offlineScope) {
+          void saveReportSnapshot(filters, nextReport, offlineScope);
+        }
       }
     }
 
@@ -581,7 +603,12 @@ export default function ReportsPage() {
       .catch((reportError: unknown) => {
         if (active) {
           if (toNetworkMessage(reportError) || canUseOfflineSnapshot()) {
-            void readReportSnapshot(filters)
+            if (!offlineScope) {
+              setError(NETWORK_ERROR_MESSAGE);
+              return;
+            }
+
+            void readReportSnapshot(filters, offlineScope)
               .then((cachedReport) => {
                 if (!active) {
                   return;
@@ -618,7 +645,7 @@ export default function ReportsPage() {
     return () => {
       active = false;
     };
-  }, [filters, refreshNonce, session?.access_token]);
+  }, [filters, offlineScope, refreshNonce, session?.access_token]);
 
   function updateFilter(key: ReportFilterKey, value: string) {
     setFilters((current) => ({ ...current, [key]: value }));

@@ -28,6 +28,7 @@ type NavItem = {
 type PlanningSyncStatusDetail = {
   pendingCount?: number;
   conflictCount?: number;
+  failedCount?: number;
   syncing?: boolean;
   lastSyncLabel?: string;
   errorMessage?: string;
@@ -38,6 +39,7 @@ type PlanningSyncSummary = Required<PlanningSyncStatusDetail>;
 const EMPTY_SYNC_SUMMARY: PlanningSyncSummary = {
   pendingCount: 0,
   conflictCount: 0,
+  failedCount: 0,
   syncing: false,
   lastSyncLabel: "",
   errorMessage: "",
@@ -46,7 +48,8 @@ const EMPTY_SYNC_SUMMARY: PlanningSyncSummary = {
 function normalizeSyncSummary(detail: PlanningSyncStatusDetail): PlanningSyncSummary {
   return {
     pendingCount: Number(detail.pendingCount ?? 0),
-    conflictCount: Number(detail.conflictCount ?? 0),
+    conflictCount: Number(detail.conflictCount ?? 0) + Number(detail.failedCount ?? 0),
+    failedCount: Number(detail.failedCount ?? 0),
     syncing: Boolean(detail.syncing),
     lastSyncLabel: String(detail.lastSyncLabel ?? ""),
     errorMessage: String(detail.errorMessage ?? ""),
@@ -105,7 +108,12 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
     let active = true;
 
     async function loadQueueSummary() {
-      const mutations = await loadPendingPlanningMutations().catch(() => []);
+      const userId = profile?.user_id ?? session?.user?.id ?? null;
+      if (!userId) {
+        return;
+      }
+
+      const mutations = await loadPendingPlanningMutations({ userId }).catch(() => []);
 
       if (!active) {
         return;
@@ -113,8 +121,8 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
 
       setPlanningSyncSummary((current) => ({
         ...current,
-        pendingCount: mutations.filter((mutation) => mutation.status !== "conflict").length,
-        conflictCount: mutations.filter((mutation) => mutation.status === "conflict").length,
+        pendingCount: mutations.filter((mutation) => mutation.status === "pending").length,
+        conflictCount: mutations.filter((mutation) => mutation.status === "conflict" || mutation.status === "failed").length,
         errorMessage: current.errorMessage || mutations.find((mutation) => mutation.lastError)?.lastError || "",
       }));
     }
@@ -131,7 +139,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
       active = false;
       window.removeEventListener("planning-sync-status", handlePlanningSyncStatus);
     };
-  }, []);
+  }, [profile?.user_id, session?.user?.id]);
 
   useEffect(() => {
     if (previousOperationalStatusRef.current === operationalStatus) {
@@ -204,7 +212,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
   }
 
   const effectiveProfile = profile ?? {
-    user_id: session?.user.id ?? "offline-user",
+    user_id: session?.user?.id ?? "offline-user",
     email: session?.user.email ?? "",
     full_name: null,
     role: "viewer" as const,

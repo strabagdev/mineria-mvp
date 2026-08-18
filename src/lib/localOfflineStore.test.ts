@@ -10,6 +10,7 @@ import {
   buildPlanningAssignmentsCacheKey,
   buildPlanningDateCacheKey,
   hasOfflineStorageScope,
+  readCatalogCache,
 } from "./localOfflineStore";
 
 describe("local offline storage keys", () => {
@@ -62,6 +63,13 @@ describe("local offline storage keys", () => {
   it("uses explicit default scope segments when only part of the future scope exists", () => {
     expect(buildOfflineStorageKey("reports-catalog-v1", { organizationId: "org-1" })).toBe(
       "v2:user:default:org:org-1:site:default:reports-catalog-v1"
+    );
+  });
+
+  it("requires user scope for persistent offline reads and writes", async () => {
+    await expect(readCatalogCache()).rejects.toThrow("Offline storage requires a user scope.");
+    await expect(readCatalogCache({ organizationId: "org-1" })).rejects.toThrow(
+      "Offline storage requires a user scope."
     );
   });
 

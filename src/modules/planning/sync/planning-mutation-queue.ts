@@ -1,13 +1,19 @@
 import type { PlanningItem } from "@/modules/planning/presentation/planning-page-models";
 import { recordOperationalEvent } from "../../../lib/observability/logger";
-import type { PendingPlanningMutation } from "./planning-sync-models";
+import {
+  MAX_PLANNING_SYNC_ATTEMPTS,
+  type PendingPlanningMutation,
+  type PlanningMutationFailureReason,
+} from "./planning-sync-models";
 
 type ReplayPendingPlanningMutationsArgs = {
   mutations: PendingPlanningMutation[];
   sendMutation: (mutation: PendingPlanningMutation) => Promise<unknown>;
   replayAssignmentPayload?: (mutation: PendingPlanningMutation, response: unknown) => Promise<void>;
   getErrorMessage: (error: unknown) => string;
-  isRetryableError: (error: unknown) => boolean;
+  classifyError: (error: unknown) => PlanningMutationFailureReason;
+  loadServerConflictSnapshot?: (mutation: PendingPlanningMutation) => Promise<unknown>;
+  now?: () => Date;
 };
 
 export type ReplayPendingPlanningMutationsResult = {
@@ -18,6 +24,13 @@ export type ReplayPendingPlanningMutationsResult = {
   retryableError: unknown;
   retryableErrorMessage: string;
 };
+
+const RETRYABLE_FAILURE_REASONS = new Set<PlanningMutationFailureReason>(["network", "auth"]);
+
+export function getNextRetryAt(attempts: number, now = new Date()) {
+  const delayMs = Math.min(30 * 60_000, 2 ** Math.max(0, attempts - 1) * 30_000);
+  return new Date(now.getTime() + delayMs).toISOString();
+}
 
 export function withClientMutationId(
   payload: Record<string, unknown>,
@@ -37,19 +50,25 @@ export function makePendingPlanningMutation(
   method: PendingPlanningMutation["method"],
   payload: Record<string, unknown>,
   input: {
+    userId: string;
+    scope: PendingPlanningMutation["scope"];
     assignmentPayload?: PendingPlanningMutation["assignmentPayload"];
     syncedPlanningItemId?: PendingPlanningMutation["syncedPlanningItemId"];
-  } = {}
+  }
 ): PendingPlanningMutation {
   const id = crypto.randomUUID();
 
   return {
     id,
+    userId: input.userId,
+    scope: input.scope,
     method,
     payload: withClientMutationId(payload, id),
     assignmentPayload: input.assignmentPayload,
     syncedPlanningItemId: input.syncedPlanningItemId,
     createdAt: new Date().toISOString(),
+    status: "pending",
+    attempts: 0,
   };
 }
 
@@ -67,7 +86,7 @@ function getPendingItemId(mutation: PendingPlanningMutation) {
 }
 
 export function toOptimisticPlanningItem(mutation: PendingPlanningMutation): PlanningItem | null {
-  if (mutation.status === "conflict") {
+  if (mutation.status === "conflict" || mutation.status === "failed") {
     return null;
   }
 
@@ -147,11 +166,22 @@ export function applyPendingPlanningMutations(
 }
 
 export function getRetryablePlanningMutations(mutations: PendingPlanningMutation[]) {
-  return mutations.filter((mutation) => mutation.status !== "conflict");
+  const now = Date.now();
+  return mutations.filter((mutation) => {
+    if (mutation.status === "conflict" || mutation.status === "failed" || mutation.status === "syncing") {
+      return false;
+    }
+
+    if (!mutation.nextRetryAt) {
+      return true;
+    }
+
+    return new Date(mutation.nextRetryAt).getTime() <= now;
+  });
 }
 
 export function discardConflictedPlanningMutations(mutations: PendingPlanningMutation[]) {
-  return mutations.filter((mutation) => mutation.status !== "conflict");
+  return mutations.filter((mutation) => mutation.status !== "conflict" && mutation.status !== "failed");
 }
 
 export async function replayPendingPlanningMutations({
@@ -159,13 +189,16 @@ export async function replayPendingPlanningMutations({
   sendMutation,
   replayAssignmentPayload,
   getErrorMessage,
-  isRetryableError,
+  classifyError,
+  loadServerConflictSnapshot,
+  now = () => new Date(),
 }: ReplayPendingPlanningMutationsArgs): Promise<ReplayPendingPlanningMutationsResult> {
+  const replayStartedAt = now();
   recordOperationalEvent({
     name: "sync.replay_started",
     source: "planningMutationQueue",
     metadata: {
-      pendingCount: mutations.filter((mutation) => mutation.status !== "conflict").length,
+      pendingCount: mutations.filter((mutation) => mutation.status === "pending").length,
       conflictCount: mutations.filter((mutation) => mutation.status === "conflict").length,
     },
   });
@@ -181,12 +214,28 @@ export async function replayPendingPlanningMutations({
     const mutation = mutations[index];
     let replayMutation = mutation;
 
-    if (mutation.status === "conflict") {
+    if (mutation.status === "conflict" || mutation.status === "failed") {
       nextQueue.push(mutation);
       continue;
     }
 
+    if (mutation.status === "syncing") {
+      replayMutation = { ...mutation, status: "pending" };
+    }
+
+    if (replayMutation.nextRetryAt && new Date(replayMutation.nextRetryAt).getTime() > replayStartedAt.getTime()) {
+      nextQueue.push(replayMutation);
+      nextQueue.push(...mutations.slice(index + 1));
+      break;
+    }
+
     try {
+      replayMutation = {
+        ...replayMutation,
+        status: "syncing",
+        attempts: replayMutation.attempts + 1,
+        lastAttemptAt: replayStartedAt.toISOString(),
+      };
       const response = mutation.syncedPlanningItemId
         ? { item: { id: mutation.syncedPlanningItemId } }
         : await sendMutation(replayMutation);
@@ -207,8 +256,9 @@ export async function replayPendingPlanningMutations({
       syncedCount += 1;
     } catch (error: unknown) {
       const message = getErrorMessage(error);
+      const failureReason = classifyError(error);
 
-      if (isRetryableError(error)) {
+      if (RETRYABLE_FAILURE_REASONS.has(failureReason) && replayMutation.attempts < MAX_PLANNING_SYNC_ATTEMPTS) {
         recordOperationalEvent({
           level: "warn",
           name: "sync.replay_failed",
@@ -219,7 +269,13 @@ export async function replayPendingPlanningMutations({
             index,
           },
         });
-        nextQueue.push(replayMutation);
+        nextQueue.push({
+          ...replayMutation,
+          status: "pending",
+          failureReason,
+          lastError: message,
+          nextRetryAt: getNextRetryAt(replayMutation.attempts, replayStartedAt),
+        });
         nextQueue.push(...mutations.slice(index + 1));
         stoppedForRetryableError = true;
         retryableError = error;
@@ -227,22 +283,33 @@ export async function replayPendingPlanningMutations({
         break;
       }
 
+      const isConflict = failureReason === "concurrency_conflict";
+      const conflictSnapshot = isConflict
+        ? {
+            localPayload: replayMutation.payload,
+            serverItem: await loadServerConflictSnapshot?.(replayMutation).catch(() => null),
+          }
+        : undefined;
+
       nextQueue.push({
         ...replayMutation,
-        status: "conflict",
+        status: isConflict ? "conflict" : "failed",
         lastError: message,
-        lastTriedAt: new Date().toISOString(),
+        failureReason,
+        conflictSnapshot,
+        nextRetryAt: undefined,
       });
       recordOperationalEvent({
         level: "warn",
-        name: "sync.conflict_detected",
+        name: isConflict ? "sync.conflict_detected" : "sync.replay_failed",
         source: "planningMutationQueue",
         metadata: {
           method: mutation.method,
           index,
+          failureReason,
         },
       });
-      foundConflict = true;
+      foundConflict = foundConflict || isConflict;
     }
   }
 

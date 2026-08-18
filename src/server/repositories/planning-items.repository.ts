@@ -13,11 +13,12 @@ export type PlanningItemReadRow = {
   item_type: string;
   description: string;
   notes: string | null;
+  updated_at: string;
   tracking_type?: "programado" | "real";
 };
 
 export const planningItemReadSelect =
-  "id, activity_group_id, item_date, start_time, end_time, shift, category, item_type, description, notes, tracking_type";
+  "id, activity_group_id, item_date, start_time, end_time, shift, category, item_type, description, notes, updated_at, tracking_type";
 
 export async function listPlannedItemsByDate(date: string) {
   const db = getSupabaseServerClient();
@@ -152,33 +153,52 @@ export async function findPlannedItemSummaryByActivityGroupId(activityGroupId: s
 
 export async function updatePlannedItemById(
   id: number,
-  input: PlanningItemUpdateInput
+  input: PlanningItemUpdateInput,
+  expectedUpdatedAt?: string | null
 ) {
   const db = getSupabaseServerClient();
-  const { data, error } = await db
+  let query = db
     .from("planning_items")
-    .update(input)
+    .update({ ...input, updated_at: new Date().toISOString() })
     .eq("id", id)
-    .eq("tracking_type", "programado")
+    .eq("tracking_type", "programado");
+
+  if (expectedUpdatedAt) {
+    query = query.eq("updated_at", expectedUpdatedAt);
+  }
+
+  const { data, error } = await query
     .select(planningItemReadSelect)
-    .single();
+    .maybeSingle();
 
   if (error) {
     throw error;
+  }
+
+  if (!data) {
+    return null;
   }
 
   return data as PlanningItemReadRow;
 }
 
-export async function deletePlannedItemById(id: number) {
+export async function deletePlannedItemById(id: number, expectedUpdatedAt?: string | null) {
   const db = getSupabaseServerClient();
-  const { error } = await db
+  let query = db
     .from("planning_items")
     .delete()
     .eq("id", id)
     .eq("tracking_type", "programado");
 
+  if (expectedUpdatedAt) {
+    query = query.eq("updated_at", expectedUpdatedAt);
+  }
+
+  const { data, error } = await query.select("id");
+
   if (error) {
     throw error;
   }
+
+  return (data ?? []).length > 0;
 }

@@ -18,6 +18,7 @@ function toPlanningItem(item: PlanningItemDto): PlanningItem {
     item_date: item.item_date,
     start: item.start_time.slice(0, 5),
     end: item.end_time.slice(0, 5),
+    updated_at: item.updated_at,
     shift: item.shift,
     category: item.category,
     tracking_type: item.tracking_type,

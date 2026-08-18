@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   applyPendingPlanningMutations,
   discardConflictedPlanningMutations,
+  getNextRetryAt,
   getRetryablePlanningMutations,
   makePendingPlanningMutation,
   replayPendingPlanningMutations,
@@ -10,10 +11,16 @@ import {
 } from "./planning-mutation-queue";
 import type { PendingPlanningMutation } from "./planning-sync-models";
 
+const baseScope = { userId: "user-1" };
+
 const baseMutation: PendingPlanningMutation = {
   id: "mutation-1",
+  userId: "user-1",
+  scope: baseScope,
   method: "POST",
   createdAt: "2026-05-23T00:00:00.000Z",
+  status: "pending",
+  attempts: 0,
   payload: {
     activity_group_id: "group-1",
     item_date: "2026-05-23",
@@ -60,7 +67,7 @@ describe("planning mutation queue helpers", () => {
     const mutation = makePendingPlanningMutation(
       "POST",
       { description: "Extraccion" },
-      { assignmentPayload }
+      { assignmentPayload, userId: "user-1", scope: baseScope }
     );
 
     expect(mutation.payload).toMatchObject({ description: "Extraccion" });
@@ -89,8 +96,12 @@ describe("planning mutation queue helpers", () => {
         baseMutation,
         {
           id: "mutation-delete",
+          userId: "user-1",
+          scope: baseScope,
           method: "DELETE",
           createdAt: "2026-05-23T00:01:00.000Z",
+          status: "pending",
+          attempts: 0,
           payload: { id: 42, tracking_type: "programado" },
         },
       ],
@@ -122,7 +133,7 @@ describe("planning mutation queue helpers", () => {
       ],
       sendMutation,
       getErrorMessage: (error) => (error instanceof Error ? error.message : "error"),
-      isRetryableError: () => false,
+      classifyError: () => "concurrency_conflict",
     });
 
     expect(sendMutation).toHaveBeenCalledTimes(2);
@@ -132,6 +143,7 @@ describe("planning mutation queue helpers", () => {
     expect(result.nextQueue[0]).toMatchObject({
       id: "mutation-2",
       status: "conflict",
+      failureReason: "concurrency_conflict",
       lastError: "solape",
     });
   });
@@ -145,14 +157,22 @@ describe("planning mutation queue helpers", () => {
       mutations: [baseMutation, pendingAfterRetry],
       sendMutation,
       getErrorMessage: (error) => (error instanceof Error ? error.message : "error"),
-      isRetryableError: () => true,
+      classifyError: () => "network",
+      now: () => new Date("2026-05-23T00:00:00.000Z"),
     });
 
     expect(sendMutation).toHaveBeenCalledTimes(1);
     expect(result.stoppedForRetryableError).toBe(true);
     expect(result.retryableError).toBe(retryableError);
     expect(result.retryableErrorMessage).toBe("Invalid session");
-    expect(result.nextQueue).toEqual([baseMutation, pendingAfterRetry]);
+    expect(result.nextQueue[0]).toMatchObject({
+      ...baseMutation,
+      attempts: 1,
+      failureReason: "network",
+      lastError: "Invalid session",
+      nextRetryAt: "2026-05-23T00:00:30.000Z",
+    });
+    expect(result.nextQueue[1]).toEqual(pendingAfterRetry);
   });
 
   it("retries assignment replay without sending an already synced core again", async () => {
@@ -169,26 +189,81 @@ describe("planning mutation queue helpers", () => {
       sendMutation,
       replayAssignmentPayload,
       getErrorMessage: (error) => (error instanceof Error ? error.message : "error"),
-      isRetryableError: () => true,
+      classifyError: () => "network",
     });
 
     expect(sendMutation).toHaveBeenCalledTimes(1);
-    expect(replayAssignmentPayload).toHaveBeenCalledWith({ ...mutation, syncedPlanningItemId: 123 }, { item: { id: 123 } });
-    expect(firstResult.nextQueue).toEqual([{ ...mutation, syncedPlanningItemId: 123 }]);
+    expect(replayAssignmentPayload).toHaveBeenCalledWith(
+      expect.objectContaining({ id: mutation.id, status: "syncing", syncedPlanningItemId: 123, attempts: 1 }),
+      { item: { id: 123 } }
+    );
+    expect(firstResult.nextQueue[0]).toMatchObject({ ...mutation, syncedPlanningItemId: 123, attempts: 1 });
 
     replayAssignmentPayload.mockReset();
     replayAssignmentPayload.mockResolvedValueOnce(undefined);
     const secondResult = await replayPendingPlanningMutations({
-      mutations: firstResult.nextQueue,
+      mutations: firstResult.nextQueue.map((queued) => ({ ...queued, nextRetryAt: undefined })),
       sendMutation,
       replayAssignmentPayload,
       getErrorMessage: (error) => (error instanceof Error ? error.message : "error"),
-      isRetryableError: () => true,
+      classifyError: () => "network",
     });
 
     expect(sendMutation).toHaveBeenCalledTimes(1);
-    expect(replayAssignmentPayload).toHaveBeenCalledWith({ ...mutation, syncedPlanningItemId: 123 }, { item: { id: 123 } });
+    expect(replayAssignmentPayload).toHaveBeenCalledWith(
+      expect.objectContaining({ id: mutation.id, status: "syncing", syncedPlanningItemId: 123 }),
+      { item: { id: 123 } }
+    );
     expect(secondResult.syncedCount).toBe(1);
     expect(secondResult.nextQueue).toEqual([]);
+  });
+
+  it("marks 403-style permission revocations as failed without retry", async () => {
+    const result = await replayPendingPlanningMutations({
+      mutations: [baseMutation],
+      sendMutation: vi.fn().mockRejectedValueOnce(new Error("Forbidden")),
+      getErrorMessage: () => "Permiso retirado",
+      classifyError: () => "permission_revoked",
+    });
+
+    expect(result.stoppedForRetryableError).toBe(false);
+    expect(result.nextQueue[0]).toMatchObject({
+      status: "failed",
+      failureReason: "permission_revoked",
+      lastError: "Permiso retirado",
+      attempts: 1,
+    });
+  });
+
+  it("keeps server and local snapshots for concurrency conflicts", async () => {
+    const currentServerItem = { id: 42, updated_at: "server-version" };
+    const result = await replayPendingPlanningMutations({
+      mutations: [{ ...baseMutation, method: "PATCH", payload: { id: 42, item_date: "2026-05-23" } }],
+      sendMutation: vi.fn().mockRejectedValueOnce(new Error("Conflict")),
+      getErrorMessage: () => "El registro cambio",
+      classifyError: () => "concurrency_conflict",
+      loadServerConflictSnapshot: vi.fn().mockResolvedValueOnce(currentServerItem),
+    });
+
+    expect(result.foundConflict).toBe(true);
+    expect(result.nextQueue[0]).toMatchObject({
+      status: "conflict",
+      failureReason: "concurrency_conflict",
+      conflictSnapshot: {
+        localPayload: { id: 42, item_date: "2026-05-23" },
+        serverItem: currentServerItem,
+      },
+    });
+  });
+
+  it("does not retry mutations before nextRetryAt", () => {
+    const queue: PendingPlanningMutation[] = [
+      { ...baseMutation, id: "later", nextRetryAt: "2999-01-01T00:00:00.000Z" },
+      { ...baseMutation, id: "ready", nextRetryAt: "2000-01-01T00:00:00.000Z" },
+      { ...baseMutation, id: "failed", status: "failed" },
+    ];
+
+    expect(getRetryablePlanningMutations(queue).map((mutation) => mutation.id)).toEqual(["ready"]);
+    expect(getNextRetryAt(3, new Date("2026-05-23T00:00:00.000Z"))).toBe("2026-05-23T00:02:00.000Z");
   });
 });

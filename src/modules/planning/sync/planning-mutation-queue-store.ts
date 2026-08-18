@@ -6,12 +6,13 @@ import {
   savePendingPlanningMutations,
 } from "@/lib/localOfflineStore";
 import { recordOperationalEvent } from "../../../lib/observability/logger";
-import {
-  LEGACY_PLANNING_MUTATION_QUEUE_KEY,
-  type PendingPlanningMutation,
-} from "./planning-sync-models";
+import type { PendingPlanningMutation } from "./planning-sync-models";
 
 export async function loadPendingPlanningMutations(scope?: OfflineStorageScope) {
+  if (!scope?.userId) {
+    return [];
+  }
+
   const cachedMutations = await readPendingPlanningMutations<PendingPlanningMutation[]>(scope).catch(() => null);
 
   if (cachedMutations?.value && Array.isArray(cachedMutations.value)) {
@@ -23,29 +24,7 @@ export async function loadPendingPlanningMutations(scope?: OfflineStorageScope) 
     return cachedMutations.value;
   }
 
-  if (typeof window === "undefined") {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(LEGACY_PLANNING_MUTATION_QUEUE_KEY) ?? "[]");
-    const legacyMutations = Array.isArray(parsed) ? (parsed as PendingPlanningMutation[]) : [];
-
-    if (!legacyMutations.length) {
-      return [];
-    }
-
-    await savePendingPlanningMutations(legacyMutations, scope);
-    window.localStorage.removeItem(LEGACY_PLANNING_MUTATION_QUEUE_KEY);
-    recordOperationalEvent({
-      name: "sync.legacy_queue_migrated",
-      source: "planningMutationQueueStore",
-      metadata: { count: legacyMutations.length },
-    });
-    return legacyMutations;
-  } catch {
-    return [];
-  }
+  return [];
 }
 
 export async function persistPendingPlanningMutations(

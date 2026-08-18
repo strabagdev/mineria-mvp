@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { fetchPlanningCatalog } from "@/modules/planning/application/planning-reads.client";
 import { mutatePlanningCatalog } from "@/modules/planning/application/planning-writes.client";
-import { saveCatalogCache } from "@/lib/localOfflineStore";
+import { saveCatalogCache, type OfflineStorageScope } from "@/lib/localOfflineStore";
 import type {
   DetailAdminForm,
   EditDetailForm,
@@ -15,12 +15,14 @@ import { syncDetailAdminForm } from "./planning-page-transformers";
 
 type UsePlanningCatalogAdminArgs = {
   accessToken?: string;
+  offlineScope?: OfflineStorageScope | null;
   onRefresh: (catalog: PlanningCatalog) => void;
   getRequestErrorMessage: (error: unknown, fallback: string) => string;
 };
 
 export function usePlanningCatalogAdmin({
   accessToken,
+  offlineScope,
   onRefresh,
   getRequestErrorMessage,
 }: UsePlanningCatalogAdminArgs) {
@@ -40,7 +42,9 @@ export function usePlanningCatalogAdmin({
 
   async function refreshCatalog() {
     const nextCatalog = await fetchPlanningCatalog(accessToken);
-    void saveCatalogCache(nextCatalog);
+    if (offlineScope) {
+      void saveCatalogCache(nextCatalog, offlineScope);
+    }
     setDetailForm((current) => syncDetailAdminForm(current, nextCatalog.categories));
     setEditingDetail((current) =>
       current ? { ...current, ...syncDetailAdminForm(current, nextCatalog.categories) } : null

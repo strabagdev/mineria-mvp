@@ -64,6 +64,10 @@ vi.mock("@/server/services/operational-header.service", () => ({
 }));
 
 vi.mock("@/server/services/planning-items.service", () => ({
+  PlanningConcurrencyConflictError: class PlanningConcurrencyConflictError extends Error {
+    status = 409;
+    current = null;
+  },
   createPlannedPlanningItem: mocks.createPlannedPlanningItem,
   createRealPlanningSegments: mocks.createRealPlanningSegments,
   deletePlanningItem: mocks.deletePlanningItem,

@@ -1,7 +1,12 @@
 "use client";
 
 import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { readProfileCache, saveProfileCache } from "@/lib/localOfflineStore";
+import {
+  clearOfflineDataForScope,
+  readProfileCache,
+  saveProfileCache,
+  type OfflineStorageScope,
+} from "@/lib/localOfflineStore";
 import { isBrowserOffline, isNetworkRequestError, subscribeNetworkStatus } from "@/lib/networkStatus";
 import { recordOperationalEvent } from "../lib/observability/logger";
 import {
@@ -24,6 +29,10 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+function scopeForUserId(userId: string | null | undefined): OfflineStorageScope | null {
+  return userId ? { userId } : null;
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<AppSession | null>(null);
   const [user, setUser] = useState<AppUser | null>(null);
@@ -40,7 +49,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      void readProfileCache<AuthContextValue["profile"]>().then((cachedProfile) => {
+      const scope = scopeForUserId(sessionRef.current?.user.id);
+      if (!scope) {
+        setLoading(false);
+        return;
+      }
+
+      void readProfileCache<AuthContextValue["profile"]>(scope).then((cachedProfile) => {
         if (!mounted) {
           return;
         }
@@ -68,7 +83,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return null;
       }
 
-      const cachedProfile = await readProfileCache<AuthContextValue["profile"]>().catch(() => null);
+      const scope = { userId: nextSession.user.id };
+      const cachedProfile = await readProfileCache<AuthContextValue["profile"]>(scope).catch(() => null);
 
       if (isBrowserOffline()) {
         return profileRef.current ?? cachedProfile?.value ?? null;
@@ -95,7 +111,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const nextProfile = json.profile ?? null;
 
         if (nextProfile) {
-          void saveProfileCache(nextProfile);
+          void saveProfileCache(nextProfile, scope);
         }
 
         return nextProfile;
@@ -146,17 +162,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
 
       try {
-        const cachedProfile = await readProfileCache<AuthContextValue["profile"]>().catch(() => null);
-        if (cachedProfile?.value && mounted) {
-          profileRef.current = cachedProfile.value;
-          setProfile(cachedProfile.value);
-          recordOperationalEvent({
-            name: "auth.offline_profile_used",
-            source: "AuthProvider",
-            metadata: { reason: "recover-session" },
-          });
-        }
-
         const sessionTimeout = Symbol("session-timeout");
         const sessionPromise = getCurrentAuthSession();
         const timeoutPromise = new Promise<typeof sessionTimeout>((resolve) => {
@@ -193,6 +198,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
+        if (result?.user.id) {
+          const cachedProfile = await readProfileCache<AuthContextValue["profile"]>(
+            scopeForUserId(result.user.id) ?? undefined
+          ).catch(() => null);
+          if (cachedProfile?.value && mounted) {
+            profileRef.current = cachedProfile.value;
+            setProfile(cachedProfile.value);
+            recordOperationalEvent({
+              name: "auth.offline_profile_used",
+              source: "AuthProvider",
+              metadata: { reason: "recover-session" },
+            });
+          }
+        }
+
         await applySession(result, { keepLoading: !sessionRef.current });
         recordOperationalEvent({
           name: "auth.session_recovery_finished",
@@ -214,7 +234,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setLoading(false);
           return;
         }
-        const cachedProfile = await readProfileCache<AuthContextValue["profile"]>().catch(() => null);
+        const scope = scopeForUserId(sessionRef.current?.user.id);
+        const cachedProfile = scope
+          ? await readProfileCache<AuthContextValue["profile"]>(scope).catch(() => null)
+          : null;
         if (!mounted) {
           return;
         }
@@ -257,6 +280,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(nextSession ?? null);
       setUser(nextSession?.user ?? null);
       sessionRef.current = nextSession ?? null;
+
+      if (previousSession?.user.id && previousSession.user.id !== nextSession?.user.id) {
+        void clearOfflineDataForScope(
+          { userId: previousSession.user.id },
+          { preservePlanningMutationQueue: true }
+        ).catch(() => undefined);
+        profileRef.current = null;
+        setProfile(null);
+      }
 
       if (hasResolvedSession && nextSession?.user.id === previousSession?.user.id) {
         setLoading(false);

@@ -87,6 +87,7 @@ const plannedRow: PlanningItemReadRow = {
   item_type: "unitaria",
   description: "Perforacion",
   notes: null,
+  updated_at: "2026-06-01T12:00:00.000Z",
 };
 
 const segmentRow: PlanningSegmentReadRow = {
@@ -100,6 +101,7 @@ const segmentRow: PlanningSegmentReadRow = {
   item_type: "unitaria",
   description: "Perforacion real",
   notes: null,
+  updated_at: "2026-06-01T12:00:00.000Z",
 };
 
 const payload = {
@@ -135,7 +137,7 @@ describe("planning items operational header sync", () => {
       activityGroupId: plannedRow.activity_group_id,
       values: [],
     });
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       status: "created",
       item: {
         id: 123,
@@ -180,6 +182,23 @@ describe("planning items operational header sync", () => {
       id: 123,
       tracking_type: "programado",
     });
+  });
+
+  it("throws a concurrency conflict when editing a stale planning item", async () => {
+    vi.resetAllMocks();
+    mocks.findPlannedItemById.mockResolvedValue(plannedRow);
+    mocks.updatePlannedItemById.mockResolvedValue(null);
+    const { PlanningConcurrencyConflictError, updatePlannedPlanningItem } = await import("./planning-items.service");
+
+    await expect(updatePlannedPlanningItem({
+      actor,
+      id: plannedRow.id,
+      expectedUpdatedAt: "2026-06-01T11:00:00.000Z",
+      updatePayload: {
+        ...payload,
+      },
+    })).rejects.toBeInstanceOf(PlanningConcurrencyConflictError);
+    expect(mocks.syncDynamicOperationalHeaderForPlanningItem).not.toHaveBeenCalled();
   });
 
   it("syncs dynamic operational header values after creating a planning item", async () => {
@@ -255,7 +274,7 @@ describe("planning items operational header sync", () => {
       activityGroupId: segmentRow.activity_group_id,
       values: [],
     });
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       status: "created",
       item: {
         id: 456,
@@ -428,6 +447,25 @@ describe("planning items operational header sync", () => {
       activityGroupId: segmentRow.activity_group_id,
       values: [{ field_id: 30, value: "Geologia" }],
     });
+  });
+
+  it("throws a concurrency conflict before deleting a stale planning item", async () => {
+    vi.resetAllMocks();
+    mocks.findPlannedItemById.mockResolvedValue(plannedRow);
+    mocks.hasExecutionSegmentForPlanningItem.mockResolvedValue(false);
+    mocks.deletePlannedItemById.mockResolvedValue(false);
+    const { PlanningConcurrencyConflictError, deletePlanningItem } = await import("./planning-items.service");
+
+    await expect(deletePlanningItem({
+      actor,
+      id: plannedRow.id,
+      trackingType: "programado",
+      expectedUpdatedAt: "2026-06-01T11:00:00.000Z",
+    })).rejects.toBeInstanceOf(PlanningConcurrencyConflictError);
+    expect(mocks.deletePlannedItemById).toHaveBeenCalledWith(
+      plannedRow.id,
+      "2026-06-01T11:00:00.000Z"
+    );
   });
 
   it("reconciles a real edit through a single transactional repository call", async () => {

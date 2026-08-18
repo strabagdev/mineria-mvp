@@ -14,12 +14,13 @@ export type PlanningSegmentReadRow = {
   item_type: string;
   description: string;
   notes: string | null;
+  updated_at: string;
   segment_order?: number;
   client_mutation_id?: string | null;
 };
 
 export const planningSegmentReadSelect =
-  "id, planning_item_id, activity_group_id, item_date, start_time, end_time, shift, category, item_type, description, notes, segment_order, client_mutation_id";
+  "id, planning_item_id, activity_group_id, item_date, start_time, end_time, shift, category, item_type, description, notes, updated_at, segment_order, client_mutation_id";
 
 export type PlanningSegmentOverlapRow = {
   id: number;
@@ -201,7 +202,7 @@ export async function updateExecutionSegmentById(
   const db = getSupabaseServerClient();
   const { data, error } = await db
     .from("activity_execution_segments")
-    .update(input)
+    .update({ ...input, updated_at: new Date().toISOString() })
     .eq("id", id)
     .select(planningSegmentReadSelect)
     .single();

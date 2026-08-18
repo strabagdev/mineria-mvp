@@ -42,6 +42,10 @@ export function OperationalCatalogPage() {
   const canManageOperationalHeader = hasEffectivePermission(profile, PERMISSIONS.OPERATIONAL_HEADER_MANAGE);
   const canManageAssignments = hasEffectivePermission(profile, PERMISSIONS.ASSIGNMENTS_MANAGE);
   const canManageAnyCatalogSection = canManageCatalog || canManageOperationalHeader || canManageAssignments;
+  const offlineScope = useMemo(() => {
+    const userId = profile?.user_id ?? session?.user?.id ?? null;
+    return userId ? { userId } : null;
+  }, [profile?.user_id, session?.user?.id]);
   const [catalog, setCatalog] = useState<CatalogCategory[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState("");
@@ -83,6 +87,7 @@ export function OperationalCatalogPage() {
     handleDeleteDetail,
   } = usePlanningCatalogAdmin({
     accessToken: session?.access_token,
+    offlineScope,
     onRefresh: syncCatalogState,
     getRequestErrorMessage,
   });
@@ -141,7 +146,9 @@ export function OperationalCatalogPage() {
         }
 
         syncCatalogState(nextCatalog);
-        void saveCatalogCache(nextCatalog);
+        if (offlineScope) {
+          void saveCatalogCache(nextCatalog, offlineScope);
+        }
         setDetailForm((current) => syncDetailAdminForm(current, nextCatalog.categories));
       })
       .catch((error: unknown) => {
@@ -160,7 +167,7 @@ export function OperationalCatalogPage() {
     return () => {
       active = false;
     };
-  }, [authLoading, canManageCatalog, session?.access_token, setDetailForm, syncCatalogState]);
+  }, [authLoading, canManageCatalog, offlineScope, session?.access_token, setDetailForm, syncCatalogState]);
 
   useEffect(() => {
     if (
