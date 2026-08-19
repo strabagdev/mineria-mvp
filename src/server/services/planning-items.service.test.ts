@@ -22,6 +22,8 @@ const mocks = vi.hoisted(() => ({
   findExecutionSegmentById: vi.fn(),
   updateExecutionSegmentById: vi.fn(),
   reconcileRealExecutionSegments: vi.fn(),
+  processRealSegmentCreateSyncMutation: vi.fn(),
+  processRealSegmentDeleteSyncMutation: vi.fn(),
   hasExecutionSegmentForPlanningItem: vi.fn(),
   deletePlannedItemById: vi.fn(),
   deleteExecutionSegmentById: vi.fn(),
@@ -65,6 +67,8 @@ vi.mock("@/server/repositories/planning-segments.repository", () => ({
   findExecutionSegmentById: mocks.findExecutionSegmentById,
   updateExecutionSegmentById: mocks.updateExecutionSegmentById,
   reconcileRealExecutionSegments: mocks.reconcileRealExecutionSegments,
+  processRealSegmentCreateSyncMutation: mocks.processRealSegmentCreateSyncMutation,
+  processRealSegmentDeleteSyncMutation: mocks.processRealSegmentDeleteSyncMutation,
   hasExecutionSegmentForPlanningItem: mocks.hasExecutionSegmentForPlanningItem,
   deleteExecutionSegmentById: mocks.deleteExecutionSegmentById,
 }));
@@ -319,6 +323,49 @@ describe("planning items operational header sync", () => {
     });
   });
 
+  it("creates real segments with a sync mutation through the transactional RPC", async () => {
+    vi.resetAllMocks();
+    mocks.processRealSegmentCreateSyncMutation.mockResolvedValue({
+      item: segmentRow,
+      items: [segmentRow],
+    });
+    const { createRealPlanningSegments } = await import("./planning-items.service");
+
+    const result = await createRealPlanningSegments({
+      actor,
+      userId: "user-1",
+      payload: {
+        ...payload,
+        tracking_type: "real",
+        client_mutation_id: "mutation-real-create",
+        operational_header_values: [{ field_id: 30, value: "Mina" }],
+      },
+      plannedItem: { id: plannedRow.id, activity_group_id: plannedRow.activity_group_id },
+      segments: [{
+        ...payload,
+        tracking_type: "real",
+        operational_header_values: [{ field_id: 30, value: "Mina" }],
+      }],
+      validateOverlap: vi.fn(),
+    });
+
+    expect(mocks.processRealSegmentCreateSyncMutation).toHaveBeenCalledWith(expect.objectContaining({
+      mutationId: "mutation-real-create",
+      actorUserId: "user-1",
+      actorEmail: "user@example.com",
+      createdBy: "user-1",
+      planningItemId: plannedRow.id,
+      activityGroupId: "group-1",
+      operationalHeaderValues: [{ field_id: 30, value: "Mina" }],
+    }));
+    expect(mocks.insertExecutionSegments).not.toHaveBeenCalled();
+    expect(mocks.syncDynamicOperationalHeaderForExecutionSegment).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      status: "created",
+      item: { id: segmentRow.id, tracking_type: "real" },
+    });
+  });
+
   it("syncs operational header values after editing an execution segment", async () => {
     vi.resetAllMocks();
     const updatedSegment = {
@@ -482,6 +529,30 @@ describe("planning items operational header sync", () => {
     );
   });
 
+  it("deletes real segments with a sync mutation through the transactional RPC", async () => {
+    vi.resetAllMocks();
+    mocks.processRealSegmentDeleteSyncMutation.mockResolvedValue({ ok: true });
+    const { deletePlanningItem } = await import("./planning-items.service");
+
+    const result = await deletePlanningItem({
+      actor,
+      id: segmentRow.id,
+      trackingType: "real",
+      expectedUpdatedAt: segmentRow.updated_at,
+      mutationId: "mutation-real-delete",
+    });
+
+    expect(mocks.processRealSegmentDeleteSyncMutation).toHaveBeenCalledWith({
+      mutationId: "mutation-real-delete",
+      segmentId: segmentRow.id,
+      actorUserId: "user-1",
+      actorEmail: "user@example.com",
+      expectedUpdatedAt: segmentRow.updated_at,
+    });
+    expect(mocks.deleteExecutionSegmentById).not.toHaveBeenCalled();
+    expect(result).toEqual({ status: "deleted", deletedItem: undefined });
+  });
+
   it("reconciles a real edit through a single transactional repository call", async () => {
     vi.resetAllMocks();
     const firstSegment = {
@@ -633,7 +704,6 @@ describe("planning items operational header sync", () => {
   it("processes planned sync mutations through the transactional RPC", async () => {
     vi.resetAllMocks();
     mocks.processPlannedItemSyncMutation.mockResolvedValue({ item: plannedRow });
-    mocks.syncDynamicOperationalHeaderForPlanningItem.mockResolvedValue([]);
     const { processPlannedPlanningItemSyncMutation } = await import("./planning-items.service");
 
     const result = await processPlannedPlanningItemSyncMutation({
@@ -654,11 +724,7 @@ describe("planning items operational header sync", () => {
       expectedUpdatedAt: plannedRow.updated_at,
       payload,
     });
-    expect(mocks.syncDynamicOperationalHeaderForPlanningItem).toHaveBeenCalledWith({
-      planningItemId: plannedRow.id,
-      activityGroupId: plannedRow.activity_group_id,
-      values: [],
-    });
+    expect(mocks.syncDynamicOperationalHeaderForPlanningItem).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       status: "applied",
       item: { id: plannedRow.id, tracking_type: "programado" },

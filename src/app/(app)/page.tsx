@@ -597,7 +597,8 @@ export default function Home() {
     scope: offlineScope,
     accessToken: session?.access_token,
     canSync: canSyncPlanning,
-    sendMutation: (mutation) => sendPlanningSyncMutation(mutation.method, mutation.payload, session?.access_token),
+    sendMutation: (mutation) =>
+      sendPlanningSyncMutation(mutation.method, mutation.payload, session?.access_token, mutation.assignmentPayload),
     pullRemoteChanges: async (mutations) => {
       if (!offlineScope || !session?.access_token) {
         return mutations;
@@ -640,6 +641,19 @@ export default function Home() {
           : Number.isFinite(payloadItemId) && payloadItemId > 0
             ? payloadItemId
             : null;
+
+      const assignmentResult = response && typeof response === "object"
+        ? (response as { assignmentResult?: { target?: AssignmentTarget; assignments?: PlanningAssignmentDto[] } }).assignmentResult
+        : null;
+
+      if (assignmentResult?.assignments && assignmentResult.target) {
+        const assignmentTarget = assignmentResult.target;
+        setPlanningAssignmentsByTargetKey((current) => ({ ...current, [getAssignmentTargetKey(assignmentTarget)]: assignmentResult.assignments ?? [] }));
+        if (offlineScope) {
+          void saveAssignmentsCacheForTarget(assignmentTarget, assignmentResult.assignments, offlineScope);
+        }
+        return;
+      }
 
       if (!planningItemId) {
         throw new Error("No se pudo asociar las asignaciones al programado sincronizado.");

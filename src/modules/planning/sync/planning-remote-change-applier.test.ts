@@ -18,9 +18,17 @@ const localRepository = vi.hoisted(() => ({
   ]),
 }));
 
+const assignmentCache = vi.hoisted(() => ({
+  saveAssignmentsCacheForTarget: vi.fn(),
+}));
+
 vi.mock("@/lib/localOfflineStore", () => ({
   readSyncCursor: localStore.readSyncCursor,
   saveSyncCursor: localStore.saveSyncCursor,
+}));
+
+vi.mock("@/modules/planning-assignments/offline/planning-assignments-offline", () => ({
+  saveAssignmentsCacheForTarget: assignmentCache.saveAssignmentsCacheForTarget,
 }));
 
 vi.mock("../local/planning-local-repository", () => ({
@@ -135,5 +143,28 @@ describe("PlanningRemoteChangeApplier", () => {
     });
     expect(localRepository.replaceSnapshot).not.toHaveBeenCalled();
     expect(localStore.saveSyncCursor).toHaveBeenCalledWith("planning", 9, scope);
+  });
+
+  it("applies remote assignment changes to the assignment cache without replacing the planning snapshot", async () => {
+    const applier = new PlanningRemoteChangeApplier();
+    const target = { target_kind: "planning_item" as const, target_id: 42 };
+    const assignments = [{ id: 1, planning_item_id: 42, execution_segment_id: null, assignment_type_id: 9, instance_order: 1, values: [] }];
+
+    const result = await applier.applyChanges({
+      changes: [makeChange({
+        sequenceId: 10,
+        entityType: "planning_assignment",
+        entityId: "planning_item:42",
+        payload: { target, assignments },
+      })],
+      scope,
+      pendingMutations: [],
+      currentDate: "2026-08-18",
+    });
+
+    expect(assignmentCache.saveAssignmentsCacheForTarget).toHaveBeenCalledWith(target, assignments, scope);
+    expect(localRepository.replaceSnapshot).not.toHaveBeenCalled();
+    expect(localStore.saveSyncCursor).toHaveBeenCalledWith("planning", 10, scope);
+    expect(result.currentDateTouched).toBe(false);
   });
 });

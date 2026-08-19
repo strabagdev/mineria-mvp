@@ -23,11 +23,12 @@ import { writeAuditLog } from "@/lib/auditLog";
 import {
   deleteExecutionSegmentById,
   findExecutionSegmentById,
-  findSegmentsByClientMutationId,
   getNextSegmentOrder,
   hasExecutionSegmentForPlanningItem,
   insertExecutionSegments,
   listExecutionSegmentsByDate,
+  processRealSegmentCreateSyncMutation,
+  processRealSegmentDeleteSyncMutation,
   reconcileRealExecutionSegments,
   updateExecutionSegmentById,
   type PlanningSegmentReadRow,
@@ -113,6 +114,14 @@ function mapPlannedSyncRpcError(error: unknown) {
   throw error;
 }
 
+function getRealSyncErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isRealSyncOverlapError(error: unknown) {
+  return /solapa|solaparse/i.test(getRealSyncErrorMessage(error));
+}
+
 export async function processPlannedPlanningItemSyncMutation(input: {
   actor: AuditActor;
   userId: string;
@@ -141,14 +150,6 @@ export async function processPlannedPlanningItemSyncMutation(input: {
     if (!item) {
       throw new Error("La mutacion atomica de planning no devolvio un item valido.");
     }
-
-    await syncDynamicOperationalHeaderForPlanningItem({
-      planningItemId: item.id,
-      activityGroupId: item.activity_group_id,
-      values: Array.isArray(input.payload.operational_header_values)
-        ? input.payload.operational_header_values
-        : [],
-    });
 
     await writeAuditLog({
       actor: input.actor,
@@ -310,24 +311,59 @@ export async function createRealPlanningSegments(input: {
   validateOverlap: () => Promise<Response | null>;
 }) {
   if (input.payload.client_mutation_id) {
-    const existingSegments = await findSegmentsByClientMutationId(
-      input.payload.client_mutation_id
-    );
+    try {
+      const realResponse = await processRealSegmentCreateSyncMutation({
+        mutationId: input.payload.client_mutation_id,
+        actorUserId: input.actor?.profile?.user_id ?? input.actor?.user?.id ?? null,
+        actorEmail: input.actor?.profile?.email ?? input.actor?.user?.email ?? null,
+        createdBy: input.userId,
+        planningItemId: input.plannedItem?.id,
+        activityGroupId: input.payload.activity_group_id,
+        segments: input.segments.map((segment) => ({
+          item_date: segment.item_date,
+          start_time: segment.start_time,
+          end_time: segment.end_time,
+          shift: segment.shift,
+          category: segment.category,
+          item_type: segment.item_type,
+          description: segment.description,
+          notes: segment.notes,
+        })),
+        operationalHeaderValues: input.payload.operational_header_values ?? [],
+      });
 
-    if (existingSegments.length) {
       return {
-        status: "existing" as const,
+        status: "created" as const,
         item: mapPlanningReadRow({
-          ...existingSegments[0],
+          ...(realResponse.item as Omit<PlanningItemResponse, "tracking_type">),
           tracking_type: "real",
         }),
-        items: existingSegments.map((row) =>
+        items: realResponse.items.map((row) =>
           mapPlanningReadRow({
             ...row,
             tracking_type: "real",
           })
         ),
       };
+    } catch (error) {
+      if (isRealSyncOverlapError(error)) {
+        return {
+          status: "overlap" as const,
+          response: new Response(JSON.stringify({ error: getRealSyncErrorMessage(error) }), {
+            status: 409,
+            headers: { "Content-Type": "application/json" },
+          }),
+        };
+      }
+
+      if (error instanceof Error && /sync_concurrency_conflict/i.test(error.message)) {
+        throw new PlanningConcurrencyConflictError(
+          "El registro fue modificado por otro usuario. Actualiza la planificacion antes de volver a editar.",
+          null
+        );
+      }
+
+      throw error;
     }
   }
 
@@ -566,6 +602,7 @@ export async function deletePlanningItem(input: {
   id: number;
   trackingType: string;
   expectedUpdatedAt?: string | null;
+  mutationId?: string | null;
 }) {
   if (input.trackingType === "programado") {
     const currentItem = await findPlannedItemById(input.id);
@@ -607,6 +644,33 @@ export async function deletePlanningItem(input: {
         updatedAt: currentItem.updated_at,
       },
     };
+  }
+
+  if (input.mutationId) {
+    try {
+      await processRealSegmentDeleteSyncMutation({
+        mutationId: input.mutationId,
+        segmentId: input.id,
+        actorUserId: input.actor?.profile?.user_id ?? input.actor?.user?.id ?? null,
+        actorEmail: input.actor?.profile?.email ?? input.actor?.user?.email ?? null,
+        expectedUpdatedAt: input.expectedUpdatedAt ?? null,
+      });
+
+      return {
+        status: "deleted" as const,
+        deletedItem: undefined,
+      };
+    } catch (error) {
+      if (error instanceof Error && /sync_concurrency_conflict/i.test(error.message)) {
+        const current = await findExecutionSegmentById(input.id).catch(() => null);
+        throw new PlanningConcurrencyConflictError(
+          "El registro fue modificado por otro usuario. Actualiza la planificacion antes de eliminar.",
+          current ? mapPlanningReadRow({ ...current, tracking_type: "real" }) : null
+        );
+      }
+
+      throw error;
+    }
   }
 
   const currentSegment = await findExecutionSegmentById(input.id);

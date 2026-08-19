@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import type { SyncPushMutation, SyncPushResponse } from "@/modules/sync/sync-contracts";
 import { POST as createPlanningItem, PATCH as updatePlanningItem, DELETE as deletePlanningItem } from "@/app/api/planning-items/route";
 import { getErrorMessage, getErrorStatus } from "@/lib/errorMessage";
+import { PERMISSIONS, requirePermission } from "@/lib/accessControl";
+import { saveAssignmentsForTarget } from "@/server/services/planning-assignments.service";
+import { registerPlanningAssignmentSync } from "@/server/services/sync.service";
 
 type PushBody = {
   mutations?: SyncPushMutation[];
@@ -58,6 +61,48 @@ async function dispatchPlanningMutation(req: Request, mutation: SyncPushMutation
   return response;
 }
 
+function getSyncedPlanningItemId(mutation: SyncPushMutation, responseBody: unknown) {
+  const responseItemId = Number((responseBody as { item?: { id?: unknown } })?.item?.id);
+  const payloadItemId = Number(mutation.payload.id ?? mutation.entityId);
+
+  if (Number.isFinite(responseItemId) && responseItemId > 0) {
+    return responseItemId;
+  }
+
+  if (Number.isFinite(payloadItemId) && payloadItemId > 0) {
+    return payloadItemId;
+  }
+
+  return null;
+}
+
+async function applyPlanningAssignmentDependency(req: Request, mutation: SyncPushMutation, responseBody: unknown) {
+  if (mutation.operation === "delete" || mutation.assignmentPayload === undefined) {
+    return null;
+  }
+
+  const planningItemId = getSyncedPlanningItemId(mutation, responseBody);
+  if (!planningItemId) {
+    throw new Error("No se pudo asociar las asignaciones al registro sincronizado.");
+  }
+
+  const { user, profile } = await requirePermission(req, PERMISSIONS.ASSIGNMENTS_MANAGE);
+  const target = { target_kind: "planning_item" as const, target_id: planningItemId };
+  const assignments = await saveAssignmentsForTarget({
+    actor: { user, profile },
+    target,
+    assignments: mutation.assignmentPayload,
+  });
+  await registerPlanningAssignmentSync({
+    mutationId: mutation.mutationId,
+    actorUserId: user.id,
+    target,
+    assignments,
+  });
+
+  return { target, assignments };
+}
+
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as PushBody;
@@ -80,11 +125,14 @@ export async function POST(req: Request) {
       if (!response.ok) {
         return NextResponse.json(responseBody, { status: response.status });
       }
+      const assignmentResult = await applyPlanningAssignmentDependency(req, mutation, responseBody);
 
       results.push({
         mutationId: mutation.mutationId,
         status: response.status === 200 ? "existing" : "applied",
-        response: responseBody,
+        response: assignmentResult
+          ? { ...(responseBody && typeof responseBody === "object" ? responseBody : {}), assignmentResult }
+          : responseBody,
       });
     }
 

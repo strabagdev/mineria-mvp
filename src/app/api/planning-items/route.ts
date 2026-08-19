@@ -523,6 +523,10 @@ export async function POST(req: Request) {
     }
 
     const responseBody = { item: realResult.item, items: realResult.items };
+    if (mutationId) {
+      return NextResponse.json(responseBody, { status: 201 });
+    }
+
     await registerPlanningMutationSync({
       mutationId,
       method: "POST",
@@ -530,7 +534,7 @@ export async function POST(req: Request) {
       response: responseBody,
     });
 
-    return NextResponse.json(responseBody, { status: realResult.status === "existing" ? 200 : 201 });
+    return NextResponse.json(responseBody, { status: 201 });
   } catch (error: unknown) {
     return NextResponse.json({ error: getErrorMessage(error) }, { status: getErrorStatus(error) });
   }
@@ -701,6 +705,7 @@ export async function DELETE(req: Request) {
       id,
       trackingType,
       expectedUpdatedAt: body.expected_updated_at ?? null,
+      mutationId,
     });
 
     if (result.status === "blocked-by-real") {
@@ -711,6 +716,10 @@ export async function DELETE(req: Request) {
     }
 
     const responseBody = { ok: true };
+    if (mutationId) {
+      return NextResponse.json(responseBody);
+    }
+
     await registerPlanningMutationSync({
       mutationId,
       method: "DELETE",

@@ -86,6 +86,25 @@ export type ReconcileRealExecutionSegmentsInput = {
   syncMutationId?: string | null;
 };
 
+export type ProcessRealSegmentCreateSyncMutationInput = {
+  mutationId: string;
+  actorUserId?: string | null;
+  actorEmail?: string | null;
+  createdBy: string;
+  planningItemId: number | null | undefined;
+  activityGroupId: string;
+  segments: ReconcileRealExecutionSegmentsInput["segments"];
+  operationalHeaderValues?: ReconcileRealExecutionSegmentsInput["operationalHeaderValues"];
+};
+
+export type ProcessRealSegmentDeleteSyncMutationInput = {
+  mutationId: string;
+  segmentId: number;
+  actorUserId?: string | null;
+  actorEmail?: string | null;
+  expectedUpdatedAt?: string | null;
+};
+
 export async function listExecutionSegmentsByDate(date: string) {
   const db = getSupabaseServerClient();
   let query = db
@@ -249,4 +268,49 @@ export async function reconcileRealExecutionSegments(
   }
 
   return (Array.isArray(data) ? data : []) as PlanningSegmentReadRow[];
+}
+
+export async function processRealSegmentCreateSyncMutation(
+  input: ProcessRealSegmentCreateSyncMutationInput
+) {
+  const db = getSupabaseServerClient();
+  const { data, error } = await db.rpc("process_real_segment_create_sync_mutation", {
+    p_mutation_id: input.mutationId,
+    p_actor_user_id: input.actorUserId ?? null,
+    p_actor_email: input.actorEmail ?? null,
+    p_created_by: input.createdBy,
+    p_planning_item_id: input.planningItemId ?? null,
+    p_activity_group_id: input.activityGroupId,
+    p_segments: input.segments,
+    p_operational_header_values: input.operationalHeaderValues ?? [],
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  const response = data && typeof data === "object" ? data as { item?: unknown; items?: unknown } : {};
+  return {
+    item: response.item as PlanningSegmentReadRow | undefined,
+    items: (Array.isArray(response.items) ? response.items : []) as PlanningSegmentReadRow[],
+  };
+}
+
+export async function processRealSegmentDeleteSyncMutation(
+  input: ProcessRealSegmentDeleteSyncMutationInput
+) {
+  const db = getSupabaseServerClient();
+  const { data, error } = await db.rpc("process_real_segment_delete_sync_mutation", {
+    p_mutation_id: input.mutationId,
+    p_segment_id: input.segmentId,
+    p_actor_user_id: input.actorUserId ?? null,
+    p_actor_email: input.actorEmail ?? null,
+    p_expected_updated_at: input.expectedUpdatedAt ?? null,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
 }

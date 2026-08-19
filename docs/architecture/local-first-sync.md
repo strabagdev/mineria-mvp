@@ -53,7 +53,7 @@ La dirección final es que la UI consuma primero IndexedDB para dominios operaci
 Fase 1 — SyncCoordinator / Outbox        COMPLETA
 Fase 2 — IndexedDB-first planning        COMPLETA
 Fase 3 — Push/Pull incremental           COMPLETA
-Fase 4 — Atomicidad + sin Realtime       EN PROGRESO
+Fase 4 — Atomicidad + sin Realtime       COMPLETA
 Fase 5 — Migración Railway               PENDIENTE
 ```
 
@@ -198,8 +198,9 @@ Limitaciones conocidas:
 
 - Las mutaciones core de `planning_items` con `tracking_type = 'programado'` y `client_mutation_id` usan `process_planned_item_sync_mutation()`, por lo que `create/update/delete + processed mutation + changelog` ocurren en una transacción PostgreSQL.
 - Las ediciones/reconciliaciones de `activity_execution_segments` usan `reconcile_real_execution_segments()` extendida por `supabase/sql/023_real_segments_sync_rpc.sql`; la validación `expected_updated_at`, el upsert/delete de segmentos, cabecera operacional dinámica de segmentos, audit log, `sync_changes` y `sync_processed_mutations` ocurren en la misma transacción PostgreSQL.
-- La cabecera operacional dinámica de esos programados sigue sincronizándose desde TypeScript después del RPC para no duplicar todavía toda la lógica de dependencias/validación en SQL.
-- La creación y eliminación simple de `tracking_type = 'real'` fuera de `reconcile_real_execution_segments()` y las asignaciones vinculadas todavía mantienen frontera transaccional propia. Para volverlas completamente atómicas con sync metadata hace falta ampliar el contrato de `/api/sync/push` para incluir asignaciones como parte server-side de la misma mutation.
+- La cabecera operacional dinámica de programados con `client_mutation_id` se aplica dentro de `process_planned_item_sync_mutation()` desde `supabase/sql/024_real_segment_create_delete_sync_rpc.sql`; el payload de changelog incluye los valores enviados para convergencia incremental.
+- La creación y eliminación simple de `tracking_type = 'real'` con `client_mutation_id` usan `process_real_segment_create_sync_mutation()` y `process_real_segment_delete_sync_mutation()` desde `supabase/sql/024_real_segment_create_delete_sync_rpc.sql`; insert/delete, cabecera operacional dinámica de segmentos reales, audit log, tombstones/upserts, idempotencia y changelog ocurren en la misma transacción PostgreSQL.
+- Las asignaciones vinculadas a programados viajan como dependencia explícita de la mutación en `/api/sync/push` mediante `assignmentPayload`. El push aplica primero la mutación core, luego exige `assignments.manage`, guarda asignaciones server-side, registra `planning_assignment` en `sync_changes` y devuelve `assignmentResult` para actualizar IndexedDB sin duplicar escrituras desde el cliente.
 - Después de algunos pushes confirmados puede seguir usándose refresh completo de fecha para snapshots de conflicto o datos derivados que la respuesta actual no contiene de forma suficiente.
 - La outbox general aún es planning-specific; se generalizará cuando otro dominio necesite el mismo contrato.
 - Los tombstones remotos viven en `sync_changes`; no existe aún una tabla local separada de tombstones porque el applier remueve del snapshot por fecha.
@@ -280,6 +281,15 @@ public.reconcile_real_execution_segments(
 
 La función bloquea los segmentos relacionados, valida la revisión esperada dentro del lock, reconcilia splits/merges de tramos, aplica cabecera operacional dinámica de segmentos, registra tombstones/upserts en `sync_changes` y guarda `sync_processed_mutations` para retries idempotentes.
 
+Para creación/eliminación de segmentos reales sincronizados, el handler llama a:
+
+```text
+public.process_real_segment_create_sync_mutation(...)
+public.process_real_segment_delete_sync_mutation(...)
+```
+
+Estas funciones registran los cambios de `activity_execution_segment` en la misma transacción que la escritura operacional. En create, también insertan/actualizan la cabecera operacional dinámica enviada para cada segmento creado. En delete, registran un tombstone con `item_date` para que el pull pueda remover el item del snapshot local correcto.
+
 ### Pull
 
 Conceptualmente:
@@ -307,7 +317,18 @@ Cada cambio debe poder representar:
 - revisión del servidor;
 - `payload`.
 
-`PlanningRemoteChangeApplier` recibe esos cambios, detecta conflictos con outbox local pendiente, escribe IndexedDB y avanza el cursor con `saveSyncCursor("planning", cursor, scope)`.
+`PlanningRemoteChangeApplier` recibe esos cambios, detecta conflictos con outbox local pendiente, escribe IndexedDB y avanza el cursor con `saveSyncCursor("planning", cursor, scope)`. También aplica cambios `planning_assignment` en la caché local de asignaciones del target afectado.
+
+## Cobertura por dominio
+
+| Dominio | IndexedDB-first | Outbox | Push | Pull | Atomicidad | Idempotencia | Changelog |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Planning programado | Si | Si | `/api/sync/push` -> `process_planned_item_sync_mutation()` | `planning_item` upsert/delete | Core y cabecera operacional de programado transaccionales para mutaciones sincronizadas | `sync_processed_mutations` por `mutation_id` | `sync_changes` `planning_item` |
+| Segmentos reales | Si | Si | `/api/sync/push` -> RPC create/update/delete real | `activity_execution_segment` upsert/delete | Transaccional con cabecera operacional de segmentos reales | `sync_processed_mutations` por `mutation_id` | `sync_changes` `activity_execution_segment` |
+| Asignaciones vinculadas | Cache por target | Dependencia de mutación planning | `/api/sync/push` aplica `assignmentPayload` con `assignments.manage` | `planning_assignment` upsert | Dependencia ordenada y retryable después del core; no es una única transacción con `planning_item` | Core idempotente; asignación reintenta sobre target resuelto | `sync_changes` `planning_assignment` |
+| Cabecera operacional de programados | Incluida en item local | Incluida en payload planning | Dentro de RPC de programado para mutations con `client_mutation_id` | Dentro de payload `item.operational_header_values` | Transaccional con `planning_item` sincronizado | `sync_processed_mutations` por `mutation_id` | Indirecta dentro de `planning_item` |
+| Cabecera operacional de segmentos reales | Incluida en item local | Incluida en payload real | Dentro de RPC real create/update | Dentro de payload `item.operational_header_values` | Transaccional con segmento real | `sync_processed_mutations` por `mutation_id` | Indirecta dentro de `activity_execution_segment` |
+| Tombstones | Si, remueve snapshot local | Si | RPC/handler delete | `operation = delete` | Transaccional para deletes sincronizados con RPC | `sync_processed_mutations` por `mutation_id` | `sync_changes` delete |
 
 ## Validación sin Realtime
 
@@ -340,13 +361,15 @@ Prueba sugerida:
 3. Verificar que ambos estén online y en la misma fecha de planning.
 4. Crear un registro desde teléfono.
 5. Observar en notebook hasta que aparezca por pull incremental.
-6. Editar el registro desde teléfono y observar actualización en notebook.
-7. Eliminar el registro desde teléfono y observar tombstone/remoción en notebook.
-8. Dejar notebook offline con cursor X.
-9. Crear/editar/eliminar varios registros desde teléfono.
-10. Volver notebook online y confirmar que recupera todos los cambios desde X en orden.
-11. Repetir con una edición concurrente para confirmar 409 y estado Requiere atención.
-12. Repetir revocando permiso de escritura antes del replay para confirmar 403 sin retry infinito.
+6. Crear un programado con asignaciones desde teléfono y observar que notebook recibe item y asignaciones sin recarga manual.
+7. Crear un real con cabecera operacional desde teléfono y observarlo en notebook.
+8. Editar/splitear un real desde teléfono y observar actualización/tombstones en notebook.
+9. Eliminar un programado y un real desde teléfono y observar tombstone/remoción en notebook.
+10. Dejar notebook offline con cursor X.
+11. Crear/editar/eliminar varios registros desde teléfono.
+12. Volver notebook online y confirmar que recupera todos los cambios desde X en orden.
+13. Repetir con una edición concurrente para confirmar 409 y estado Requiere atención.
+14. Repetir revocando permiso de escritura antes del replay para confirmar 403 sin retry infinito.
 ```
 
 ## Criterio para retirar Realtime
@@ -360,7 +383,7 @@ NO APTO TODAVÍA
 Razones:
 
 - La convergencia sin Realtime está cubierta por polling incremental y tests unitarios, pero falta prueba manual/field test real con dos dispositivos.
-- La atomicidad está cerrada para el core de `planning_items programado` y para edición/reconciliación de segmentos reales. Sigue abierta para asignaciones vinculadas y para cabecera operacional dinámica de programados, que todavía se aplican fuera del RPC core.
+- La atomicidad está cerrada para el core de `planning_items programado`, cabecera operacional de programados sincronizados, create/update/delete de segmentos reales y cabecera operacional de segmentos reales. Las asignaciones vinculadas ya son dependencias server-side ordenadas, retryables y con changelog, pero no comparten una única transacción PostgreSQL con el core del programado.
 - Falta un mecanismo de reparación/backfill para detectar cambios históricos sin `sync_changes` si una migración parcial o un error operacional lo requiere.
 
 Realtime puede seguir funcionando como acelerador mientras esas fronteras se cierran.

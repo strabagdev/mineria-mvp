@@ -5,6 +5,7 @@ import type {
   PlanningCatalogUpdateRequestDto,
 } from "@/modules/planning/contracts/planning-catalog";
 import type { PlanningItemMutationPayloadDto } from "@/modules/planning/contracts/planning-items";
+import type { PlanningAssignmentInputDto } from "@/modules/planning-assignments/contracts/planning-assignments";
 import { pushSyncMutations, SyncApiRequestError } from "@/modules/sync/sync-api.client";
 import type { SyncMutationOperation } from "@/modules/sync/sync-contracts";
 
@@ -98,7 +99,8 @@ function toSyncOperation(method: PlanningWriteMethod): SyncMutationOperation {
 export async function sendPlanningSyncMutation(
   method: PlanningWriteMethod,
   payload: PlanningMutationRequestPayloadDto,
-  accessToken?: string
+  accessToken?: string,
+  assignmentPayload?: PlanningAssignmentInputDto[]
 ) {
   const mutationId = String(payload.client_mutation_id ?? "").trim() || crypto.randomUUID();
   let response;
@@ -112,6 +114,7 @@ export async function sendPlanningSyncMutation(
         entityId: payload.id ?? null,
         baseRevision: typeof payload.expected_updated_at === "string" ? payload.expected_updated_at : null,
         payload,
+        assignmentPayload,
       },
     ], accessToken);
   } catch (error) {

@@ -31,7 +31,7 @@ type SyncChangeRow = {
   sequence_id: number;
   scope_user_id: string | null;
   domain: "planning";
-  entity_type: "planning_item" | "activity_execution_segment";
+  entity_type: "planning_item" | "activity_execution_segment" | "planning_assignment";
   entity_id: string;
   operation: SyncChangeOperation;
   server_revision: string | null;
@@ -142,6 +142,31 @@ export async function findProcessedSyncMutation(input: {
   }
 
   return data as ProcessedSyncMutationRow | null;
+}
+
+export async function findSyncChangeByMutationEntity(input: {
+  mutationId: string;
+  domain: string;
+  entityType: string;
+  entityId: string;
+  operation: SyncChangeOperation;
+}) {
+  const db = getSupabaseServerClient();
+  const { data, error } = await db
+    .from("sync_changes")
+    .select("sequence_id, scope_user_id, domain, entity_type, entity_id, operation, server_revision, occurred_at, payload, mutation_id")
+    .eq("mutation_id", input.mutationId)
+    .eq("domain", input.domain)
+    .eq("entity_type", input.entityType)
+    .eq("entity_id", input.entityId)
+    .eq("operation", input.operation)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data ? mapSyncChange(data as SyncChangeRow) : null;
 }
 
 export async function insertProcessedSyncMutation(input: ProcessedSyncMutationInsert) {

@@ -5,6 +5,8 @@ import { readSyncCursor, saveSyncCursor } from "@/lib/localOfflineStore";
 import type { PlanningItemDto } from "@/modules/planning/contracts/planning-items";
 import type { PlanningItem } from "@/modules/planning/presentation/planning-page-models";
 import type { SyncChange } from "@/modules/sync/sync-contracts";
+import type { AssignmentTarget, PlanningAssignmentDto } from "@/modules/planning-assignments/contracts/planning-assignments";
+import { saveAssignmentsCacheForTarget } from "@/modules/planning-assignments/offline/planning-assignments-offline";
 import { planningLocalRepository } from "../local/planning-local-repository";
 import type { PendingPlanningMutation } from "./planning-sync-models";
 
@@ -31,6 +33,26 @@ function toPlanningItem(item: PlanningItemDto): PlanningItem {
 function getChangeItem(change: SyncChange) {
   const item = change.payload.item;
   return item && typeof item === "object" ? item as PlanningItemDto : null;
+}
+
+function getAssignmentChange(change: SyncChange) {
+  const target = change.payload.target;
+  const assignments = change.payload.assignments;
+
+  if (
+    !target ||
+    typeof target !== "object" ||
+    !("target_kind" in target) ||
+    !("target_id" in target) ||
+    !Array.isArray(assignments)
+  ) {
+    return null;
+  }
+
+  return {
+    target: target as AssignmentTarget,
+    assignments: assignments as PlanningAssignmentDto[],
+  };
 }
 
 function getChangeDate(change: SyncChange) {
@@ -106,6 +128,15 @@ export class PlanningRemoteChangeApplier {
       }
 
       nextCursor = Math.max(nextCursor, change.sequenceId);
+
+      if (change.entityType === "planning_assignment") {
+        const assignmentChange = getAssignmentChange(change);
+        if (assignmentChange) {
+          await saveAssignmentsCacheForTarget(assignmentChange.target, assignmentChange.assignments, input.scope);
+        }
+        continue;
+      }
+
       const changeDate = getChangeDate(change);
       if (!changeDate) {
         continue;

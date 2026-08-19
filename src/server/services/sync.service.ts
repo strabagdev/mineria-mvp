@@ -1,9 +1,11 @@
 import "server-only";
 
 import type { PlanningItemDto } from "@/modules/planning/contracts/planning-items";
+import type { AssignmentTarget, PlanningAssignmentDto } from "@/modules/planning-assignments/contracts/planning-assignments";
 import type { SyncChange } from "@/modules/sync/sync-contracts";
 import {
   findProcessedSyncMutation,
+  findSyncChangeByMutationEntity,
   insertProcessedSyncMutation,
   insertSyncChanges,
   listSyncChanges,
@@ -157,6 +159,47 @@ export async function registerPlanningMutationSync(input: {
   }
 
   return insertedChanges;
+}
+
+export async function registerPlanningAssignmentSync(input: {
+  mutationId?: string | null;
+  actorUserId?: string | null;
+  target: AssignmentTarget;
+  assignments: PlanningAssignmentDto[];
+}) {
+  const mutationId = input.mutationId?.trim() || null;
+  const entityId = `${input.target.target_kind}:${input.target.target_id}`;
+
+  if (mutationId) {
+    const existing = await findSyncChangeByMutationEntity({
+      mutationId,
+      domain: PLANNING_DOMAIN,
+      entityType: "planning_assignment",
+      entityId,
+      operation: "upsert",
+    });
+
+    if (existing) {
+      return [existing];
+    }
+  }
+
+  return insertSyncChanges([
+    {
+      scope_user_id: null,
+      domain: PLANNING_DOMAIN,
+      entity_type: "planning_assignment",
+      entity_id: entityId,
+      operation: "upsert",
+      server_revision: new Date().toISOString(),
+      payload: {
+        target: input.target,
+        assignments: input.assignments,
+      },
+      mutation_id: mutationId,
+      actor_user_id: input.actorUserId ?? null,
+    },
+  ]);
 }
 
 export async function pullPlanningSyncChanges(input: {

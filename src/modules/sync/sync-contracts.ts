@@ -1,4 +1,5 @@
 import type { OfflineStorageScope } from "@/lib/localOfflineStore";
+import type { PlanningAssignmentInputDto } from "@/modules/planning-assignments/contracts/planning-assignments";
 
 export type SyncScope = OfflineStorageScope;
 
@@ -42,7 +43,7 @@ export type SyncChange = {
   sequenceId: number;
   scopeUserId: string | null;
   domain: "planning";
-  entityType: "planning_item" | "activity_execution_segment";
+  entityType: "planning_item" | "activity_execution_segment" | "planning_assignment";
   entityId: string;
   operation: SyncChangeOperation;
   serverRevision: string | null;
@@ -64,6 +65,7 @@ export type SyncPushMutation = {
   entityId?: string | number | null;
   baseRevision?: string | null;
   payload: Record<string, unknown>;
+  assignmentPayload?: PlanningAssignmentInputDto[];
 };
 
 export type SyncPushResponse = {

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const repository = vi.hoisted(() => ({
   findProcessedSyncMutation: vi.fn(),
+  findSyncChangeByMutationEntity: vi.fn(),
   insertProcessedSyncMutation: vi.fn(),
   insertSyncChanges: vi.fn(),
   listSyncChanges: vi.fn(),
@@ -11,6 +12,7 @@ vi.mock("server-only", () => ({}));
 
 vi.mock("@/server/repositories/sync.repository", () => ({
   findProcessedSyncMutation: repository.findProcessedSyncMutation,
+  findSyncChangeByMutationEntity: repository.findSyncChangeByMutationEntity,
   insertProcessedSyncMutation: repository.insertProcessedSyncMutation,
   insertSyncChanges: repository.insertSyncChanges,
   listSyncChanges: repository.listSyncChanges,
@@ -130,5 +132,47 @@ describe("sync service", () => {
       domain: "planning",
       scopeUserId: null,
     });
+  });
+
+  it("registers assignment dependency changes idempotently", async () => {
+    repository.findSyncChangeByMutationEntity.mockResolvedValueOnce(null);
+    repository.insertSyncChanges.mockResolvedValueOnce([{ sequenceId: 20 }]);
+    const { registerPlanningAssignmentSync } = await import("./sync.service");
+    const target = { target_kind: "planning_item" as const, target_id: 42 };
+    const assignments = [{ id: 1, planning_item_id: 42, execution_segment_id: null, assignment_type_id: 7, instance_order: 1, values: [] }];
+
+    await registerPlanningAssignmentSync({
+      mutationId: "mutation-assignments-1",
+      actorUserId: "user-1",
+      target,
+      assignments,
+    });
+
+    expect(repository.findSyncChangeByMutationEntity).toHaveBeenCalledWith({
+      mutationId: "mutation-assignments-1",
+      domain: "planning",
+      entityType: "planning_assignment",
+      entityId: "planning_item:42",
+      operation: "upsert",
+    });
+    expect(repository.insertSyncChanges).toHaveBeenCalledWith([
+      expect.objectContaining({
+        entity_type: "planning_assignment",
+        entity_id: "planning_item:42",
+        operation: "upsert",
+        payload: { target, assignments },
+      }),
+    ]);
+
+    repository.findSyncChangeByMutationEntity.mockResolvedValueOnce({ sequenceId: 20 });
+    repository.insertSyncChanges.mockClear();
+    await registerPlanningAssignmentSync({
+      mutationId: "mutation-assignments-1",
+      actorUserId: "user-1",
+      target,
+      assignments,
+    });
+
+    expect(repository.insertSyncChanges).not.toHaveBeenCalled();
   });
 });
