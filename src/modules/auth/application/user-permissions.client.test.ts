@@ -20,7 +20,7 @@ const operatorSummary: UserPermissionSummaryDto = {
     PERMISSIONS.RECORDS_CREATE,
     PERMISSIONS.RECORDS_EDIT,
     PERMISSIONS.RECORDS_DELETE,
-    PERMISSIONS.CATALOG_VIEW,
+    PERMISSIONS.CATALOG_DATA_READ,
   ],
   overrides: [],
   effective_permissions: [
@@ -28,7 +28,7 @@ const operatorSummary: UserPermissionSummaryDto = {
     PERMISSIONS.RECORDS_CREATE,
     PERMISSIONS.RECORDS_EDIT,
     PERMISSIONS.RECORDS_DELETE,
-    PERMISSIONS.CATALOG_VIEW,
+    PERMISSIONS.CATALOG_DATA_READ,
   ],
 };
 

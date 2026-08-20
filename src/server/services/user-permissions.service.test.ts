@@ -29,7 +29,7 @@ vi.mock("@/server/repositories/user-permissions.repository", () => ({
 vi.mock("./access.service", () => ({
   getPermissionsForRole: (role: string) =>
     role === "operator"
-      ? ["records.view", "records.create", "records.edit", "records.delete", "catalog.view"]
+      ? ["records.view", "records.create", "records.edit", "records.delete", "catalog.data.read"]
       : ["records.view"],
   getEffectivePermissionsForProfile: (
     profile: { role: string },
@@ -37,7 +37,7 @@ vi.mock("./access.service", () => ({
   ) => {
     const permissions = new Set(
       profile.role === "operator"
-        ? ["records.view", "records.create", "records.edit", "records.delete", "catalog.view"]
+        ? ["records.view", "records.create", "records.edit", "records.delete", "catalog.data.read"]
         : ["records.view"]
     );
     for (const override of overrides) {
@@ -52,6 +52,7 @@ vi.mock("./access.service", () => ({
       "records.create",
       "records.edit",
       "records.delete",
+      "catalog.data.read",
       "catalog.view",
       "catalog.manage",
     ].includes(value)

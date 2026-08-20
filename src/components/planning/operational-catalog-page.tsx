@@ -5,7 +5,10 @@ import { CatalogAdminWorkspace } from "@/components/planning/catalog-admin-works
 import { OperationalHeaderAdminPanel } from "@/components/planning/operational-header-admin-panel";
 import { PlanningAssignmentsAdminPanel } from "@/modules/planning-assignments/presentation/planning-assignments-admin-panel";
 import { fetchOperationalHeaderConfig } from "@/modules/operational-header/application/operational-header.client";
-import type { OperationalHeaderResponseDto } from "@/modules/operational-header/contracts/operational-header";
+import type {
+  OperationalHeaderFieldDto,
+  OperationalHeaderResponseDto,
+} from "@/modules/operational-header/contracts/operational-header";
 import { fetchPlanningCatalog } from "@/modules/planning/application/planning-reads.client";
 import { usePlanningCatalogAdmin } from "@/modules/planning/presentation/use-planning-catalog-admin";
 import { syncDetailAdminForm } from "@/modules/planning/presentation/planning-page-transformers";
@@ -36,12 +39,74 @@ function getRequestErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message || fallback : fallback;
 }
 
+function OperationalHeaderReadOnlyPanel({ config, loading, error }: {
+  config: OperationalHeaderResponseDto | null;
+  loading: boolean;
+  error: string;
+}) {
+  const fields = config?.fields ?? [];
+  const dependencies = config?.dependencies ?? [];
+
+  function getDependencyCount(field: OperationalHeaderFieldDto) {
+    return dependencies.filter((dependency) => dependency.field_id === field.id).length;
+  }
+
+  return (
+    <section className="operational-header-admin">
+      <div className="catalog-category-header">
+        <div>
+          <p className="eyebrow">Cabecera Operacional</p>
+          <h2 className="card-title" style={{ marginTop: 10 }}>Configuración operacional</h2>
+          <p className="body-copy">Vista de lectura de campos, opciones y reglas disponibles para la operación.</p>
+        </div>
+      </div>
+
+      {loading ? <p className="body-copy">Cargando cabecera operacional...</p> : null}
+      {error ? <p className="feedback" role="alert">{error}</p> : null}
+      {!loading && !error && !fields.length ? <p className="body-copy">No hay campos configurados.</p> : null}
+
+      <div className="catalog-tree">
+        {fields.map((field) => (
+          <article key={field.id} className="catalog-category-card">
+            <div className="catalog-category-header">
+              <div>
+                <p className="eyebrow">{field.input_type}</p>
+                <h3 className="card-title" style={{ marginTop: 10 }}>{field.label}</h3>
+              </div>
+              <span className="catalog-count">{field.active ? "Activo" : "Inactivo"}</span>
+            </div>
+            <div className="catalog-detail-list">
+              <span className="catalog-detail-chip">Slug: {field.slug}</span>
+              <span className="catalog-detail-chip">{field.required ? "Requerido" : "Opcional"}</span>
+              <span className="catalog-detail-chip">{field.options.length} opciones</span>
+              <span className="catalog-detail-chip">{getDependencyCount(field)} dependencias</span>
+            </div>
+            {field.options.length ? (
+              <div className="catalog-detail-list">
+                {field.options.map((option) => (
+                  <span key={option.id} className="catalog-detail-chip">
+                    {option.label}{option.active ? "" : " (inactiva)"}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export function OperationalCatalogPage() {
   const { loading: authLoading, session, profile } = useAuth();
+  const canViewCatalog = hasEffectivePermission(profile, PERMISSIONS.CATALOG_VIEW);
   const canManageCatalog = hasEffectivePermission(profile, PERMISSIONS.CATALOG_MANAGE);
+  const canViewOperationalHeader = hasEffectivePermission(profile, PERMISSIONS.OPERATIONAL_HEADER_VIEW);
   const canManageOperationalHeader = hasEffectivePermission(profile, PERMISSIONS.OPERATIONAL_HEADER_MANAGE);
   const canManageAssignments = hasEffectivePermission(profile, PERMISSIONS.ASSIGNMENTS_MANAGE);
-  const canManageAnyCatalogSection = canManageCatalog || canManageOperationalHeader || canManageAssignments;
+  const canAccessActivities = canViewCatalog || canManageCatalog;
+  const canAccessOperationalHeader = canViewOperationalHeader || canManageOperationalHeader;
+  const canManageAnyCatalogSection = canAccessActivities || canAccessOperationalHeader || canManageAssignments;
   const offlineScope = useMemo(() => {
     const userId = profile?.user_id ?? session?.user?.id ?? null;
     return userId ? { userId } : null;
@@ -55,12 +120,12 @@ export function OperationalCatalogPage() {
   const [activeSection, setActiveSection] = useState<CatalogPageSection>("operational-header");
   const visibleCatalogSections = useMemo(
     () => catalogSections.filter((section) =>
-      (section.id === "activities" && canManageCatalog) ||
-      (section.id === "operational-header" && canManageOperationalHeader) ||
+      (section.id === "activities" && canAccessActivities) ||
+      (section.id === "operational-header" && canAccessOperationalHeader) ||
       (section.id === "assignments" && canManageAssignments) ||
       section.id === "future"
     ),
-    [canManageAssignments, canManageCatalog, canManageOperationalHeader]
+    [canAccessActivities, canAccessOperationalHeader, canManageAssignments]
   );
 
   const syncCatalogState = useCallback((nextCatalog: PlanningCatalog) => {
@@ -124,13 +189,13 @@ export function OperationalCatalogPage() {
   }, [session?.access_token]);
 
   useEffect(() => {
-    if (authLoading || !canManageCatalog) {
+    if (authLoading || !canAccessActivities) {
       setCatalogLoading(false);
       return;
     }
 
     if (!session?.access_token) {
-      setCatalogError("Necesitas iniciar sesion para administrar el catalogo.");
+      setCatalogError("Necesitas iniciar sesion para ver el catalogo.");
       setCatalogLoading(false);
       return;
     }
@@ -167,12 +232,12 @@ export function OperationalCatalogPage() {
     return () => {
       active = false;
     };
-  }, [authLoading, canManageCatalog, offlineScope, session?.access_token, setDetailForm, syncCatalogState]);
+  }, [authLoading, canAccessActivities, offlineScope, session?.access_token, setDetailForm, syncCatalogState]);
 
   useEffect(() => {
     if (
       authLoading ||
-      !canManageOperationalHeader ||
+      !canAccessOperationalHeader ||
       activeSection !== "operational-header"
     ) {
       return;
@@ -184,7 +249,7 @@ export function OperationalCatalogPage() {
     return () => {
       activeRef.active = false;
     };
-  }, [activeSection, authLoading, canManageOperationalHeader, loadOperationalHeaderConfig]);
+  }, [activeSection, authLoading, canAccessOperationalHeader, loadOperationalHeaderConfig]);
 
   useEffect(() => {
     if (!visibleCatalogSections.some((section) => section.id === activeSection)) {
@@ -199,7 +264,7 @@ export function OperationalCatalogPage() {
           <p className="eyebrow">Catalogo operacional</p>
           <h1 className="section-title">Acceso restringido</h1>
           <p className="body-copy">
-            Puedes seguir usando la operación, pero no tienes permisos para administrar el catalogo.
+            Puedes seguir usando la operación, pero no tienes permisos para ver o administrar el catalogo.
           </p>
         </div>
       </section>
@@ -255,7 +320,13 @@ export function OperationalCatalogPage() {
           error={operationalHeaderError}
           onRefresh={() => void loadOperationalHeaderConfig()}
         />
-      ) : canManageCatalog ? (
+      ) : activeSection === "operational-header" && canViewOperationalHeader ? (
+        <OperationalHeaderReadOnlyPanel
+          config={operationalHeaderConfig}
+          loading={operationalHeaderLoading}
+          error={operationalHeaderError}
+        />
+      ) : activeSection === "activities" && canAccessActivities ? (
         <CatalogAdminWorkspace
           catalog={catalog}
           catalogLoading={catalogLoading}
@@ -278,6 +349,7 @@ export function OperationalCatalogPage() {
           onDeleteDetail={(id) => void handleDeleteDetail(id)}
           activeSection="activities"
           showCounts={false}
+          readOnly={!canManageCatalog}
         />
       ) : null}
     </section>

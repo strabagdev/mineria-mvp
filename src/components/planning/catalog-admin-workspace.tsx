@@ -67,6 +67,7 @@ export type CatalogAdminWorkspaceProps = {
   onDeleteDetail: (id: number) => void;
   activeSection?: CatalogAdminSection;
   showCounts?: boolean;
+  readOnly?: boolean;
 };
 
 type CatalogDeletionRequest = {
@@ -98,6 +99,7 @@ export function CatalogAdminWorkspace({
   onDeleteDetail,
   activeSection = "all",
   showCounts = true,
+  readOnly = false,
 }: CatalogAdminWorkspaceProps) {
   const [pendingDeletion, setPendingDeletion] = useState<CatalogDeletionRequest | null>(null);
   const detailTypesForAdmin =
@@ -132,6 +134,7 @@ export function CatalogAdminWorkspace({
         />
       ) : null}
 
+      {!readOnly ? (
       <div className="catalog-admin-column" id="catalog-create">
         {showActivities ? (
           <>
@@ -249,6 +252,7 @@ export function CatalogAdminWorkspace({
         {catalogFormError && showActivities ? <p className="feedback">{catalogFormError}</p> : null}
 
       </div>
+      ) : null}
 
       {showTree ? <div className="catalog-tree">
         {catalogLoading ? <p className="body-copy">Cargando catalogo...</p> : null}
@@ -273,7 +277,7 @@ export function CatalogAdminWorkspace({
                       <strong>{type.label}</strong>
                       {showCounts ? <span className="catalog-count">{type.details.length} detalles</span> : null}
                     </div>
-                    <div className="catalog-inline-actions">
+                    {!readOnly ? <div className="catalog-inline-actions">
                       <button
                         type="button"
                         className="button small"
@@ -302,10 +306,10 @@ export function CatalogAdminWorkspace({
                       >
                         Eliminar
                       </button>
-                    </div>
+                    </div> : null}
                   </div>
 
-                  {editingType?.id === type.id ? (
+                  {!readOnly && editingType?.id === type.id ? (
                     <form className="catalog-edit-form" onSubmit={onUpdateType}>
                       <label className="field">
                         Categoria
@@ -358,7 +362,7 @@ export function CatalogAdminWorkspace({
                   <div className="catalog-detail-list">
                     {type.details.map((detail) => (
                       <div key={detail.id} className="catalog-detail-row">
-                        {editingDetail?.id === detail.id ? (
+                        {!readOnly && editingDetail?.id === detail.id ? (
                           <form className="catalog-edit-form detail" onSubmit={onUpdateDetail}>
                             <label className="field">
                               Categoria
@@ -423,14 +427,14 @@ export function CatalogAdminWorkspace({
                               />
                             </label>
 
-                            <div className="catalog-inline-actions">
+                            {!readOnly ? <div className="catalog-inline-actions">
                               <button type="submit" className="button small primary" disabled={catalogBusy || !editingDetail.label.trim() || !editingDetail.typeId}>
                                 Guardar
                               </button>
                               <button type="button" className="button small" onClick={() => setEditingDetail(null)}>
                                 Cancelar
                               </button>
-                            </div>
+                            </div> : null}
                           </form>
                         ) : (
                           <>

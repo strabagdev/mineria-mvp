@@ -55,7 +55,7 @@ function toMetadata(value: unknown) {
 
 export async function GET(req: Request) {
   try {
-    await requirePermission(req, PERMISSIONS.OPERATIONAL_HEADER_VIEW);
+    await requirePermission(req, PERMISSIONS.OPERATIONAL_HEADER_DATA_READ);
     const { searchParams } = new URL(req.url);
     const activeOnly = searchParams.get("active") !== "false";
 

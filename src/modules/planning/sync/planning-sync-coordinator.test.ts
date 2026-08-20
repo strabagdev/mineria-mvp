@@ -118,6 +118,87 @@ describe("PlanningSyncCoordinator", () => {
 
     expect(harness.sendMutation).not.toHaveBeenCalled();
     expect(harness.pullRemoteChanges).toHaveBeenCalledWith([]);
+    expect(harness.onQueueUpdated).not.toHaveBeenCalled();
+  });
+
+  it("does not update the outbox when pull returns an equivalent empty queue", async () => {
+    const harness = createHarness({
+      queue: [],
+      pullRemoteChanges: () => Promise.resolve([]),
+    });
+
+    await harness.coordinator.processPendingMutations();
+
+    expect(harness.onQueueUpdated).not.toHaveBeenCalled();
+    expect(harness.setSyncing).toHaveBeenLastCalledWith(false);
+  });
+
+  it("does not update the outbox when pull returns an equivalent queue with a new array identity", async () => {
+    const mutation = makeMutation({
+      id: "queued-mutation",
+      status: "conflict",
+      attempts: 2,
+      lastError: "conflict",
+      failureReason: "concurrency_conflict",
+      syncedPlanningItemId: 101,
+      payload: {
+        id: 101,
+        item_date: "2026-08-18",
+        start_time: "08:00",
+        end_time: "09:00",
+        activity_group_id: "drill",
+        category: "actividad",
+        tracking_type: "programado",
+        item_type: "Perforacion",
+        description: "Perforacion",
+      },
+    });
+    const harness = createHarness({
+      queue: [mutation],
+      pullRemoteChanges: () => Promise.resolve([{ ...mutation, payload: { ...mutation.payload } }]),
+    });
+
+    await harness.coordinator.processPendingMutations();
+
+    expect(harness.onQueueUpdated).not.toHaveBeenCalled();
+  });
+
+  it("updates the outbox when pull returns a semantically changed queue", async () => {
+    const mutation = makeMutation({
+      id: "queued-mutation",
+      status: "conflict",
+      attempts: 2,
+      failureReason: "concurrency_conflict",
+    });
+    const updatedMutation = {
+      ...mutation,
+      status: "pending" as const,
+      failureReason: undefined,
+      nextRetryAt: undefined,
+    };
+    const harness = createHarness({
+      queue: [mutation],
+      pullRemoteChanges: () => Promise.resolve([updatedMutation]),
+    });
+
+    await harness.coordinator.processPendingMutations();
+
+    expect(harness.onQueueUpdated).toHaveBeenCalledTimes(1);
+    expect(harness.onQueueUpdated).toHaveBeenCalledWith([updatedMutation]);
+    expect(harness.getQueue()).toEqual([updatedMutation]);
+  });
+
+  it("does not create a repeated sync trigger from pull-only array identity changes", async () => {
+    const harness = createHarness({
+      queue: [],
+      pullRemoteChanges: () => Promise.resolve([]),
+    });
+
+    await harness.coordinator.processPendingMutations();
+    await harness.coordinator.processPendingMutations();
+
+    expect(harness.pullRemoteChanges).toHaveBeenCalledTimes(2);
+    expect(harness.onQueueUpdated).not.toHaveBeenCalled();
   });
 
   it("does not destroy the outbox while offline", async () => {

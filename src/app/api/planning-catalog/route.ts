@@ -19,7 +19,7 @@ import {
 
 export async function GET(req: Request) {
   try {
-    await requirePermission(req, PERMISSIONS.CATALOG_VIEW);
+    await requirePermission(req, PERMISSIONS.CATALOG_DATA_READ);
 
     return NextResponse.json(await getPlanningCatalog());
   } catch (error: unknown) {

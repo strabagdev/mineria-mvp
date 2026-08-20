@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/accessControl", () => ({
   PERMISSIONS: {
+    OPERATIONAL_HEADER_DATA_READ: "operational_header.data.read",
     OPERATIONAL_HEADER_VIEW: "operational_header.view",
     OPERATIONAL_HEADER_MANAGE: "operational_header.manage",
   },
@@ -85,7 +86,10 @@ describe("operational header API", () => {
 
     expect(response.status).toBe(200);
     expect(json).toEqual({ fields: [], dependencies: [] });
-    expect(mocks.requirePermission).toHaveBeenCalled();
+    expect(mocks.requirePermission).toHaveBeenCalledWith(
+      expect.any(Request),
+      "operational_header.data.read"
+    );
     expect(mocks.getOperationalHeaderConfig).toHaveBeenCalledWith({ activeOnly: false });
   });
 

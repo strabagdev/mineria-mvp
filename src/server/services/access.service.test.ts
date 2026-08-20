@@ -106,7 +106,7 @@ describe("access service roles", () => {
     }
   });
 
-  it("keeps operator access to records, assignments and read-only catalog", async () => {
+  it("keeps operator access to records, assignments and catalog data without visual catalog access", async () => {
     const { PERMISSIONS, hasPermission } = await import("./access.service");
     const profile = approvedProfile("operator");
 
@@ -116,7 +116,10 @@ describe("access service roles", () => {
     expect(hasPermission(profile, PERMISSIONS.RECORDS_DELETE)).toBe(true);
     expect(hasPermission(profile, PERMISSIONS.ASSIGNMENTS_VIEW)).toBe(true);
     expect(hasPermission(profile, PERMISSIONS.ASSIGNMENTS_MANAGE)).toBe(true);
-    expect(hasPermission(profile, PERMISSIONS.CATALOG_VIEW)).toBe(true);
+    expect(hasPermission(profile, PERMISSIONS.CATALOG_DATA_READ)).toBe(true);
+    expect(hasPermission(profile, PERMISSIONS.OPERATIONAL_HEADER_DATA_READ)).toBe(true);
+    expect(hasPermission(profile, PERMISSIONS.CATALOG_VIEW)).toBe(false);
+    expect(hasPermission(profile, PERMISSIONS.OPERATIONAL_HEADER_VIEW)).toBe(false);
     expect(hasPermission(profile, PERMISSIONS.CATALOG_MANAGE)).toBe(false);
     expect(hasPermission(profile, PERMISSIONS.USERS_MANAGE)).toBe(false);
     expect(hasPermission(profile, PERMISSIONS.AUDIT_VIEW)).toBe(false);
@@ -153,15 +156,17 @@ describe("access service roles", () => {
     expect(hasPermission(profile, PERMISSIONS.CATALOG_MANAGE)).toBe(false);
   });
 
-  it("keeps viewer users read-only", async () => {
+  it("keeps viewer users operationally read-only without visual catalog access", async () => {
     const { PERMISSIONS, hasPermission } = await import("./access.service");
     const profile = approvedProfile("viewer");
 
     expect(hasPermission(profile, PERMISSIONS.RECORDS_VIEW)).toBe(true);
-    expect(hasPermission(profile, PERMISSIONS.CATALOG_VIEW)).toBe(true);
+    expect(hasPermission(profile, PERMISSIONS.CATALOG_DATA_READ)).toBe(true);
     expect(hasPermission(profile, PERMISSIONS.REPORTS_VIEW)).toBe(true);
-    expect(hasPermission(profile, PERMISSIONS.OPERATIONAL_HEADER_VIEW)).toBe(true);
+    expect(hasPermission(profile, PERMISSIONS.OPERATIONAL_HEADER_DATA_READ)).toBe(true);
     expect(hasPermission(profile, PERMISSIONS.ASSIGNMENTS_VIEW)).toBe(true);
+    expect(hasPermission(profile, PERMISSIONS.CATALOG_VIEW)).toBe(false);
+    expect(hasPermission(profile, PERMISSIONS.OPERATIONAL_HEADER_VIEW)).toBe(false);
     expect(hasPermission(profile, PERMISSIONS.RECORDS_CREATE)).toBe(false);
     expect(hasPermission(profile, PERMISSIONS.RECORDS_EDIT)).toBe(false);
     expect(hasPermission(profile, PERMISSIONS.RECORDS_DELETE)).toBe(false);
@@ -239,7 +244,8 @@ describe("access service roles", () => {
     const profile = approvedProfile("viewer");
     const overrides = [{ permission: PERMISSIONS.CATALOG_MANAGE, effect: "allow" }] as const;
 
-    expect(hasPermission(profile, PERMISSIONS.CATALOG_VIEW, overrides)).toBe(true);
+    expect(hasPermission(profile, PERMISSIONS.CATALOG_DATA_READ, overrides)).toBe(true);
+    expect(hasPermission(profile, PERMISSIONS.CATALOG_VIEW, overrides)).toBe(false);
     expect(hasPermission(profile, PERMISSIONS.CATALOG_MANAGE, overrides)).toBe(true);
     expect(hasPermission(profile, PERMISSIONS.USERS_MANAGE, overrides)).toBe(false);
     expect(hasPermission(profile, PERMISSIONS.RECORDS_CREATE, overrides)).toBe(false);

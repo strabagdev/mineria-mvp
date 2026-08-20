@@ -88,6 +88,33 @@ describe("SiteShell catalog navigation permissions", () => {
     expect(html).toContain("Catalogo");
   });
 
+  it("shows Catalogo for viewer users with catalog view permission", () => {
+    authMock.role = "viewer";
+    authMock.effectivePermissions = ["catalog.view"];
+
+    const html = renderToStaticMarkup(<SiteShell><main>Contenido</main></SiteShell>);
+
+    expect(html).toContain("Catalogo");
+  });
+
+  it("shows Catalogo for viewer users with operational header view permission", () => {
+    authMock.role = "viewer";
+    authMock.effectivePermissions = ["operational_header.view"];
+
+    const html = renderToStaticMarkup(<SiteShell><main>Contenido</main></SiteShell>);
+
+    expect(html).toContain("Catalogo");
+  });
+
+  it("hides Catalogo for viewer users with only catalog data read permission", () => {
+    authMock.role = "viewer";
+    authMock.effectivePermissions = ["catalog.data.read", "operational_header.data.read"];
+
+    const html = renderToStaticMarkup(<SiteShell><main>Contenido</main></SiteShell>);
+
+    expect(html).not.toContain("Catalogo");
+  });
+
   it("hides Catalogo for viewer users without catalog management permission", () => {
     authMock.role = "viewer";
 

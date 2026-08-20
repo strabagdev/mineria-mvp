@@ -35,9 +35,11 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/accessControl", () => ({
   PERMISSIONS: {
+    CATALOG_DATA_READ: "catalog.data.read",
     CATALOG_VIEW: "catalog.view",
     CATALOG_MANAGE: "catalog.manage",
     REPORTS_VIEW: "reports.view",
+    OPERATIONAL_HEADER_DATA_READ: "operational_header.data.read",
     OPERATIONAL_HEADER_VIEW: "operational_header.view",
     OPERATIONAL_HEADER_MANAGE: "operational_header.manage",
     ASSIGNMENTS_VIEW: "assignments.view",
@@ -150,7 +152,7 @@ describe("catalog permissions", () => {
     vi.resetAllMocks();
   });
 
-  it("allows approved viewer users to read the planning catalog", async () => {
+  it("allows users with catalog data read to read the planning catalog", async () => {
     mocks.requirePermission.mockResolvedValue(viewerActor);
     mocks.getPlanningCatalog.mockResolvedValue({ categories: [], levels: [] });
     const { GET } = await import("../app/api/planning-catalog/route");
@@ -159,6 +161,10 @@ describe("catalog permissions", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.requirePermission).toHaveBeenCalledTimes(1);
+    expect(mocks.requirePermission).toHaveBeenCalledWith(
+      expect.any(Request),
+      "catalog.data.read"
+    );
     expect(mocks.getPlanningCatalog).toHaveBeenCalledTimes(1);
   });
 
@@ -226,7 +232,7 @@ describe("catalog permissions", () => {
     }));
   });
 
-  it("allows approved viewer users to read operational header metadata", async () => {
+  it("allows users with operational header data read to read operational header metadata", async () => {
     mocks.requirePermission.mockResolvedValue(viewerActor);
     mocks.getOperationalHeaderConfig.mockResolvedValue({
       fields: [
@@ -272,6 +278,10 @@ describe("catalog permissions", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.requirePermission).toHaveBeenCalledTimes(1);
+    expect(mocks.requirePermission).toHaveBeenCalledWith(
+      expect.any(Request),
+      "operational_header.data.read"
+    );
     expect(mocks.getOperationalHeaderConfig).toHaveBeenCalledWith({ activeOnly: true });
     expect(json.fields[0]).toMatchObject({
       slug: "nivel",

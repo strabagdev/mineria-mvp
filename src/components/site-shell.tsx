@@ -230,7 +230,9 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
 
   const adminNavItems: NavItem[] = [];
   if (
+    hasEffectivePermission(effectiveProfile, PERMISSIONS.CATALOG_VIEW) ||
     hasEffectivePermission(effectiveProfile, PERMISSIONS.CATALOG_MANAGE) ||
+    hasEffectivePermission(effectiveProfile, PERMISSIONS.OPERATIONAL_HEADER_VIEW) ||
     hasEffectivePermission(effectiveProfile, PERMISSIONS.OPERATIONAL_HEADER_MANAGE) ||
     hasEffectivePermission(effectiveProfile, PERMISSIONS.ASSIGNMENTS_MANAGE)
   ) {

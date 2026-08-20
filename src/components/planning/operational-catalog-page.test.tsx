@@ -91,7 +91,7 @@ describe("OperationalCatalogPage permissions", () => {
 
     expect(html).toContain("Acceso restringido");
     expect(html).toContain(
-      "Puedes seguir usando la operación, pero no tienes permisos para administrar el catalogo."
+      "Puedes seguir usando la operación, pero no tienes permisos para ver o administrar el catalogo."
     );
   });
 
@@ -102,8 +102,19 @@ describe("OperationalCatalogPage permissions", () => {
 
     expect(html).toContain("Acceso restringido");
     expect(html).toContain(
-      "Puedes seguir usando la operación, pero no tienes permisos para administrar el catalogo."
+      "Puedes seguir usando la operación, pero no tienes permisos para ver o administrar el catalogo."
     );
+  });
+
+  it("keeps catalog data read users out of the visual catalog page", () => {
+    authMock.role = "viewer";
+    authMock.effectivePermissions = ["catalog.data.read", "operational_header.data.read"];
+
+    const html = renderToStaticMarkup(<OperationalCatalogPage />);
+
+    expect(html).toContain("Acceso restringido");
+    expect(html).not.toContain("Actividades");
+    expect(html).not.toContain("Cabecera Operacional");
   });
 
   it("shows the operational header section entry when a viewer has operational_header.manage", () => {
@@ -121,9 +132,31 @@ describe("OperationalCatalogPage permissions", () => {
     expect(html).not.toContain("Campos configurables");
   });
 
+  it("shows the operational header read view when a viewer has operational_header.view", () => {
+    authMock.role = "viewer";
+    authMock.effectivePermissions = ["operational_header.view"];
+
+    const html = renderToStaticMarkup(<OperationalCatalogPage />);
+
+    expect(html).toContain("Cabecera Operacional");
+    expect(html).toContain("Configuración operacional");
+    expect(html).not.toContain("Acceso restringido");
+    expect(html).not.toContain("Actividades");
+  });
+
   it("shows catalog administration when a viewer has catalog.manage", () => {
     authMock.role = "viewer";
     authMock.effectivePermissions = ["catalog.manage"];
+
+    const html = renderToStaticMarkup(<OperationalCatalogPage />);
+
+    expect(html).toContain("Actividades");
+    expect(html).not.toContain("Acceso restringido");
+  });
+
+  it("shows the activities section when a viewer has catalog.view", () => {
+    authMock.role = "viewer";
+    authMock.effectivePermissions = ["catalog.view"];
 
     const html = renderToStaticMarkup(<OperationalCatalogPage />);
 

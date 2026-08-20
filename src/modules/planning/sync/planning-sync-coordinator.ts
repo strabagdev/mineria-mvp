@@ -24,6 +24,46 @@ export type PlanningSyncCoordinatorInput = PlanningSyncCoordinatorReplayHandlers
   setSyncing?: (syncing: boolean) => void;
 };
 
+function areJsonValuesEqual(left: unknown, right: unknown) {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+}
+
+function arePlanningMutationQueuesEqual(
+  left: PendingPlanningMutation[],
+  right: PendingPlanningMutation[]
+) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((leftMutation, index) => {
+    const rightMutation = right[index];
+
+    if (!rightMutation) {
+      return false;
+    }
+
+    return (
+      leftMutation.id === rightMutation.id &&
+      leftMutation.userId === rightMutation.userId &&
+      leftMutation.scope.userId === rightMutation.scope.userId &&
+      leftMutation.method === rightMutation.method &&
+      leftMutation.status === rightMutation.status &&
+      leftMutation.attempts === rightMutation.attempts &&
+      leftMutation.createdAt === rightMutation.createdAt &&
+      leftMutation.updatedAt === rightMutation.updatedAt &&
+      leftMutation.lastAttemptAt === rightMutation.lastAttemptAt &&
+      leftMutation.nextRetryAt === rightMutation.nextRetryAt &&
+      leftMutation.lastError === rightMutation.lastError &&
+      leftMutation.failureReason === rightMutation.failureReason &&
+      leftMutation.syncedPlanningItemId === rightMutation.syncedPlanningItemId &&
+      areJsonValuesEqual(leftMutation.payload, rightMutation.payload) &&
+      areJsonValuesEqual(leftMutation.assignmentPayload, rightMutation.assignmentPayload) &&
+      areJsonValuesEqual(leftMutation.conflictSnapshot, rightMutation.conflictSnapshot)
+    );
+  });
+}
+
 export class PlanningSyncCoordinator {
   private syncInFlight = false;
 
@@ -69,7 +109,7 @@ export class PlanningSyncCoordinator {
       }
 
       const queueAfterPull = await this.input.pullRemoteChanges?.(queueForPull);
-      if (queueAfterPull) {
+      if (queueAfterPull && !arePlanningMutationQueuesEqual(queueForPull, queueAfterPull)) {
         this.input.onQueueUpdated(queueAfterPull);
       }
     } finally {

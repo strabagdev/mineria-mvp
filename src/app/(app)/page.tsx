@@ -283,7 +283,7 @@ export default function Home() {
   const canEditRecords = hasEffectivePermission(profile, PERMISSIONS.RECORDS_EDIT);
   const canDeleteRecords = hasEffectivePermission(profile, PERMISSIONS.RECORDS_DELETE);
   const canViewRecords = hasEffectivePermission(profile, PERMISSIONS.RECORDS_VIEW);
-  const canViewCatalog = hasEffectivePermission(profile, PERMISSIONS.CATALOG_VIEW);
+  const canReadCatalogData = hasEffectivePermission(profile, PERMISSIONS.CATALOG_DATA_READ);
   const canManageAssignments = hasEffectivePermission(profile, PERMISSIONS.ASSIGNMENTS_MANAGE);
   const canManageCatalog = hasEffectivePermission(profile, PERMISSIONS.CATALOG_MANAGE);
   const canViewAudit = hasEffectivePermission(profile, PERMISSIONS.AUDIT_VIEW);
@@ -569,7 +569,7 @@ export default function Home() {
   }, [offlineScope, preloadPlanningAssignmentsForItems, selectedDate, session?.access_token]);
 
   const refreshCatalog = useCallback(async () => {
-    if (!canViewCatalog) {
+    if (!canReadCatalogData) {
       setCatalog([]);
       setCatalogError("");
       return { categories: [] };
@@ -584,7 +584,7 @@ export default function Home() {
       void saveCatalogCache(nextCatalog, offlineScope);
     }
     return nextCatalog;
-  }, [canViewCatalog, offlineScope, session?.access_token, setDetailForm]);
+  }, [canReadCatalogData, offlineScope, session?.access_token, setDetailForm]);
 
   const {
     pendingPlanningMutations,

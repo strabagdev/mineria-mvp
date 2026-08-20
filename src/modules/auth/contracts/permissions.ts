@@ -3,12 +3,14 @@ export const PERMISSIONS = {
   RECORDS_CREATE: "records.create",
   RECORDS_EDIT: "records.edit",
   RECORDS_DELETE: "records.delete",
+  CATALOG_DATA_READ: "catalog.data.read",
   CATALOG_VIEW: "catalog.view",
   CATALOG_MANAGE: "catalog.manage",
   REPORTS_VIEW: "reports.view",
   USERS_VIEW: "users.view",
   USERS_MANAGE: "users.manage",
   AUDIT_VIEW: "audit.view",
+  OPERATIONAL_HEADER_DATA_READ: "operational_header.data.read",
   OPERATIONAL_HEADER_VIEW: "operational_header.view",
   OPERATIONAL_HEADER_MANAGE: "operational_header.manage",
   ASSIGNMENTS_VIEW: "assignments.view",
@@ -87,6 +89,7 @@ export const PERMISSION_MODULES = [
     groupLabel: "Configuracion operacional",
     label: "Catalogo",
     permissions: [
+      { permission: PERMISSIONS.CATALOG_DATA_READ, capability: "view", label: "Consumir datos del catalogo" },
       { permission: PERMISSIONS.CATALOG_VIEW, capability: "view", label: "Ver catalogo" },
       { permission: PERMISSIONS.CATALOG_MANAGE, capability: "manage", label: "Administrar catalogo" },
     ],
@@ -97,6 +100,11 @@ export const PERMISSION_MODULES = [
     groupLabel: "Configuracion operacional",
     label: "Cabecera operacional",
     permissions: [
+      {
+        permission: PERMISSIONS.OPERATIONAL_HEADER_DATA_READ,
+        capability: "view",
+        label: "Consumir datos de cabecera operacional",
+      },
       {
         permission: PERMISSIONS.OPERATIONAL_HEADER_VIEW,
         capability: "view",

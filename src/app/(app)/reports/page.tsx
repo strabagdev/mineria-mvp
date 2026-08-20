@@ -331,7 +331,7 @@ function getOperationalHeaderOptionValue(option: OperationalHeaderFieldDto["opti
 
 export default function ReportsPage() {
   const { session, profile } = useAuth();
-  const canViewCatalog = hasEffectivePermission(profile, PERMISSIONS.CATALOG_VIEW);
+  const canReadCatalogData = hasEffectivePermission(profile, PERMISSIONS.CATALOG_DATA_READ);
   const offlineScope = useMemo(() => {
     const userId = profile?.user_id ?? session?.user?.id ?? null;
     return userId ? { userId } : null;
@@ -461,7 +461,7 @@ export default function ReportsPage() {
     let active = true;
 
     async function loadCatalog() {
-      if (!canViewCatalog) {
+      if (!canReadCatalogData) {
         setCatalog({ categories: [], levels: [] });
         setOfflineUpdatedAt(null);
         return;
@@ -549,7 +549,7 @@ export default function ReportsPage() {
     return () => {
       active = false;
     };
-  }, [canViewCatalog, offlineScope, refreshNonce, session?.access_token]);
+  }, [canReadCatalogData, offlineScope, refreshNonce, session?.access_token]);
 
   useEffect(() => {
     let active = true;
